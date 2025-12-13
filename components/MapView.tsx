@@ -160,7 +160,7 @@ const MapView: React.FC<MapViewProps> = ({
 
   // --- STYLE UPDATER ---
   useEffect(() => {
-    if (!loaded || !mapInstance.current || !mapStyleJson) return;
+    if (!loaded || !mapInstance.current || !mapStyleJson || isDefaultTheme) return;
     const map = mapInstance.current;
 
     const colors = mapStyleJson;
@@ -213,7 +213,7 @@ const MapView: React.FC<MapViewProps> = ({
     if (map.getLayer('unclustered-point')) {
         try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
     }
-  }, [mapStyleJson, loaded, popupStyle]);
+  }, [mapStyleJson, isDefaultTheme, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
