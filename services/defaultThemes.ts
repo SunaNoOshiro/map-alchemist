@@ -1,7 +1,16 @@
-import { MapStylePreset } from '../types';
+import { DEFAULT_STYLE_PRESET } from '../constants';
+import { MapStylePreset, PopupStyle } from '../types';
 
 const DEFAULT_THEMES_URL = '/default-themes.json';
 const DEFAULT_THEMES_GZ_URL = '/default-themes.json.gz';
+
+export const normalizePopupStyle = (raw?: Partial<PopupStyle> | null): PopupStyle => ({
+  backgroundColor: raw?.backgroundColor || DEFAULT_STYLE_PRESET.popupStyle.backgroundColor,
+  textColor: raw?.textColor || DEFAULT_STYLE_PRESET.popupStyle.textColor,
+  borderColor: raw?.borderColor || DEFAULT_STYLE_PRESET.popupStyle.borderColor,
+  borderRadius: raw?.borderRadius || DEFAULT_STYLE_PRESET.popupStyle.borderRadius,
+  fontFamily: raw?.fontFamily || DEFAULT_STYLE_PRESET.popupStyle.fontFamily
+});
 
 const parseMaybeGzipJson = async (response: Response): Promise<any> => {
   // If the server already decoded it for us, just return JSON
@@ -105,8 +114,12 @@ export const fetchDefaultThemes = async (): Promise<{ themes: MapStylePreset[]; 
 
     const normalized = raw.map((theme: MapStylePreset) => {
       const palette = derivePalette(theme.mapStyleJson);
+      const popupStyle = normalizePopupStyle(
+        (theme as any).popupStyle || (theme as any).mapStyleJson?.popupStyle
+      );
       return {
         ...theme,
+        popupStyle,
         palette,
         isBundledDefault: true
       };

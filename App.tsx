@@ -13,7 +13,7 @@ import { MapStylePreset, LogEntry, AppStatus } from './types';
 import { MAP_CATEGORIES, DEFAULT_STYLE_PRESET } from './constants';
 import * as geminiService from './services/geminiService';
 import { storageService } from './services/storage';
-import { fetchDefaultThemes } from './services/defaultThemes';
+import { fetchDefaultThemes, normalizePopupStyle } from './services/defaultThemes';
 
 function App() {
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -347,7 +347,9 @@ function App() {
                 mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
                 palette={activeStyle?.palette}
                 activeIcons={activeIcons}
-                popupStyle={activeStyle ? activeStyle.popupStyle : DEFAULT_STYLE_PRESET.popupStyle}
+                popupStyle={normalizePopupStyle(
+                  activeStyle?.popupStyle || (activeStyle as any)?.mapStyleJson?.popupStyle
+                )}
                 onMapLoad={onMapLoad}
                 isDefaultTheme={activeStyleId ? defaultThemeIds.includes(activeStyleId) : false}
                 onEditIcon={handleEditFromPopup}
