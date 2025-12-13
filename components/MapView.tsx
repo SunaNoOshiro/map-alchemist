@@ -159,21 +159,60 @@ const MapView: React.FC<MapViewProps> = ({
 
   // --- STYLE UPDATER ---
   useEffect(() => {
-    if (!loaded || !mapInstance.current) return;
+    if (!loaded || !mapInstance.current || !mapStyleJson || isDefaultTheme) return;
     const map = mapInstance.current;
-    
-    if (mapStyleJson && !isDefaultTheme) {
-        const colors = mapStyleJson; 
-        try {
-            if (colors.water && map.getLayer('water')) map.setPaintProperty('water', 'fill-color', colors.water);
-            if (colors.land && map.getLayer('background')) map.setPaintProperty('background', 'background-color', colors.land);
-            if (colors.building && map.getLayer('building')) map.setPaintProperty('building', 'fill-color', colors.building);
-            if (colors.road && map.getLayer('road-primary')) map.setPaintProperty('road-primary', 'line-color', colors.road);
-        } catch(e) {
-            // ignore
-        }
-    } 
-  }, [mapStyleJson, isDefaultTheme, loaded]);
+
+    const colors = mapStyleJson;
+
+    const setColor = (layerIds: string[], paintProp: string, color?: string) => {
+        if (!color) return;
+        layerIds.forEach(id => {
+            if (map.getLayer(id)) {
+                try {
+                    map.setPaintProperty(id, paintProp, color);
+                } catch (e) {
+                    // ignore coloring failures for optional layers
+                }
+            }
+        });
+    };
+
+    setColor(['water', 'waterway', 'waterway-name'], 'line-color', colors.water);
+    setColor(['water', 'waterway', 'waterway-area'], 'fill-color', colors.water);
+
+    setColor(['background', 'landcover', 'land'], 'background-color', colors.land);
+    setColor(['park', 'landuse', 'landcover_park'], 'fill-color', colors.park || colors.land);
+
+    setColor(['building'], 'fill-color', colors.building);
+
+    const roadLayers = (map.getStyle()?.layers || [])
+        .filter(l => l.type === 'line' && /transportation|road/i.test(l.id))
+        .map(l => l.id);
+    setColor([...roadLayers, 'road-primary'], 'line-color', colors.road);
+
+    if (colors.text) {
+        (map.getStyle()?.layers || [])
+            .filter(l => l.type === 'symbol')
+            .forEach(l => {
+                try {
+                    map.setPaintProperty(l.id, 'text-color', colors.text);
+                } catch (e) {
+                    // ignore
+                }
+            });
+    }
+
+    // Sync clusters & labels to the theme so POIs reflect the palette
+    if (map.getLayer('clusters')) {
+        try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); } catch (e) {/* ignore */}
+    }
+    if (map.getLayer('cluster-count')) {
+        try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+    }
+    if (map.getLayer('unclustered-point')) {
+        try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+    }
+  }, [mapStyleJson, isDefaultTheme, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
@@ -461,6 +500,11 @@ const MapView: React.FC<MapViewProps> = ({
           });
       }
   };
+
+  useEffect(() => {
+      if (!loaded || !mapInstance.current) return;
+      refreshData(mapInstance.current);
+  }, [activeIcons, popupStyle, loaded]);
 
   return (
     <div className="relative w-full h-full bg-gray-200">
