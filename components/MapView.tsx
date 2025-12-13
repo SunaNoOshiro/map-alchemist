@@ -1,9 +1,8 @@
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
 import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
-import { normalizeMapStyle } from '../services/defaultThemes';
 
 // --- SAFE BASE URL HELPER ---
 const safeBaseHref = () => {
@@ -160,45 +159,37 @@ const MapView: React.FC<MapViewProps> = ({
   }, []);
 
   // --- STYLE UPDATER ---
-  const palette = useMemo(() => {
-    if (!mapStyleJson) return {} as Record<string, string>;
-    if (Array.isArray(mapStyleJson)) return normalizeMapStyle(mapStyleJson);
-    if (mapStyleJson.colors) return mapStyleJson.colors;
-    return mapStyleJson as Record<string, string>;
-  }, [mapStyleJson]);
-
   useEffect(() => {
-    if (!loaded || !mapInstance.current || !palette) return;
+    if (!loaded || !mapInstance.current || !mapStyleJson || isDefaultTheme) return;
     const map = mapInstance.current;
 
-    const colors = palette;
+    const colors = mapStyleJson;
 
-    const styleLayers = map.getStyle()?.layers || [];
-
-    const applyColor = (predicate: (layerId: string) => boolean, color?: string) => {
+    const setColor = (layerIds: string[], paintProp: string, color?: string) => {
         if (!color) return;
-        styleLayers
-            .filter(l => predicate(l.id))
-            .forEach(l => {
-                const paintProp =
-                    l.type === 'fill' ? 'fill-color'
-                    : l.type === 'line' ? 'line-color'
-                    : l.type === 'background' ? 'background-color'
-                    : l.type === 'circle' ? 'circle-color'
-                    : null;
-                if (!paintProp) return;
+        layerIds.forEach(id => {
+            if (map.getLayer(id)) {
                 try {
-                    map.setPaintProperty(l.id, paintProp, color);
+                    map.setPaintProperty(id, paintProp, color);
                 } catch (e) {
                     // ignore coloring failures for optional layers
                 }
-            });
+            }
+        });
     };
 
-    applyColor(id => /water/i.test(id), colors.water);
-    applyColor(id => /(land|park|green|nature|background|vegetation)/i.test(id), colors.park || colors.land);
-    applyColor(id => /building/i.test(id), colors.building);
-    applyColor(id => /(road|transport|highway|street|motorway|primary|secondary|tertiary|residential|trunk|path)/i.test(id), colors.road);
+    setColor(['water', 'waterway', 'waterway-name'], 'line-color', colors.water);
+    setColor(['water', 'waterway', 'waterway-area'], 'fill-color', colors.water);
+
+    setColor(['background', 'landcover', 'land'], 'background-color', colors.land);
+    setColor(['park', 'landuse', 'landcover_park'], 'fill-color', colors.park || colors.land);
+
+    setColor(['building'], 'fill-color', colors.building);
+
+    const roadLayers = (map.getStyle()?.layers || [])
+        .filter(l => l.type === 'line' && /transportation|road/i.test(l.id))
+        .map(l => l.id);
+    setColor([...roadLayers, 'road-primary'], 'line-color', colors.road);
 
     if (colors.text) {
         (map.getStyle()?.layers || [])
@@ -222,7 +213,7 @@ const MapView: React.FC<MapViewProps> = ({
     if (map.getLayer('unclustered-point')) {
         try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
     }
-  }, [palette, loaded, popupStyle]);
+  }, [mapStyleJson, isDefaultTheme, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
