@@ -519,6 +519,23 @@ const MapView: React.FC<MapViewProps> = ({
               }
           });
 
+          const ensureFallbackDot = () => {
+              if (map.hasImage('fallback-dot')) return;
+              const canvas = document.createElement('canvas');
+              canvas.width = 32; canvas.height = 32;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                  ctx.beginPath();
+                  ctx.arc(16, 16, 12, 0, Math.PI*2);
+                  ctx.fillStyle = '#4285F4';
+                  ctx.fill();
+                  ctx.strokeStyle = 'white';
+                  ctx.lineWidth = 2;
+                  ctx.stroke();
+                  map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
+              }
+          };
+
           map.on('load', () => {
               log.info("Map Loaded");
               setLoaded(true);
@@ -533,13 +550,20 @@ const MapView: React.FC<MapViewProps> = ({
                 });
               }
 
+              ensureFallbackDot();
+
               if (!map.getLayer('unclustered-point')) {
                 map.addLayer({
                     id: 'unclustered-point',
                     type: 'symbol',
                     source: 'places',
                     layout: {
-                        'icon-image': ['coalesce', ['image', ['get', 'iconKey']], ['image', 'fallback-dot']],
+                        'icon-image': [
+                            'case',
+                            ['has-image', ['get', 'iconKey']],
+                            ['get', 'iconKey'],
+                            'fallback-dot'
+                        ],
                         'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.38, 16, 0.44, 18, 0.5],
                         'icon-padding': 2,
                         'icon-allow-overlap': true,
