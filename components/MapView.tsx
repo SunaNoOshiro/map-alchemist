@@ -1,8 +1,12 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
-import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
+import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
+import { derivePalette } from '../services/defaultThemes';
+import { createLogger } from '../services/logger';
+
+const log = createLogger('map-view');
 
 // --- SAFE BASE URL HELPER ---
 const safeBaseHref = () => {
@@ -35,12 +39,13 @@ try {
     // @ts-ignore
     maplibregl.workerUrl = "https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl-csp-worker.js";
 } catch (e) {
-    console.warn("Failed to set maplibregl.workerUrl", e);
+    log.warn("Failed to set maplibregl.workerUrl", e);
 }
 
 interface MapViewProps {
-  apiKey: string; 
-  mapStyleJson: any; 
+  apiKey: string;
+  mapStyleJson: any;
+  palette?: Record<string, string>;
   activeIcons: Record<string, IconDefinition>;
   popupStyle: PopupStyle;
   onMapLoad?: (map: any) => void;
@@ -57,7 +62,7 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
     
     // Safety check for large areas
     if ((n - s) * (e - w) > 1.0) {
-        console.warn("Area too large for Overpass demo");
+        log.warn("Area too large for Overpass demo");
         return [];
     }
 
@@ -80,7 +85,7 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
         const data = await response.json();
         return data.elements || [];
     } catch (err) {
-        console.error("Overpass Fetch Error", err);
+        log.error("Overpass Fetch Error", err);
         return [];
     }
 };
@@ -116,7 +121,7 @@ const loadSafeStyle = async (styleUrl: string) => {
                             if (tileJson.bounds) source.bounds = tileJson.bounds;
                         }
                     } catch (e) {
-                        console.warn(`TileJSON inline failed for ${key}`, e);
+                        log.warn(`TileJSON inline failed for ${key}`, e);
                     }
                 } 
                 // Handle direct tiles
@@ -127,14 +132,15 @@ const loadSafeStyle = async (styleUrl: string) => {
         }
         return style;
     } catch (e) {
-        console.error("Style Load Failed", e);
+        log.error("Style Load Failed", e);
         return { version: 8, sources: {}, layers: [] };
     }
 };
 
-const MapView: React.FC<MapViewProps> = ({ 
-  mapStyleJson, 
-  activeIcons, 
+const MapView: React.FC<MapViewProps> = ({
+  mapStyleJson,
+  palette: paletteProp,
+  activeIcons,
   popupStyle,
   onMapLoad,
   isDefaultTheme,
@@ -143,7 +149,11 @@ const MapView: React.FC<MapViewProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const showPopupRef = useRef<(feature: any, coordinates: [number, number]) => void>();
+  const lastPopupFeature = useRef<any | null>(null);
+  const lastPopupCoords = useRef<[number, number] | null>(null);
   const placesRef = useRef<any[]>([]);
+  const loadedIconUrls = useRef<Record<string, string | null>>({});
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -159,92 +169,139 @@ const MapView: React.FC<MapViewProps> = ({
   }, []);
 
   // --- STYLE UPDATER ---
+  const palette = useMemo(() => {
+    if (paletteProp) return paletteProp;
+    return derivePalette(mapStyleJson);
+  }, [mapStyleJson, paletteProp]);
+
   useEffect(() => {
-    if (!loaded || !mapInstance.current || !mapStyleJson || isDefaultTheme) return;
+    if (!loaded || !mapInstance.current || !palette) return;
     const map = mapInstance.current;
 
-    const colors = mapStyleJson;
+    const applyPaletteToLayers = () => {
+        const colors = palette;
+        const styleLayers = map.getStyle()?.layers || [];
+        log.debug('Applying palette to style', { palette: colors, layerCount: styleLayers.length });
 
-    const setColor = (layerIds: string[], paintProp: string, color?: string) => {
-        if (!color) return;
-        layerIds.forEach(id => {
-            if (map.getLayer(id)) {
-                try {
-                    map.setPaintProperty(id, paintProp, color);
-                } catch (e) {
-                    // ignore coloring failures for optional layers
-                }
+        const applyColor = (predicate: (layerId: string) => boolean, color?: string, label?: string) => {
+            if (!color) return;
+            let touched = 0;
+            (map.getStyle()?.layers || styleLayers)
+                .filter(l => predicate(l.id))
+                .forEach(l => {
+                    const paintProp =
+                        l.type === 'fill' ? 'fill-color'
+                        : l.type === 'line' ? 'line-color'
+                        : l.type === 'background' ? 'background-color'
+                        : l.type === 'circle' ? 'circle-color'
+                        : null;
+                    if (!paintProp) return;
+                    try {
+                        map.setPaintProperty(l.id, paintProp, color);
+                        touched += 1;
+                    } catch (e) {
+                        // ignore coloring failures for optional layers
+                    }
+                });
+            if (touched > 0) {
+                log.trace(`Applied ${label || 'color'} to ${touched} layers`);
             }
-        });
+        };
+
+        applyColor(id => /water/i.test(id), colors.water, 'water');
+        applyColor(id => /(land|park|green|nature|background|vegetation)/i.test(id), colors.park || colors.land, 'land/park');
+        applyColor(id => /building/i.test(id), colors.building, 'building');
+        applyColor(id => /(road|transport|highway|street|motorway|primary|secondary|tertiary|residential|trunk|path)/i.test(id), colors.road, 'road');
+
+        if (colors.text) {
+            (map.getStyle()?.layers || styleLayers)
+                .filter(l => l.type === 'symbol')
+                .forEach(l => {
+                    try {
+                        map.setPaintProperty(l.id, 'text-color', colors.text);
+                    } catch (e) {
+                        // ignore
+                    }
+                });
+            log.trace('Applied text color to symbol layers');
+        }
+
+        // Sync clusters & labels to the theme so POIs reflect the palette
+        if (map.getLayer('clusters')) {
+            try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); log.trace('Cluster fill tinted'); } catch (e) {/* ignore */}
+        }
+        if (map.getLayer('cluster-count')) {
+            try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); log.trace('Cluster count tinted'); } catch (e) {/* ignore */}
+        }
+        if (map.getLayer('unclustered-point')) {
+            try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); log.trace('POI labels tinted'); } catch (e) {/* ignore */}
+        }
     };
 
-    setColor(['water', 'waterway', 'waterway-name'], 'line-color', colors.water);
-    setColor(['water', 'waterway', 'waterway-area'], 'fill-color', colors.water);
-
-    setColor(['background', 'landcover', 'land'], 'background-color', colors.land);
-    setColor(['park', 'landuse', 'landcover_park'], 'fill-color', colors.park || colors.land);
-
-    setColor(['building'], 'fill-color', colors.building);
-
-    const roadLayers = (map.getStyle()?.layers || [])
-        .filter(l => l.type === 'line' && /transportation|road/i.test(l.id))
-        .map(l => l.id);
-    setColor([...roadLayers, 'road-primary'], 'line-color', colors.road);
-
-    if (colors.text) {
-        (map.getStyle()?.layers || [])
-            .filter(l => l.type === 'symbol')
-            .forEach(l => {
-                try {
-                    map.setPaintProperty(l.id, 'text-color', colors.text);
-                } catch (e) {
-                    // ignore
-                }
-            });
-    }
-
-    // Sync clusters & labels to the theme so POIs reflect the palette
-    if (map.getLayer('clusters')) {
-        try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); } catch (e) {/* ignore */}
-    }
-    if (map.getLayer('cluster-count')) {
-        try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
-    }
-    if (map.getLayer('unclustered-point')) {
-        try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
-    }
-  }, [mapStyleJson, isDefaultTheme, loaded, popupStyle]);
+    applyPaletteToLayers();
+    map.on('styledata', applyPaletteToLayers);
+    log.debug('Attached styledata listener for palette synchronization');
+    return () => { map.off('styledata', applyPaletteToLayers); };
+  }, [palette, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
     if (!loaded || !mapInstance.current) return;
     const map = mapInstance.current;
 
-    Object.keys(activeIcons).forEach(cat => {
-        const iconDef = activeIcons[cat];
-        if (iconDef.imageUrl && !map.hasImage(cat)) {
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.onload = () => {
-                if (!map.hasImage(cat)) map.addImage(cat, img);
-            };
-            img.src = iconDef.imageUrl;
+    Object.entries(activeIcons).forEach(([cat, iconDef]) => {
+        const incomingUrl = iconDef.imageUrl;
+        const previousUrl = loadedIconUrls.current[cat];
+
+        if (!incomingUrl) {
+            if (map.hasImage(cat)) map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
+            return;
+        }
+
+        if (previousUrl === incomingUrl && map.hasImage(cat)) return;
+
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+
+        img.onload = () => {
+            try {
+                if (map.hasImage(cat)) map.removeImage(cat);
+                map.addImage(cat, img, { pixelRatio: 2 });
+                loadedIconUrls.current[cat] = incomingUrl;
+            } catch (e) {
+                log.error('Failed to register image', { cat, error: e });
+            }
+        };
+        img.onerror = () => {
+            log.warn('Icon failed to load', { cat, url: incomingUrl });
+            if (map.hasImage(cat)) map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
+        };
+        img.src = incomingUrl;
+    });
+
+    // Remove icons that are no longer present in the active set
+    Object.keys(loadedIconUrls.current).forEach((cat) => {
+        if (!activeIcons[cat] && map.hasImage(cat)) {
+            map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
         }
     });
 
     if (!map.hasImage('fallback-dot')) {
         const canvas = document.createElement('canvas');
-        canvas.width = 20; canvas.height = 20;
+        canvas.width = 24; canvas.height = 24;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.beginPath();
-            ctx.arc(10, 10, 8, 0, Math.PI*2);
+            ctx.arc(12, 12, 9, 0, Math.PI*2);
             ctx.fillStyle = '#4285F4';
             ctx.fill();
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
             ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
+            map.addImage('fallback-dot', ctx.getImageData(0,0,24,24));
         }
     }
   }, [activeIcons, loaded]);
@@ -265,23 +322,28 @@ const MapView: React.FC<MapViewProps> = ({
       
       const wandIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M10.6 17.4 12 16"/><path d="M12.5 2.5 8 7"/><path d="M17.5 7.5 13 3"/><path d="M7 21l9-9"/><path d="M3 21l9-9"/></svg>`;
 
-      const bg = popupStyle.backgroundColor;
-      const text = popupStyle.textColor;
-      const border = popupStyle.borderColor;
+      const bg = popupStyle.backgroundColor || palette.land || '#ffffff';
+      const text = popupStyle.textColor || palette.text || '#202124';
+      const border = popupStyle.borderColor || palette.road || '#dadce0';
       
       const html = `
-        <div style="font-family: ${popupStyle.fontFamily}; color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 12px; min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-            <div style="display: flex; gap: 10px;">
-                ${headerImg ? `<div style="width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 6px; padding: 4px; display:flex; align-items:center; justify-content:center;"><img src="${headerImg}" style="max-width:100%; max-height:100%;" /></div>` : ''}
-                <div style="flex:1;">
-                    <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
-                    <div style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub}</div>
+        <div style="position:relative; font-family: ${popupStyle.fontFamily}; min-width: 240px;">
+            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:-14px; right:-14px; background: ${bg}; border: 2px solid ${border}; color:${text}; width:28px; height:28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; line-height:1; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
+                ×
+            </button>
+            <div style="color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 14px 14px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                <div style="display: flex; gap: 10px; align-items:center;">
+                    ${headerImg ? `<div style=\"width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 10px; padding: 6px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;\"><img src=\"${headerImg}\" style=\"max-width:100%; max-height:100%; object-fit:contain;\" /></div>` : ''}
+                    <div style="flex:1; padding-right: 12px;">
+                        <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
+                        <div style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub}</div>
+                    </div>
                 </div>
+                <div style="margin-top:10px; font-size:13px; opacity:0.92; border-top:1px solid ${border}40; padding-top:8px;">
+                    ${desc}
+                </div>
+                ${!isDefaultTheme ? `<button id=\"popup-edit-btn\" style=\"margin-top:10px; width:100%; padding:6px 8px; background:${border}20; border:1px solid ${border}; border-radius:6px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:6px; color:${text};\">${wandIcon} Remix Icon</button>` : ''}
             </div>
-            <div style="margin-top:8px; font-size:13px; opacity:0.9; border-top:1px solid ${border}40; padding-top:8px;">
-                ${desc}
-            </div>
-            ${!isDefaultTheme ? `<button id="popup-edit-btn" style="margin-top:8px; width:100%; padding:4px; background:${border}20; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; color:${text};">${wandIcon} Remix Icon</button>` : ''}
         </div>
       `;
 
@@ -291,22 +353,43 @@ const MapView: React.FC<MapViewProps> = ({
           .addTo(mapInstance.current);
 
       popupRef.current = popup;
-      
+      lastPopupFeature.current = feature;
+      lastPopupCoords.current = coordinates;
+
       setTimeout(() => {
           const btn = document.getElementById('popup-edit-btn');
           if (btn && onEditIcon) {
               btn.onclick = () => onEditIcon(sub);
           }
+          const closeBtn = document.getElementById('popup-close-btn');
+          if (closeBtn) {
+              closeBtn.onclick = () => {
+                  popup.remove();
+                  popupRef.current = null;
+                  lastPopupFeature.current = null;
+                  lastPopupCoords.current = null;
+              };
+          }
       }, 50);
 
-  }, [activeIcons, popupStyle, isDefaultTheme, onEditIcon]);
+  }, [activeIcons, popupStyle, palette, isDefaultTheme, onEditIcon]);
+
+  useEffect(() => {
+      showPopupRef.current = showPopup;
+  }, [showPopup]);
+
+  // Refresh any open popup when the theme palette or popup styles change
+  useEffect(() => {
+      if (!popupRef.current || !lastPopupFeature.current || !lastPopupCoords.current) return;
+      showPopup(lastPopupFeature.current, lastPopupCoords.current);
+  }, [showPopup, popupStyle, palette]);
 
   // --- INITIALIZATION ---
   useEffect(() => {
       // Wait for safe style to be ready
       if (mapInstance.current || !styleJSON || !mapContainer.current) return;
       
-      console.log("[MapAlchemist] Initializing MapLibre 4.6.0");
+      log.info("Initializing MapLibre 4.6.0");
 
       try {
           const map = new maplibregl.Map({
@@ -333,12 +416,39 @@ const MapView: React.FC<MapViewProps> = ({
 
           map.on('error', (e) => {
              if (e.error?.message !== 'The user aborted a request.') {
-                 console.error("Map Error", e);
+                 log.error("Map Error", e);
              }
           });
 
+          map.on('styleimagemissing', (e) => {
+              if (map.hasImage(e.id)) return;
+              try {
+                  const empty = { width: 1, height: 1, data: new Uint8Array(4) } as any;
+                  map.addImage(e.id, empty, { pixelRatio: 1 });
+              } catch (err) {
+                  log.warn('Failed to supply fallback image for', e.id, err);
+              }
+          });
+
+          const ensureFallbackDot = () => {
+              if (map.hasImage('fallback-dot')) return;
+              const canvas = document.createElement('canvas');
+              canvas.width = 32; canvas.height = 32;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                  ctx.beginPath();
+                  ctx.arc(16, 16, 12, 0, Math.PI*2);
+                  ctx.fillStyle = '#4285F4';
+                  ctx.fill();
+                  ctx.strokeStyle = 'white';
+                  ctx.lineWidth = 2;
+                  ctx.stroke();
+                  map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
+              }
+          };
+
           map.on('load', () => {
-              console.log("[MapAlchemist] Map Loaded");
+              log.info("Map Loaded");
               setLoaded(true);
               if (onMapLoad) onMapLoad(map);
 
@@ -351,25 +461,28 @@ const MapView: React.FC<MapViewProps> = ({
                 });
               }
 
+              ensureFallbackDot();
+
               if (!map.getLayer('unclustered-point')) {
                 map.addLayer({
                     id: 'unclustered-point',
                     type: 'symbol',
                     source: 'places',
                     layout: {
-                        'icon-image': ['get', 'iconKey'],
-                        'icon-size': 0.28,
+                        'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
+                        'icon-size': 0.24,
                         'icon-allow-overlap': true,
+                        'text-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
-                        'text-offset': [0, 1.2],
+                        'text-offset': [0, 1.1],
                         'text-anchor': 'top',
                         'text-size': 11,
-                        'text-optional': true 
+                        'text-optional': true
                     },
                     paint: {
-                        'text-color': ['get', 'textColor'],
-                        'text-halo-color': ['get', 'haloColor'],
+                        'text-color': ['coalesce', ['get', 'textColor'], '#202124'],
+                        'text-halo-color': ['coalesce', ['get', 'haloColor'], '#ffffff'],
                         'text-halo-width': 2
                     }
                 });
@@ -378,8 +491,10 @@ const MapView: React.FC<MapViewProps> = ({
               map.on('click', 'unclustered-point', (e) => {
                   if (!e.features || e.features.length === 0) return;
                   const coordinates = (e.features[0].geometry as any).coordinates.slice();
-                  showPopup(e.features[0], coordinates);
-                  selectedPlaceId.current = e.features[0].properties.id;
+                  if (showPopupRef.current) {
+                      showPopupRef.current(e.features[0], coordinates);
+                      selectedPlaceId.current = e.features[0].properties.id;
+                  }
               });
 
               map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -394,7 +509,7 @@ const MapView: React.FC<MapViewProps> = ({
 
           mapInstance.current = map;
       } catch (e) {
-          console.error("Map Init Exception", e);
+          log.error("Map Init Exception", e);
       }
 
       return () => {
@@ -409,11 +524,14 @@ const MapView: React.FC<MapViewProps> = ({
   const refreshData = async (map: maplibregl.Map) => {
       const bounds = map.getBounds();
       const zoom = map.getZoom();
-      
-      if (zoom < 13) return; 
+
+      if (zoom < 13) {
+          log.debug('Skipping Overpass fetch; zoom below threshold', { zoom });
+          return;
+      }
 
       const rawElements = await fetchOverpassData(bounds);
-      
+
       const features = rawElements.map(el => {
           const id = el.id.toString();
           
@@ -430,6 +548,9 @@ const MapView: React.FC<MapViewProps> = ({
           
           const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
           
+          const labelColor = palette.text || popupStyle.textColor || '#202124';
+          const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+
           return {
               type: 'Feature',
               properties: {
@@ -439,8 +560,8 @@ const MapView: React.FC<MapViewProps> = ({
                   subcategory: match.subcategory,
                   description: el.tags?.['addr:street'] ? `${el.tags['addr:street']} ${el.tags['addr:housenumber']||''}` : '',
                   iconKey,
-                  textColor: popupStyle.textColor,
-                  haloColor: popupStyle.backgroundColor
+                  textColor: labelColor,
+                  haloColor
               },
               geometry: {
                   type: 'Point',
@@ -448,6 +569,12 @@ const MapView: React.FC<MapViewProps> = ({
               }
           };
       }).filter(f => f.geometry.coordinates[0]);
+
+      // If no features came back and we already have data, keep the previous batch
+      if (features.length === 0 && placesRef.current.length > 0) {
+          log.warn('Overpass returned no features, keeping previous data');
+          return;
+      }
 
       placesRef.current = features as any[];
 
@@ -457,13 +584,14 @@ const MapView: React.FC<MapViewProps> = ({
               type: 'FeatureCollection',
               features: features as any
           });
+          log.debug('Refreshed Overpass features', { count: features.length, zoom });
       }
   };
 
   useEffect(() => {
       if (!loaded || !mapInstance.current) return;
       refreshData(mapInstance.current);
-  }, [activeIcons, popupStyle, loaded]);
+  }, [activeIcons, popupStyle, loaded, palette]);
 
   return (
     <div className="relative w-full h-full bg-gray-200">
