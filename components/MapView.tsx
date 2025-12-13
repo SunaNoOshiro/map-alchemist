@@ -564,20 +564,21 @@ const MapView: React.FC<MapViewProps> = ({
                             ['get', 'iconKey'],
                             'fallback-dot'
                         ],
-                        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.38, 16, 0.44, 18, 0.5],
+                        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.75, 16, 0.9, 18, 1.05],
                         'icon-padding': 2,
                         'icon-allow-overlap': true,
+                        'text-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
                         'text-offset': [0, 1.2],
                         'text-anchor': 'top',
-                        'text-size': 11,
-                        'text-optional': true 
+                        'text-size': 12,
+                        'text-optional': true
                     },
                     paint: {
-                        'text-color': ['get', 'textColor'],
-                        'text-halo-color': ['get', 'haloColor'],
-                        'text-halo-width': 2
+                        'text-color': ['coalesce', ['get', 'textColor'], '#202124'],
+                        'text-halo-color': ['coalesce', ['get', 'haloColor'], '#ffffff'],
+                        'text-halo-width': 2.5
                     }
                 });
               }
@@ -642,8 +643,8 @@ const MapView: React.FC<MapViewProps> = ({
           
           const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
           
-          const labelColor = palette.text || popupStyle.textColor;
-          const haloColor = palette.land || popupStyle.backgroundColor;
+          const labelColor = palette.text || popupStyle.textColor || '#202124';
+          const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
 
           return {
               type: 'Feature',
@@ -663,6 +664,12 @@ const MapView: React.FC<MapViewProps> = ({
               }
           };
       }).filter(f => f.geometry.coordinates[0]);
+
+      // If no features came back and we already have data, keep the previous batch
+      if (features.length === 0 && placesRef.current.length > 0) {
+          log.warn('Overpass returned no features, keeping previous data');
+          return;
+      }
 
       placesRef.current = features as any[];
 
