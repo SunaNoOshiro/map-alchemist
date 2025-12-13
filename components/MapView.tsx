@@ -250,6 +250,9 @@ const MapView: React.FC<MapViewProps> = ({
     const map = mapInstance.current;
 
     const buildSticker = (img: HTMLImageElement, category: string) => {
+        if (!img.width || !img.height) {
+            return buildFallbackSticker(category);
+        }
         const maxSize = 96;
         const target = Math.min(maxSize, Math.max(img.width, img.height));
         const scale = target / Math.max(img.width, img.height);
@@ -340,12 +343,15 @@ const MapView: React.FC<MapViewProps> = ({
         img.crossOrigin = "Anonymous";
 
         const register = (canvas: HTMLCanvasElement | HTMLImageElement, urlToken: string | null) => {
-            if (map.hasImage(cat)) {
-                map.updateImage(cat, canvas as any);
-            } else {
+            try {
+                if (map.hasImage(cat)) {
+                    map.removeImage(cat);
+                }
                 map.addImage(cat, canvas as any, { pixelRatio: 2 });
+                loadedIconUrls.current[cat] = urlToken;
+            } catch (e) {
+                log.error('Failed to register image', { cat, error: e });
             }
-            loadedIconUrls.current[cat] = urlToken;
         };
 
         img.onload = () => {
