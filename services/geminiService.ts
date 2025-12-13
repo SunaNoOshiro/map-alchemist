@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { ImageSize, PlaceMarker, MapStylePreset, IconDefinition, PopupStyle } from "../types";
+import { GoogleGenAI } from "@google/genai";
+import { ImageSize, MapStylePreset, IconDefinition, PopupStyle } from "../types";
 import { v4 as uuidv4 } from 'uuid';
 
 const getClient = () => {
@@ -16,18 +16,22 @@ const tryParseJSON = (jsonString: string) => {
     console.warn("JSON Parse failed, attempting repair...");
     try {
         let trimmed = jsonString.trim();
+        // Remove markdown code blocks if present
+        if (trimmed.startsWith('```json')) {
+            trimmed = trimmed.replace(/^```json/, '').replace(/```$/, '');
+        } else if (trimmed.startsWith('```')) {
+            trimmed = trimmed.replace(/^```/, '').replace(/```$/, '');
+        }
+        
         if (trimmed.endsWith(',')) trimmed = trimmed.slice(0, -1);
         const lastBrace = trimmed.lastIndexOf('}');
-        const lastBracket = trimmed.lastIndexOf(']');
-        if (lastBrace > lastBracket) {
+        if (lastBrace > -1) {
              return JSON.parse(trimmed.substring(0, lastBrace + 1));
-        } else if (lastBracket > -1) {
-             return JSON.parse(trimmed.substring(0, lastBracket + 1) + "}");
         }
     } catch (repairError) {
         console.error("JSON Repair failed", repairError);
     }
-    return { mapStyle: [], popupStyle: null };
+    return { mapStyle: {}, popupStyle: null };
   }
 };
 
@@ -82,35 +86,28 @@ const removeBackground = (base64Image: string): Promise<string> => {
     });
 };
 
-export const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: any[], popupStyle: PopupStyle, iconTheme: string }> => {
+export const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string }> => {
   const client = getClient();
   
-  const systemInstruction = `You are a JSON-only API. Output MINIFIED JSON.
-  Task: Create a Google Maps Style JSON based on: "${prompt}".
+  const systemInstruction = `You are a Mapbox Style Generator. Output JSON ONLY.
+  Task: Create a visual theme definition based on: "${prompt}".
 
-  CRITICAL RULES:
-  1. **MAX 50 STYLE RULES**. Be concise. Use inheritance.
-  2. **VALID FEATURE TYPES ONLY**:
-     - YES: water, landscape, road, transit, administrative, poi.
-     - **FORBIDDEN**: 'terrain', 'geometry.fill'.
-     - NEVER use composite keys like 'road.highway.geometry'.
-  3. **MANDATORY VISIBILITY**:
-     - 'poi': OFF.
-     - 'transit': OFF.
-     - 'landscape': ON.
-     - 'water': ON.
-  4. **ROADS**: Style 'road' geometry to be distinct and visible.
-  5. **POPUP STYLE**:
-     - **Background**: Match map theme.
-     - **Border**: ESSENTIAL. Contrast color. Width 2px.
-     - **Text**: High contrast.
-  6. **ICON THEME**: Write a specific art direction guide. 
-     - **MATERIALITY**: Specify what the icons look made of (e.g. "Glowing Neon Glass", "Rough Parchment Ink", "Pixelated Green Code", "Carved Stone").
-     - **STYLE**: "Vibrant Colors", "Thick Outlines", "Glowing".
+  You must output a JSON object with:
+  1. "mapColors": A simple object defining hex codes for standard MapLibre layers.
+     Keys MUST be: "water", "land", "building", "road", "park", "text".
+  2. "popupStyle": Styling for info windows.
+  3. "iconTheme": Art direction description.
 
   Response Format:
   {
-    "mapStyle": [ ... ],
+    "mapColors": {
+      "water": "#...",
+      "land": "#...",
+      "building": "#...",
+      "road": "#...",
+      "park": "#...",
+      "text": "#..."
+    },
     "popupStyle": { "backgroundColor": "#...", "textColor": "#...", "borderColor": "#...", "borderRadius": "...", "fontFamily": "..." },
     "iconTheme": "A string describing the icon style..."
   }`;
@@ -118,7 +115,7 @@ export const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: an
   try {
     const response = await client.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: `Generate theme for: "${prompt}".`,
+      contents: `Generate map theme for: "${prompt}".`,
       config: {
         systemInstruction,
         responseMimeType: "application/json",
@@ -127,49 +124,15 @@ export const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: an
     
     let result;
     if (response.text) {
-      try {
-          result = JSON.parse(response.text);
-      } catch (e) {
-          result = tryParseJSON(response.text);
-      }
+      result = tryParseJSON(response.text);
     } else {
         throw new Error("No text returned from model");
     }
-      
-    const safetyStyles = [
-      {
-          featureType: "water",
-          elementType: "geometry",
-          stylers: [{ visibility: "on" }]
-      },
-      {
-          featureType: "landscape",
-          elementType: "geometry",
-          stylers: [{ visibility: "on" }]
-      },
-      {
-          featureType: "poi",
-          stylers: [{ visibility: "off" }]
-      },
-      {
-          featureType: "transit",
-          elementType: "labels.icon",
-          stylers: [{ visibility: "off" }]
-      }
-    ];
 
-    const cleanStyles = (result.mapStyle || []).filter((rule: any) => {
-        if (!rule.featureType) return false;
-        if (rule.featureType === 'terrain') return false; 
-        if (rule.featureType.includes('.')) {
-             const parts = rule.featureType.split('.');
-             if (parts.length > 2) return false; 
-        }
-        return true;
-    });
-
+    // Convert simplified colors to paint properties overrides if we were doing complex styling, 
+    // but for now we return the colors object to be applied at runtime.
     return {
-        mapStyle: [...cleanStyles, ...safetyStyles],
+        mapStyle: result.mapColors || { water: '#a0c8f0', land: '#f0f0f0' },
         popupStyle: result.popupStyle || {
           backgroundColor: '#ffffff',
           textColor: '#000000',
@@ -183,7 +146,7 @@ export const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: an
   } catch (error) {
     console.error("Style Generation Error:", error);
     return {
-        mapStyle: [],
+        mapStyle: {},
         popupStyle: { backgroundColor: '#fff', textColor: '#000', borderColor: '#ccc', borderRadius: '4px', fontFamily: 'Arial' },
         iconTheme: `Simple icons for ${prompt}`
     };
@@ -205,25 +168,15 @@ export const generateIconImage = async (
   1. **SUBJECT**: 
      - Draw an OBJECT, ITEM, or CHARACTER FACE that visually explains "${category}".
      - **THEME INTEGRATION**: The object MUST look like it belongs in the world of the theme.
-       - If theme is "Matrix": The object should be made of falling green code or wireframe.
-       - If theme is "Cyberpunk": The object should be neon, glowing, tech-infused.
-       - If theme is "Paper": The object should look like an ink drawing or paper cutout.
-     - **Franchise Specifics**: If theme is known (Simpsons, Star Wars), use specific items/faces.
-
   2. **VISUAL STYLE**:
      - **VIBRANT**: Use bold, saturated colors suitable for the theme.
      - **FLAT / VECTOR / STICKER**: Clean lines, no noise.
      - **ICONOGRAPHY**: Must be readable at 32px. Big shapes.
-
   3. **COMPOSITION**:
      - **FILL THE FRAME**: The subject must occupy 90% of the image canvas. **ZOOM IN.**
      - **CENTERED**: The object must be perfectly centered.
      - **BACKGROUND**: SOLID BRIGHT GREEN (Hex #00FF00) for chroma keying. NO gradients, NO shadows on background.
-
-  4. **NEGATIVE CONSTRAINTS (STRICT)**:
-     - **NO TEXT, NO WORDS, NO LETTERS.** Do not write the name of the category.
-     - NO tiny details.
-     - NO complex scenery.
+  4. **NO TEXT**.
   `;
 
   try {
@@ -245,7 +198,8 @@ export const generateIconImage = async (
     throw new Error("No image data returned.");
   } catch (error) {
     console.error(`Icon Generation Error (${category}):`, error);
-    return "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    // Return a transparent 1x1 pixel if failed
+    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
   }
 };
 
@@ -267,7 +221,7 @@ export const generateMapTheme = async (
   let completedCount = 0;
   const totalCount = categories.length;
 
-  const batchSize = 8; 
+  const batchSize = 6; 
   const icons: IconDefinition[] = [];
   
   for (let i = 0; i < categories.length; i += batchSize) {
@@ -316,8 +270,4 @@ export const generateMapTheme = async (
     popupStyle: visuals.popupStyle,
     iconsByCategory
   };
-};
-
-export const findPlacesWithGrounding = async (center: { lat: number; lng: number }): Promise<PlaceMarker[]> => {
-    return []; 
 };

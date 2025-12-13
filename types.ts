@@ -20,7 +20,7 @@ export interface MapStylePreset {
   prompt: string;
   iconTheme?: string; // AI-generated art direction for icons
   createdAt: string;
-  mapStyleJson: any[]; // Google Maps JSON style array
+  mapStyleJson: any; // Mapbox Style Spec JSON
   iconsByCategory: Record<string, IconDefinition>;
   popupStyle: PopupStyle;
 }
@@ -60,8 +60,8 @@ export interface PlaceMarker {
   displayMode?: DisplayMode;
   visualState?: VisualState;
   
-  // Google Specifics
-  googleTypes?: string[];
+  // Source Data
+  tags?: Record<string, string>;
 }
 
 export type ImageSize = '1K' | '2K' | '4K';
@@ -70,11 +70,4 @@ export enum AppStatus {
   IDLE = 'IDLE',
   GENERATING_STYLE = 'GENERATING_STYLE',
   GENERATING_ICON = 'GENERATING_ICON',
-}
-
-declare global {
-  interface Window {
-    google: any;
-    gm_authFailure?: () => void;
-  }
 }

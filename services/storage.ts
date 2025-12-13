@@ -1,10 +1,8 @@
 
 import { MapStylePreset } from '../types';
-import { GOOGLE_MAPS_API_KEY } from '../constants';
 
 const KEYS = {
   STYLES: 'mapAlchemistStyles',
-  MAPS_API_KEY: 'google_maps_api_key',
 };
 
 const DB_NAME = 'MapAlchemistDB';
@@ -95,14 +93,5 @@ export const storageService = {
     } catch (e) {
         console.error("Error clearing styles", e);
     }
-  },
-
-  // Keep API Key in LocalStorage (Small data, sync access needed occasionally)
-  getMapsApiKey: (): string => {
-    return localStorage.getItem(KEYS.MAPS_API_KEY) || GOOGLE_MAPS_API_KEY || '';
-  },
-
-  saveMapsApiKey: (key: string) => {
-    localStorage.setItem(KEYS.MAPS_API_KEY, key);
   }
 };

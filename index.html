@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MapAlchemist - AI Map Styler</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
       /* Custom scrollbar for log panel */
       .scrollbar-thin::-webkit-scrollbar {
@@ -21,6 +22,19 @@
       .scrollbar-thin::-webkit-scrollbar-thumb:hover {
         background: #6b7280;
       }
+      /* MapLibre Popup Overrides */
+      .maplibregl-popup-content {
+        padding: 0;
+        background: transparent;
+        box-shadow: none;
+        border: none;
+      }
+      .maplibregl-popup-close-button {
+        display: none;
+      }
+      .maplibregl-popup-tip {
+        border-top-color: #333; /* Fallback */
+      }
     </style>
   <script type="importmap">
 {
@@ -30,13 +44,16 @@
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.32.0",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.559.0",
-    "uuid": "https://aistudiocdn.com/uuid@^13.0.0"
+    "uuid": "https://aistudiocdn.com/uuid@^13.0.0",
+    "maplibre-gl": "https://cdn.jsdelivr.net/npm/maplibre-gl@4.6.0/+esm"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-gray-900 text-white overflow-hidden h-screen w-screen">
     <div id="root" class="h-full w-full"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+    <script type="module" src="./index.tsx"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>

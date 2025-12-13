@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Sparkles, ArrowRight, ShieldCheck, Eye } from 'lucide-react';
 
 interface AuthScreenProps {
   onConnect: () => void;
+  onGuestAccess: () => void;
 }
 
-const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect }) => {
+const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess }) => {
   return (
     <div className="flex items-center justify-center h-screen w-screen bg-gray-900 text-white relative overflow-hidden">
       {/* Background Animation */}
@@ -49,6 +50,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect }) => {
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </button>
           
+          <button
+            onClick={onGuestAccess}
+            className="w-full px-8 py-3 bg-gray-700/50 hover:bg-gray-700 rounded-xl font-medium text-gray-300 hover:text-white transition-colors flex items-center justify-center gap-2"
+          >
+            <Eye className="w-4 h-4" />
+            <span>Continue as Guest (View Only)</span>
+          </button>
+
           <p className="text-xs text-gray-500">
             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300 hover:underline transition-colors mt-1 inline-block">
               Billing Documentation

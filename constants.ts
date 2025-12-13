@@ -18,61 +18,65 @@ export const CATEGORY_GROUPS: Record<string, string[]> = {
 
 export const MAP_CATEGORIES = Object.values(CATEGORY_GROUPS).flat();
 
-// Google Place Types -> Internal Subcategory Mapping
-// Order matters: first match wins
-export const TYPE_MAPPING: Record<string, { category: string, subcategory: string, baseRank: number }> = {
-    'airport': { category: 'Transport', subcategory: 'Airport', baseRank: 95 },
-    'subway_station': { category: 'Transport', subcategory: 'Subway Station', baseRank: 85 },
-    'train_station': { category: 'Transport', subcategory: 'Train Station', baseRank: 90 },
-    'light_rail_station': { category: 'Transport', subcategory: 'Subway Station', baseRank: 80 },
-    'bus_station': { category: 'Transport', subcategory: 'Bus Station', baseRank: 75 },
+// OSM Tag Mapping
+export const OSM_MAPPING: Record<string, { category: string, subcategory: string, baseRank: number }> = {
+    // Amenity
+    'amenity=restaurant': { category: 'Food & Drink', subcategory: 'Restaurant', baseRank: 60 },
+    'amenity=cafe': { category: 'Food & Drink', subcategory: 'Cafe', baseRank: 50 },
+    'amenity=bar': { category: 'Food & Drink', subcategory: 'Bar', baseRank: 55 },
+    'amenity=pub': { category: 'Food & Drink', subcategory: 'Bar', baseRank: 55 },
+    'amenity=fast_food': { category: 'Food & Drink', subcategory: 'Restaurant', baseRank: 45 },
+    'amenity=nightclub': { category: 'Food & Drink', subcategory: 'Night Club', baseRank: 55 },
     
-    'hospital': { category: 'Health', subcategory: 'Hospital', baseRank: 90 },
-    'police': { category: 'Services', subcategory: 'Police', baseRank: 85 },
-    'fire_station': { category: 'Services', subcategory: 'Fire Station', baseRank: 85 },
+    'amenity=hospital': { category: 'Health', subcategory: 'Hospital', baseRank: 90 },
+    'amenity=clinic': { category: 'Health', subcategory: 'Clinic', baseRank: 80 },
+    'amenity=pharmacy': { category: 'Health', subcategory: 'Pharmacy', baseRank: 70 },
+    'amenity=dentist': { category: 'Health', subcategory: 'Dentist', baseRank: 65 },
     
-    'museum': { category: 'Attractions', subcategory: 'Museum', baseRank: 80 },
-    'zoo': { category: 'Attractions', subcategory: 'Zoo', baseRank: 80 },
-    'stadium': { category: 'Attractions', subcategory: 'Stadium', baseRank: 80 },
-    'tourist_attraction': { category: 'Attractions', subcategory: 'Tourist Attraction', baseRank: 75 },
-    'park': { category: 'Attractions', subcategory: 'Park', baseRank: 70 },
+    'amenity=bank': { category: 'Services', subcategory: 'Bank', baseRank: 60 },
+    'amenity=atm': { category: 'Services', subcategory: 'ATM', baseRank: 40 },
+    'amenity=post_office': { category: 'Services', subcategory: 'Post Office', baseRank: 50 },
+    'amenity=police': { category: 'Services', subcategory: 'Police', baseRank: 85 },
+    'amenity=fire_station': { category: 'Services', subcategory: 'Fire Station', baseRank: 85 },
     
-    'university': { category: 'Education', subcategory: 'University', baseRank: 70 },
-    'school': { category: 'Education', subcategory: 'School', baseRank: 60 },
-    'library': { category: 'Education', subcategory: 'Library', baseRank: 60 },
-    
-    'shopping_mall': { category: 'Shopping', subcategory: 'Shopping Mall', baseRank: 75 },
-    'supermarket': { category: 'Shopping', subcategory: 'Supermarket', baseRank: 65 },
-    'department_store': { category: 'Shopping', subcategory: 'Store', baseRank: 60 },
-    'clothing_store': { category: 'Shopping', subcategory: 'Clothing Store', baseRank: 50 },
-    'electronics_store': { category: 'Shopping', subcategory: 'Electronics', baseRank: 50 },
-    'convenience_store': { category: 'Shopping', subcategory: 'Convenience Store', baseRank: 40 },
-    
-    'restaurant': { category: 'Food & Drink', subcategory: 'Restaurant', baseRank: 60 },
-    'bar': { category: 'Food & Drink', subcategory: 'Bar', baseRank: 55 },
-    'night_club': { category: 'Food & Drink', subcategory: 'Night Club', baseRank: 55 },
-    'cafe': { category: 'Food & Drink', subcategory: 'Cafe', baseRank: 50 },
-    'bakery': { category: 'Food & Drink', subcategory: 'Bakery', baseRank: 50 },
-    
-    'lodging': { category: 'Services', subcategory: 'Lodging', baseRank: 70 },
-    'bank': { category: 'Services', subcategory: 'Bank', baseRank: 60 },
-    'atm': { category: 'Services', subcategory: 'ATM', baseRank: 40 },
-    'post_office': { category: 'Services', subcategory: 'Post Office', baseRank: 50 },
-    
-    'gas_station': { category: 'Transport', subcategory: 'Gas Station', baseRank: 55 },
-    'parking': { category: 'Transport', subcategory: 'Parking', baseRank: 45 },
-    
-    'church': { category: 'Religious', subcategory: 'Church', baseRank: 60 },
-    'mosque': { category: 'Religious', subcategory: 'Mosque', baseRank: 60 },
-    'synagogue': { category: 'Religious', subcategory: 'Synagogue', baseRank: 60 },
-    'hindu_temple': { category: 'Religious', subcategory: 'Hindu Temple', baseRank: 60 },
-    'place_of_worship': { category: 'Religious', subcategory: 'Place of Worship', baseRank: 55 },
+    'amenity=school': { category: 'Education', subcategory: 'School', baseRank: 60 },
+    'amenity=university': { category: 'Education', subcategory: 'University', baseRank: 70 },
+    'amenity=library': { category: 'Education', subcategory: 'Library', baseRank: 60 },
+
+    'amenity=place_of_worship': { category: 'Religious', subcategory: 'Place of Worship', baseRank: 60 },
+    'amenity=cinema': { category: 'Attractions', subcategory: 'Movie Theater', baseRank: 70 },
+    'amenity=fuel': { category: 'Transport', subcategory: 'Gas Station', baseRank: 55 },
+    'amenity=parking': { category: 'Transport', subcategory: 'Parking', baseRank: 45 },
+
+    // Shop
+    'shop=supermarket': { category: 'Shopping', subcategory: 'Supermarket', baseRank: 65 },
+    'shop=convenience': { category: 'Shopping', subcategory: 'Convenience Store', baseRank: 40 },
+    'shop=mall': { category: 'Shopping', subcategory: 'Shopping Mall', baseRank: 75 },
+    'shop=clothes': { category: 'Shopping', subcategory: 'Clothing Store', baseRank: 50 },
+    'shop=electronics': { category: 'Shopping', subcategory: 'Electronics', baseRank: 50 },
+    'shop=bakery': { category: 'Food & Drink', subcategory: 'Bakery', baseRank: 50 },
+
+    // Tourism
+    'tourism=museum': { category: 'Attractions', subcategory: 'Museum', baseRank: 80 },
+    'tourism=artwork': { category: 'Attractions', subcategory: 'Art Gallery', baseRank: 70 },
+    'tourism=attraction': { category: 'Attractions', subcategory: 'Tourist Attraction', baseRank: 75 },
+    'tourism=hotel': { category: 'Services', subcategory: 'Lodging', baseRank: 70 },
+    'tourism=hostel': { category: 'Services', subcategory: 'Lodging', baseRank: 60 },
+    'tourism=zoo': { category: 'Attractions', subcategory: 'Zoo', baseRank: 80 },
+
+    // Leisure
+    'leisure=park': { category: 'Attractions', subcategory: 'Park', baseRank: 70 },
+    'leisure=stadium': { category: 'Attractions', subcategory: 'Stadium', baseRank: 80 },
+
+    // Transport
+    'aeroway=aerodrome': { category: 'Transport', subcategory: 'Airport', baseRank: 95 },
+    'railway=station': { category: 'Transport', subcategory: 'Train Station', baseRank: 90 },
+    'highway=bus_stop': { category: 'Transport', subcategory: 'Bus Station', baseRank: 75 }, // Simplification
 };
 
 export const FALLBACK_MAPPING = { category: 'Shopping', subcategory: 'Store', baseRank: 30 };
 
 // --- VISIBILITY CONFIG (MinZoom Table) ---
-// Defines when icons and labels start appearing
 export const VISIBILITY_CONFIG: Record<string, { minZoomIcon: number, minZoomLabel: number }> = {
     'Airport': { minZoomIcon: 10, minZoomLabel: 12 },
     'Hospital': { minZoomIcon: 12, minZoomLabel: 13 },
@@ -89,7 +93,7 @@ export const VISIBILITY_CONFIG: Record<string, { minZoomIcon: number, minZoomLab
     'Subway Station': { minZoomIcon: 13, minZoomLabel: 15 },
     
     'Restaurant': { minZoomIcon: 14, minZoomLabel: 16 },
-    'Hotel': { minZoomIcon: 14, minZoomLabel: 16 },
+    'Lodging': { minZoomIcon: 14, minZoomLabel: 16 },
     'Bank': { minZoomIcon: 14, minZoomLabel: 16 },
     'Supermarket': { minZoomIcon: 14, minZoomLabel: 16 },
     
@@ -108,16 +112,16 @@ export const VISIBILITY_CONFIG: Record<string, { minZoomIcon: number, minZoomLab
 
 export const DEFAULT_MAP_CENTER = { lat: 37.7749, lng: -122.4194 }; 
 export const DEFAULT_ZOOM = 14; 
-export const GOOGLE_MAPS_API_KEY = 'AIzaSyD0PiGWS7WgeCLQ-GJFuPgcAd2n0Ibrpgg'; 
 
-export const STANDARD_LIGHT_STYLE: any[] = [];
+// Using OpenFreeMap which provides free hosted vector tiles
+export const DEFAULT_STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 
 export const DEFAULT_STYLE_PRESET: MapStylePreset = {
   id: 'default-style-standard',
   name: 'Standard Light',
   prompt: 'Clean standard map',
   createdAt: new Date().toISOString(),
-  mapStyleJson: STANDARD_LIGHT_STYLE,
+  mapStyleJson: { version: 8, sources: {}, layers: [] }, // We use URL mostly, this is fallback/override
   iconsByCategory: {}, 
   popupStyle: {
     backgroundColor: '#ffffff',

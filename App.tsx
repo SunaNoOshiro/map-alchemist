@@ -16,7 +16,7 @@ import { storageService } from './services/storage';
 
 function App() {
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-  const [mapsApiKey] = useState<string>(storageService.getMapsApiKey);
+  const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
 
   const [styles, setStyles] = useState<MapStylePreset[]>([]);
   const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
@@ -40,13 +40,14 @@ function App() {
         const has = await (window as any).aistudio.hasSelectedApiKey();
         setHasApiKey(has);
       } else {
+        // Fallback for dev environments without the studio bridge
         setHasApiKey(true);
       }
     };
     checkApiKey();
   }, []);
 
-  // Load Data (Async for IndexedDB)
+  // Load Data
   useEffect(() => {
     const loadData = async () => {
         const savedStyles = await storageService.getStyles();
@@ -83,9 +84,15 @@ function App() {
     if ((window as any).aistudio) {
       try {
         await (window as any).aistudio.openSelectKey();
-        setHasApiKey(true);
+        const has = await (window as any).aistudio.hasSelectedApiKey();
+        if (has) {
+            setHasApiKey(true);
+            setIsGuestMode(false);
+            addLog("API Key connected successfully.", "success");
+        }
       } catch (e) {
         console.error("Key selection failed", e);
+        addLog("Failed to connect API Key.", "error");
       }
     } else {
       setHasApiKey(true);
@@ -93,6 +100,12 @@ function App() {
   };
 
   const handleGenerateStyle = async () => {
+    if (!hasApiKey) {
+        addLog("API Key required to generate styles.", "warning");
+        handleSelectKey();
+        return;
+    }
+
     if (!prompt.trim()) return;
     setStatus(AppStatus.GENERATING_STYLE);
     setLoadingMessage("Initializing...");
@@ -120,18 +133,14 @@ function App() {
   };
 
   const handleRegenerateIcon = async (category: string, userPrompt: string) => {
+    if (!hasApiKey) return;
+
     if (!activeStyleId || activeStyleId === DEFAULT_STYLE_PRESET.id) {
         addLog("Cannot modify default theme assets.", "warning");
         return;
     }
     
-    // Determine the best prompt to use:
-    // 1. The user's specific input from the sidebar (userPrompt)
-    // 2. OR the style's consistent 'iconTheme' art direction
-    // 3. OR the style's main prompt
     const style = styles.find(s => s.id === activeStyleId);
-    // If the user hasn't edited the input (it matches the default prompt/theme), use the theme.
-    // Otherwise respect their manual override.
     const effectivePrompt = userPrompt || style?.iconTheme || style?.prompt || `Icon for ${category}`;
 
     setStatus(AppStatus.GENERATING_ICON);
@@ -200,14 +209,11 @@ function App() {
   };
 
   const handleExport = () => {
-    // Only export custom styles, excluding the default preset
     const customStyles = styles.filter(s => s.id !== DEFAULT_STYLE_PRESET.id);
-    
     if (customStyles.length === 0) {
       addLog("No custom styles to export.", "warning");
       return;
     }
-
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(customStyles));
     const node = document.createElement('a');
     node.setAttribute("href", dataStr);
@@ -226,7 +232,6 @@ function App() {
         try {
             const imported = JSON.parse(evt.target?.result as string);
             if (Array.isArray(imported)) {
-                // Filter out any potential duplicates of default style from import
                 const validImports = imported.filter((s: MapStylePreset) => s.id !== DEFAULT_STYLE_PRESET.id);
                 setStyles(prev => [...prev, ...validImports]);
                 addLog(`Imported ${validImports.length} styles.`, "success");
@@ -260,11 +265,11 @@ function App() {
   };
 
   const onMapLoad = useCallback((map: any) => {
-      // Intentionally empty
+      // Empty
   }, []);
 
-  if (!hasApiKey) {
-    return <AuthScreen onConnect={handleSelectKey} />;
+  if (!hasApiKey && !isGuestMode) {
+    return <AuthScreen onConnect={handleSelectKey} onGuestAccess={() => setIsGuestMode(true)} />;
   }
 
   return (
@@ -285,6 +290,8 @@ function App() {
         onImport={handleImport}
         onClear={handleClear}
         logs={logs}
+        hasApiKey={hasApiKey}
+        onConnectApi={handleSelectKey}
       />
       
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -311,7 +318,7 @@ function App() {
             </button>
 
             <MapView 
-                apiKey={mapsApiKey}
+                apiKey={""}
                 mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
                 activeIcons={activeIcons}
                 popupStyle={activeStyle ? activeStyle.popupStyle : DEFAULT_STYLE_PRESET.popupStyle}
@@ -329,6 +336,7 @@ function App() {
          onSelectCategory={setSelectedCategory}
          onRegenerateIcon={handleRegenerateIcon}
          status={status}
+         hasApiKey={hasApiKey}
       />
     </div>
   );

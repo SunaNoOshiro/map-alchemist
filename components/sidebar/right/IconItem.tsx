@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Wand2, Image as ImageIcon, X } from 'lucide-react';
+import { Wand2, Image as ImageIcon, X, Lock } from 'lucide-react';
 import { IconDefinition } from '../../../types';
 
 interface IconItemProps {
@@ -9,6 +9,7 @@ interface IconItemProps {
   isSelected: boolean;
   onSelect: (cat: string | null) => void;
   onRegenerate: (cat: string, prompt: string) => void;
+  isReadOnly?: boolean;
 }
 
 const IconItem: React.FC<IconItemProps> = ({ 
@@ -17,6 +18,7 @@ const IconItem: React.FC<IconItemProps> = ({
   isSelected, 
   onSelect, 
   onRegenerate, 
+  isReadOnly
 }) => {
   const [localPrompt, setLocalPrompt] = useState(iconDef?.prompt || '');
   const isLoading = iconDef?.isLoading;
@@ -39,6 +41,7 @@ const IconItem: React.FC<IconItemProps> = ({
 
   const handleRegenerate = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isReadOnly) return;
     const p = localPrompt || `Icon for ${category}`;
     onRegenerate(category, p);
   };
@@ -93,23 +96,33 @@ const IconItem: React.FC<IconItemProps> = ({
             {/* Prompt Editing */}
             <div className="space-y-2">
                 <label className="text-[10px] text-gray-500 font-semibold uppercase">Art Direction Prompt</label>
-                <textarea 
-                    ref={textareaRef}
-                    value={localPrompt}
-                    onChange={(e) => setLocalPrompt(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-200 focus:border-blue-500 focus:outline-none resize-none min-h-[60px]"
-                    placeholder={`Describe the ${category} icon...`}
-                />
+                {isReadOnly ? (
+                    <div className="text-xs text-gray-400 italic bg-gray-900/50 p-2 rounded border border-gray-800">
+                        {localPrompt || "No specific prompt set."}
+                    </div>
+                ) : (
+                    <textarea 
+                        ref={textareaRef}
+                        value={localPrompt}
+                        onChange={(e) => setLocalPrompt(e.target.value)}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-200 focus:border-blue-500 focus:outline-none resize-none min-h-[60px]"
+                        placeholder={`Describe the ${category} icon...`}
+                    />
+                )}
             </div>
 
             {/* Action Button */}
             <button 
                 onClick={handleRegenerate}
-                disabled={isLoading}
-                className="w-full mt-3 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading || isReadOnly}
+                className={`w-full mt-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all 
+                    ${isReadOnly 
+                        ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700' 
+                        : 'bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                    }`}
             >
-                <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />
-                {isLoading ? 'Generating...' : 'Regenerate Icon'}
+                {isReadOnly ? <Lock size={12} /> : <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />}
+                {isLoading ? 'Generating...' : isReadOnly ? 'Locked (Guest Mode)' : 'Regenerate Icon'}
             </button>
         </div>
       );
@@ -146,14 +159,16 @@ const IconItem: React.FC<IconItemProps> = ({
       </div>
 
       {/* Quick Action */}
-      <button 
-        onClick={handleRegenerate}
-        disabled={isLoading}
-        className="p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700 rounded-full transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
-        title="Quick Magic Regenerate"
-      >
-        <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />
-      </button>
+      {!isReadOnly && (
+        <button 
+            onClick={handleRegenerate}
+            disabled={isLoading}
+            className="p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700 rounded-full transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
+            title="Quick Magic Regenerate"
+        >
+            <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />
+        </button>
+      )}
     </div>
   );
 };

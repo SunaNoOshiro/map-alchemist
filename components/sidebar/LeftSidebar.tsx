@@ -22,6 +22,8 @@ interface LeftSidebarProps {
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
   logs: LogEntry[];
+  hasApiKey: boolean;
+  onConnectApi: () => void;
 }
 
 const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -38,7 +40,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onExport,
   onImport,
   onClear,
-  logs
+  logs,
+  hasApiKey,
+  onConnectApi
 }) => {
   return (
     <SidebarContainer isOpen={isOpen} width="w-80" side="left">
@@ -56,6 +60,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
             onGenerate={onGenerate} 
             status={status} 
             loadingMessage={loadingMessage} 
+            hasApiKey={hasApiKey}
+            onConnectApi={onConnectApi}
         />
         
         <StyleLibrary 

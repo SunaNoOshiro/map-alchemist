@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Play } from 'lucide-react';
+import { Play, ShieldCheck } from 'lucide-react';
 import { AppStatus } from '../../../types';
 
 interface PromptPanelProps {
@@ -9,10 +9,37 @@ interface PromptPanelProps {
   onGenerate: () => void;
   status: AppStatus;
   loadingMessage?: string;
+  hasApiKey: boolean;
+  onConnectApi: () => void;
 }
 
-const PromptPanel: React.FC<PromptPanelProps> = ({ prompt, setPrompt, onGenerate, status, loadingMessage }) => {
+const PromptPanel: React.FC<PromptPanelProps> = ({ 
+  prompt, 
+  setPrompt, 
+  onGenerate, 
+  status, 
+  loadingMessage,
+  hasApiKey,
+  onConnectApi
+}) => {
   const isGenerating = status === AppStatus.GENERATING_STYLE;
+
+  if (!hasApiKey) {
+    return (
+      <div className="p-4 space-y-3 border-b border-gray-800 bg-gray-900/50 flex-shrink-0">
+        <label className="block text-sm font-medium text-gray-300">New Style Prompt</label>
+        <div className="h-20 bg-gray-800/50 border border-gray-700/50 rounded-md p-3 text-sm text-gray-500 flex items-center justify-center text-center italic">
+           Guest Mode (Read Only)
+        </div>
+        <button
+          onClick={onConnectApi}
+          className="w-full py-2 px-4 rounded-md font-medium text-sm transition-all flex items-center justify-center gap-2 bg-purple-900/30 hover:bg-purple-800/50 text-purple-200 border border-purple-800/50"
+        >
+          <ShieldCheck size={16} /> Connect API Key to Generate
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-3 border-b border-gray-800 bg-gray-900/50 flex-shrink-0">

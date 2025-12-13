@@ -13,6 +13,7 @@ interface RightSidebarProps {
   onSelectCategory: (cat: string | null) => void;
   onRegenerateIcon: (category: string, prompt: string) => void;
   status: AppStatus;
+  hasApiKey: boolean;
 }
 
 // Map group names to colors for visual distinction
@@ -33,7 +34,8 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
   selectedCategory,
   onSelectCategory,
   onRegenerateIcon,
-  status
+  status,
+  hasApiKey
 }) => {
   const selectedRef = useRef<HTMLDivElement>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -109,6 +111,7 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
                               isSelected={selectedCategory === cat}
                               onSelect={onSelectCategory}
                               onRegenerate={onRegenerateIcon}
+                              isReadOnly={!hasApiKey}
                           />
                       </div>
                     ))}
