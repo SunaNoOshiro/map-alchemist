@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
-import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
+import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
 import { derivePalette } from '../services/defaultThemes';
 import { createLogger } from '../services/logger';
 
@@ -249,6 +249,51 @@ const MapView: React.FC<MapViewProps> = ({
     if (!loaded || !mapInstance.current) return;
     const map = mapInstance.current;
 
+    const buildSticker = (img: HTMLImageElement, category: string) => {
+        const maxSize = 96;
+        const target = Math.min(maxSize, Math.max(img.width, img.height));
+        const scale = target / Math.max(img.width, img.height);
+        const scaledWidth = img.width * scale;
+        const scaledHeight = img.height * scale;
+        const pad = 14;
+        const diameter = Math.max(scaledWidth, scaledHeight) + pad * 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = diameter;
+        canvas.height = diameter;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return img;
+
+        const center = diameter / 2;
+        const ringRadius = Math.max(scaledWidth, scaledHeight) / 2 + pad / 2;
+        const stickerRadius = Math.max(scaledWidth, scaledHeight) / 2;
+        const ringColor = getCategoryColor(category);
+
+        // Outer ring
+        ctx.beginPath();
+        ctx.arc(center, center, ringRadius, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 6;
+        ctx.strokeStyle = ringColor;
+        ctx.stroke();
+
+        // Inner image mask
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, center - scaledWidth / 2, center - scaledHeight / 2, scaledWidth, scaledHeight);
+        ctx.restore();
+
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.beginPath();
+        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        return canvas;
+    };
+
     Object.entries(activeIcons).forEach(([cat, iconDef]) => {
         const incomingUrl = iconDef.imageUrl;
         const previousUrl = loadedIconUrls.current[cat];
@@ -265,10 +310,11 @@ const MapView: React.FC<MapViewProps> = ({
         img.crossOrigin = "Anonymous";
         img.onload = () => {
             try {
+                const sticker = buildSticker(img, cat);
                 if (map.hasImage(cat)) {
-                    map.updateImage(cat, img as any);
+                    map.updateImage(cat, sticker as any);
                 } else {
-                    map.addImage(cat, img as any);
+                    map.addImage(cat, sticker as any, { pixelRatio: 2 });
                 }
                 loadedIconUrls.current[cat] = incomingUrl;
             } catch (e) {
@@ -324,21 +370,23 @@ const MapView: React.FC<MapViewProps> = ({
       const border = popupStyle.borderColor || palette.road || '#dadce0';
       
       const html = `
-        <div style="position:relative; font-family: ${popupStyle.fontFamily}; color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 12px 12px 10px; min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:6px; right:6px; background: transparent; border: 1px solid ${border}; color:${text}; width:22px; height:22px; border-radius: 6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; line-height:1;">
+        <div style="position:relative; font-family: ${popupStyle.fontFamily}; min-width: 240px;">
+            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:-14px; right:-14px; background: ${bg}; border: 2px solid ${border}; color:${text}; width:28px; height:28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; line-height:1; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
                 ×
             </button>
-            <div style="display: flex; gap: 10px;">
-                ${headerImg ? `<div style="width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 6px; padding: 4px; display:flex; align-items:center; justify-content:center;"><img src="${headerImg}" style="max-width:100%; max-height:100%;" /></div>` : ''}
-                <div style="flex:1; padding-right: 12px;">
-                    <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
-                    <div style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub}</div>
+            <div style="color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 14px 14px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                <div style="display: flex; gap: 10px; align-items:center;">
+                    ${headerImg ? `<div style=\"width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 10px; padding: 6px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;\"><img src=\"${headerImg}\" style=\"max-width:100%; max-height:100%; object-fit:contain;\" /></div>` : ''}
+                    <div style="flex:1; padding-right: 12px;">
+                        <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
+                        <div style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub}</div>
+                    </div>
                 </div>
+                <div style="margin-top:10px; font-size:13px; opacity:0.92; border-top:1px solid ${border}40; padding-top:8px;">
+                    ${desc}
+                </div>
+                ${!isDefaultTheme ? `<button id=\"popup-edit-btn\" style=\"margin-top:10px; width:100%; padding:6px 8px; background:${border}20; border:1px solid ${border}; border-radius:6px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:6px; color:${text};\">${wandIcon} Remix Icon</button>` : ''}
             </div>
-            <div style="margin-top:8px; font-size:13px; opacity:0.9; border-top:1px solid ${border}40; padding-top:8px;">
-                ${desc}
-            </div>
-            ${!isDefaultTheme ? `<button id="popup-edit-btn" style="margin-top:8px; width:100%; padding:4px; background:${border}20; border:none; border-radius:4px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:4px; color:${text};">${wandIcon} Remix Icon</button>` : ''}
         </div>
       `;
 
@@ -446,7 +494,7 @@ const MapView: React.FC<MapViewProps> = ({
                     source: 'places',
                     layout: {
                         'icon-image': ['get', 'iconKey'],
-                        'icon-size': 0.28,
+                        'icon-size': 0.22,
                         'icon-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],

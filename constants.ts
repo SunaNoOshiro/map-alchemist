@@ -16,6 +16,24 @@ export const CATEGORY_GROUPS: Record<string, string[]> = {
   'Religious': ['Church', 'Mosque', 'Synagogue', 'Hindu Temple', 'Place of Worship']
 };
 
+// Palette used to colorize icons per high-level category group (matches the asset panel hues)
+export const CATEGORY_COLORS: Record<string, string> = {
+  'Food & Drink': '#f97316',
+  'Shopping': '#6366f1',
+  'Health': '#ef4444',
+  'Transport': '#06b6d4',
+  'Services': '#9ca3af',
+  'Attractions': '#a855f7',
+  'Education': '#14b8a6',
+  'Religious': '#f59e0b'
+};
+
+export const getCategoryColor = (subcategory: string): string => {
+  const group = Object.entries(CATEGORY_GROUPS).find(([, cats]) => cats.includes(subcategory))?.[0];
+  if (group && CATEGORY_COLORS[group]) return CATEGORY_COLORS[group];
+  return '#6b7280';
+};
+
 export const MAP_CATEGORIES = Object.values(CATEGORY_GROUPS).flat();
 
 // OSM Tag Mapping
