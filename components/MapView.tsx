@@ -294,6 +294,36 @@ const MapView: React.FC<MapViewProps> = ({
         return canvas;
     };
 
+    const buildFallbackSticker = (category: string) => {
+        const diameter = 60;
+        const canvas = document.createElement('canvas');
+        canvas.width = diameter;
+        canvas.height = diameter;
+        const ctx = canvas.getContext('2d');
+        const ringColor = getCategoryColor(category);
+        if (!ctx) return canvas;
+
+        const center = diameter / 2;
+        const stickerRadius = diameter / 2 - 6;
+        ctx.beginPath();
+        ctx.arc(center, center, stickerRadius + 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = ringColor;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
+        ctx.fillStyle = `${ringColor}22`;
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+        ctx.stroke();
+
+        return canvas;
+    };
+
     Object.entries(activeIcons).forEach(([cat, iconDef]) => {
         const incomingUrl = iconDef.imageUrl;
         const previousUrl = loadedIconUrls.current[cat];
@@ -308,18 +338,28 @@ const MapView: React.FC<MapViewProps> = ({
 
         const img = new Image();
         img.crossOrigin = "Anonymous";
+
+        const register = (canvas: HTMLCanvasElement | HTMLImageElement, urlToken: string | null) => {
+            if (map.hasImage(cat)) {
+                map.updateImage(cat, canvas as any);
+            } else {
+                map.addImage(cat, canvas as any, { pixelRatio: 2 });
+            }
+            loadedIconUrls.current[cat] = urlToken;
+        };
+
         img.onload = () => {
             try {
                 const sticker = buildSticker(img, cat);
-                if (map.hasImage(cat)) {
-                    map.updateImage(cat, sticker as any);
-                } else {
-                    map.addImage(cat, sticker as any, { pixelRatio: 2 });
-                }
-                loadedIconUrls.current[cat] = incomingUrl;
+                register(sticker, incomingUrl);
             } catch (e) {
                 log.warn('Failed to register icon', { cat, error: e });
+                register(buildFallbackSticker(cat), null);
             }
+        };
+        img.onerror = () => {
+            log.warn('Icon failed to load, using fallback', { cat, url: incomingUrl });
+            register(buildFallbackSticker(cat), null);
         };
         img.src = incomingUrl;
     });
@@ -334,17 +374,17 @@ const MapView: React.FC<MapViewProps> = ({
 
     if (!map.hasImage('fallback-dot')) {
         const canvas = document.createElement('canvas');
-        canvas.width = 20; canvas.height = 20;
+        canvas.width = 32; canvas.height = 32;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.beginPath();
-            ctx.arc(10, 10, 8, 0, Math.PI*2);
+            ctx.arc(16, 16, 12, 0, Math.PI*2);
             ctx.fillStyle = '#4285F4';
             ctx.fill();
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
             ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
+            map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
         }
     }
   }, [activeIcons, loaded]);
@@ -494,7 +534,8 @@ const MapView: React.FC<MapViewProps> = ({
                     source: 'places',
                     layout: {
                         'icon-image': ['get', 'iconKey'],
-                        'icon-size': 0.22,
+                        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.3, 16, 0.36, 18, 0.42],
+                        'icon-padding': 2,
                         'icon-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
