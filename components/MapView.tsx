@@ -4,6 +4,9 @@ import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
 import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
 import { normalizeMapStyle } from '../services/defaultThemes';
+import { createLogger } from '../services/logger';
+
+const log = createLogger('map-view');
 
 // --- SAFE BASE URL HELPER ---
 const safeBaseHref = () => {
@@ -36,7 +39,7 @@ try {
     // @ts-ignore
     maplibregl.workerUrl = "https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl-csp-worker.js";
 } catch (e) {
-    console.warn("Failed to set maplibregl.workerUrl", e);
+    log.warn("Failed to set maplibregl.workerUrl", e);
 }
 
 interface MapViewProps {
@@ -58,7 +61,7 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
     
     // Safety check for large areas
     if ((n - s) * (e - w) > 1.0) {
-        console.warn("Area too large for Overpass demo");
+        log.warn("Area too large for Overpass demo");
         return [];
     }
 
@@ -81,7 +84,7 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
         const data = await response.json();
         return data.elements || [];
     } catch (err) {
-        console.error("Overpass Fetch Error", err);
+        log.error("Overpass Fetch Error", err);
         return [];
     }
 };
@@ -117,7 +120,7 @@ const loadSafeStyle = async (styleUrl: string) => {
                             if (tileJson.bounds) source.bounds = tileJson.bounds;
                         }
                     } catch (e) {
-                        console.warn(`TileJSON inline failed for ${key}`, e);
+                        log.warn(`TileJSON inline failed for ${key}`, e);
                     }
                 } 
                 // Handle direct tiles
@@ -128,7 +131,7 @@ const loadSafeStyle = async (styleUrl: string) => {
         }
         return style;
     } catch (e) {
-        console.error("Style Load Failed", e);
+        log.error("Style Load Failed", e);
         return { version: 8, sources: {}, layers: [] };
     }
 };
@@ -174,9 +177,11 @@ const MapView: React.FC<MapViewProps> = ({
     const applyPaletteToLayers = () => {
         const colors = palette;
         const styleLayers = map.getStyle()?.layers || [];
+        log.debug('Applying palette to style', { palette: colors, layerCount: styleLayers.length });
 
-        const applyColor = (predicate: (layerId: string) => boolean, color?: string) => {
+        const applyColor = (predicate: (layerId: string) => boolean, color?: string, label?: string) => {
             if (!color) return;
+            let touched = 0;
             (map.getStyle()?.layers || styleLayers)
                 .filter(l => predicate(l.id))
                 .forEach(l => {
@@ -189,16 +194,20 @@ const MapView: React.FC<MapViewProps> = ({
                     if (!paintProp) return;
                     try {
                         map.setPaintProperty(l.id, paintProp, color);
+                        touched += 1;
                     } catch (e) {
                         // ignore coloring failures for optional layers
                     }
                 });
+            if (touched > 0) {
+                log.trace(`Applied ${label || 'color'} to ${touched} layers`);
+            }
         };
 
-        applyColor(id => /water/i.test(id), colors.water);
-        applyColor(id => /(land|park|green|nature|background|vegetation)/i.test(id), colors.park || colors.land);
-        applyColor(id => /building/i.test(id), colors.building);
-        applyColor(id => /(road|transport|highway|street|motorway|primary|secondary|tertiary|residential|trunk|path)/i.test(id), colors.road);
+        applyColor(id => /water/i.test(id), colors.water, 'water');
+        applyColor(id => /(land|park|green|nature|background|vegetation)/i.test(id), colors.park || colors.land, 'land/park');
+        applyColor(id => /building/i.test(id), colors.building, 'building');
+        applyColor(id => /(road|transport|highway|street|motorway|primary|secondary|tertiary|residential|trunk|path)/i.test(id), colors.road, 'road');
 
         if (colors.text) {
             (map.getStyle()?.layers || styleLayers)
@@ -210,22 +219,24 @@ const MapView: React.FC<MapViewProps> = ({
                         // ignore
                     }
                 });
+            log.trace('Applied text color to symbol layers');
         }
 
         // Sync clusters & labels to the theme so POIs reflect the palette
         if (map.getLayer('clusters')) {
-            try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); } catch (e) {/* ignore */}
+            try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); log.trace('Cluster fill tinted'); } catch (e) {/* ignore */}
         }
         if (map.getLayer('cluster-count')) {
-            try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+            try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); log.trace('Cluster count tinted'); } catch (e) {/* ignore */}
         }
         if (map.getLayer('unclustered-point')) {
-            try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+            try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); log.trace('POI labels tinted'); } catch (e) {/* ignore */}
         }
     };
 
     applyPaletteToLayers();
     map.on('styledata', applyPaletteToLayers);
+    log.debug('Attached styledata listener for palette synchronization');
     return () => { map.off('styledata', applyPaletteToLayers); };
   }, [palette, loaded, popupStyle]);
 
@@ -320,7 +331,7 @@ const MapView: React.FC<MapViewProps> = ({
       // Wait for safe style to be ready
       if (mapInstance.current || !styleJSON || !mapContainer.current) return;
       
-      console.log("[MapAlchemist] Initializing MapLibre 4.6.0");
+      log.info("Initializing MapLibre 4.6.0");
 
       try {
           const map = new maplibregl.Map({
@@ -347,7 +358,7 @@ const MapView: React.FC<MapViewProps> = ({
 
           map.on('error', (e) => {
              if (e.error?.message !== 'The user aborted a request.') {
-                 console.error("Map Error", e);
+                 log.error("Map Error", e);
              }
           });
 
@@ -357,12 +368,12 @@ const MapView: React.FC<MapViewProps> = ({
                   const empty = { width: 1, height: 1, data: new Uint8Array(4) } as any;
                   map.addImage(e.id, empty, { pixelRatio: 1 });
               } catch (err) {
-                  console.warn('Failed to supply fallback image for', e.id, err);
+                  log.warn('Failed to supply fallback image for', e.id, err);
               }
           });
 
           map.on('load', () => {
-              console.log("[MapAlchemist] Map Loaded");
+              log.info("Map Loaded");
               setLoaded(true);
               if (onMapLoad) onMapLoad(map);
 
@@ -418,7 +429,7 @@ const MapView: React.FC<MapViewProps> = ({
 
           mapInstance.current = map;
       } catch (e) {
-          console.error("Map Init Exception", e);
+          log.error("Map Init Exception", e);
       }
 
       return () => {
@@ -433,11 +444,14 @@ const MapView: React.FC<MapViewProps> = ({
   const refreshData = async (map: maplibregl.Map) => {
       const bounds = map.getBounds();
       const zoom = map.getZoom();
-      
-      if (zoom < 13) return; 
+
+      if (zoom < 13) {
+          log.debug('Skipping Overpass fetch; zoom below threshold', { zoom });
+          return;
+      }
 
       const rawElements = await fetchOverpassData(bounds);
-      
+
       const features = rawElements.map(el => {
           const id = el.id.toString();
           
@@ -481,6 +495,7 @@ const MapView: React.FC<MapViewProps> = ({
               type: 'FeatureCollection',
               features: features as any
           });
+          log.debug('Refreshed Overpass features', { count: features.length, zoom });
       }
   };
 

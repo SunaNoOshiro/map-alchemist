@@ -32,3 +32,23 @@ branch, not just `main`:
   to the PR so it will not affect the main deployment.
 - For security reasons, previews are only generated when the branch lives in
   this repository (forked PRs keep the build artifacts but skip publishing).
+
+## Debug logging
+
+The app now uses a namespaced logger so you can tune verbosity without
+changing code. Set log levels in the browser console via `localStorage`:
+
+```js
+// Log everything from every namespace
+localStorage.setItem('mapAlchemistLogLevel', 'trace');
+
+// Only turn up logs for the map view logic
+localStorage.setItem('mapAlchemistLogLevel:map-view', 'debug');
+
+// Clear overrides
+localStorage.removeItem('mapAlchemistLogLevel');
+localStorage.removeItem('mapAlchemistLogLevel:map-view');
+```
+
+You can also set `VITE_LOG_LEVEL` (error, warn, info, debug, trace) in your
+environment to control the default level for all namespaces when building.
