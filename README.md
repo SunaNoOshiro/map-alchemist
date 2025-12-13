@@ -26,7 +26,8 @@ verify theme or map changes before merging. Previews run for PRs targeting any
 branch, not just `main`:
 
 - Open the pull request checks and expand the **deploy-preview** job to find the
-  **page_url** it produces.
+  **page_url** it produces (published to the `github-pages-preview`
+  environment so protected `github-pages` rules do not block PRs).
 - The preview uses the same `npm run build` output as production, but is scoped
   to the PR so it will not affect the main deployment.
 - For security reasons, previews are only generated when the branch lives in
