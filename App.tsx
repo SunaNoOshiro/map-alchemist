@@ -345,6 +345,7 @@ function App() {
             <MapView
                 apiKey={""}
                 mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
+                palette={activeStyle?.palette}
                 activeIcons={activeIcons}
                 popupStyle={activeStyle ? activeStyle.popupStyle : DEFAULT_STYLE_PRESET.popupStyle}
                 onMapLoad={onMapLoad}

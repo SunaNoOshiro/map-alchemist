@@ -37,19 +37,33 @@ const extractColor = (
     const match = styles.find(
       (s) => s.featureType === featureType && s.elementType === elementType && Array.isArray(s.stylers)
     );
-    const colorStyler = match?.stylers?.find((s: any) => s.color);
+    if (!match?.stylers) continue;
+    const colorStyler = match.stylers.find((s: any) => s.color || s.hue);
     if (colorStyler?.color) return colorStyler.color;
+    if (colorStyler?.hue) return colorStyler.hue;
   }
   return undefined;
 };
 
-export const normalizeMapStyle = (mapStyleJson: any): any => {
+export const derivePalette = (mapStyleJson: any): Record<string, string> => {
+  if (mapStyleJson?.colors) return mapStyleJson.colors;
+  if (!mapStyleJson) return {};
+
   if (Array.isArray(mapStyleJson)) {
-    const land = extractColor(mapStyleJson, 'landscape', ['geometry', 'geometry.fill']);
+    const land =
+      extractColor(mapStyleJson, 'landscape', ['geometry', 'geometry.fill']) ||
+      extractColor(mapStyleJson, 'landscape.natural', ['geometry', 'geometry.fill']);
     const water = extractColor(mapStyleJson, 'water', ['geometry', 'geometry.fill']);
-    const road = extractColor(mapStyleJson, 'road', ['geometry', 'geometry.stroke']);
-    const building = extractColor(mapStyleJson, 'poi', ['geometry.fill', 'geometry']);
-    const text = extractColor(mapStyleJson, 'all', ['labels.text.fill']);
+    const road =
+      extractColor(mapStyleJson, 'road', ['geometry.stroke', 'geometry.fill']) ||
+      extractColor(mapStyleJson, 'road.highway', ['geometry.stroke', 'geometry.fill']);
+    const building =
+      extractColor(mapStyleJson, 'poi', ['geometry.fill', 'geometry']) ||
+      extractColor(mapStyleJson, 'poi.business', ['geometry.fill', 'geometry']);
+    const text =
+      extractColor(mapStyleJson, 'all', ['labels.text.fill']) ||
+      extractColor(mapStyleJson, 'poi', ['labels.text.fill']) ||
+      extractColor(mapStyleJson, 'road', ['labels.text.fill']);
 
     return {
       ...(land ? { land } : {}),
@@ -59,7 +73,14 @@ export const normalizeMapStyle = (mapStyleJson: any): any => {
       ...(text ? { text } : {})
     };
   }
-  return mapStyleJson;
+
+  if (typeof mapStyleJson === 'object') {
+    return Object.fromEntries(
+      Object.entries(mapStyleJson).filter(([, value]) => typeof value === 'string')
+    );
+  }
+
+  return {};
 };
 
 export const fetchDefaultThemes = async (): Promise<{ themes: MapStylePreset[]; defaultIds: string[] }> => {
@@ -82,11 +103,14 @@ export const fetchDefaultThemes = async (): Promise<{ themes: MapStylePreset[]; 
 
     if (!Array.isArray(raw)) return { themes: [], defaultIds: [] };
 
-    const normalized = raw.map((theme: MapStylePreset) => ({
-      ...theme,
-      mapStyleJson: normalizeMapStyle(theme.mapStyleJson),
-      isBundledDefault: true
-    }));
+    const normalized = raw.map((theme: MapStylePreset) => {
+      const palette = derivePalette(theme.mapStyleJson);
+      return {
+        ...theme,
+        palette,
+        isBundledDefault: true
+      };
+    });
 
     return {
       themes: normalized,

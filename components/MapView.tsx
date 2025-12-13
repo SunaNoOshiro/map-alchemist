@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
 import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
-import { normalizeMapStyle } from '../services/defaultThemes';
+import { derivePalette } from '../services/defaultThemes';
 import { createLogger } from '../services/logger';
 
 const log = createLogger('map-view');
@@ -43,8 +43,9 @@ try {
 }
 
 interface MapViewProps {
-  apiKey: string; 
-  mapStyleJson: any; 
+  apiKey: string;
+  mapStyleJson: any;
+  palette?: Record<string, string>;
   activeIcons: Record<string, IconDefinition>;
   popupStyle: PopupStyle;
   onMapLoad?: (map: any) => void;
@@ -136,9 +137,10 @@ const loadSafeStyle = async (styleUrl: string) => {
     }
 };
 
-const MapView: React.FC<MapViewProps> = ({ 
-  mapStyleJson, 
-  activeIcons, 
+const MapView: React.FC<MapViewProps> = ({
+  mapStyleJson,
+  palette: paletteProp,
+  activeIcons,
   popupStyle,
   onMapLoad,
   isDefaultTheme,
@@ -148,6 +150,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   const placesRef = useRef<any[]>([]);
+  const loadedIconUrls = useRef<Record<string, string | null>>({});
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -164,11 +167,9 @@ const MapView: React.FC<MapViewProps> = ({
 
   // --- STYLE UPDATER ---
   const palette = useMemo(() => {
-    if (!mapStyleJson) return {} as Record<string, string>;
-    if (Array.isArray(mapStyleJson)) return normalizeMapStyle(mapStyleJson);
-    if (mapStyleJson.colors) return mapStyleJson.colors;
-    return mapStyleJson as Record<string, string>;
-  }, [mapStyleJson]);
+    if (paletteProp) return paletteProp;
+    return derivePalette(mapStyleJson);
+  }, [mapStyleJson, paletteProp]);
 
   useEffect(() => {
     if (!loaded || !mapInstance.current || !palette) return;
@@ -245,15 +246,40 @@ const MapView: React.FC<MapViewProps> = ({
     if (!loaded || !mapInstance.current) return;
     const map = mapInstance.current;
 
-    Object.keys(activeIcons).forEach(cat => {
-        const iconDef = activeIcons[cat];
-        if (iconDef.imageUrl && !map.hasImage(cat)) {
-            const img = new Image();
-            img.crossOrigin = "Anonymous";
-            img.onload = () => {
-                if (!map.hasImage(cat)) map.addImage(cat, img);
-            };
-            img.src = iconDef.imageUrl;
+    Object.entries(activeIcons).forEach(([cat, iconDef]) => {
+        const incomingUrl = iconDef.imageUrl;
+        const previousUrl = loadedIconUrls.current[cat];
+
+        if (!incomingUrl) {
+            if (map.hasImage(cat)) map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
+            return;
+        }
+
+        if (previousUrl === incomingUrl && map.hasImage(cat)) return;
+
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+            try {
+                if (map.hasImage(cat)) {
+                    map.updateImage(cat, img as any);
+                } else {
+                    map.addImage(cat, img as any);
+                }
+                loadedIconUrls.current[cat] = incomingUrl;
+            } catch (e) {
+                log.warn('Failed to register icon', { cat, error: e });
+            }
+        };
+        img.src = incomingUrl;
+    });
+
+    // Remove icons that are no longer present in the active set
+    Object.keys(loadedIconUrls.current).forEach((cat) => {
+        if (!activeIcons[cat] && map.hasImage(cat)) {
+            map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
         }
     });
 
@@ -468,6 +494,9 @@ const MapView: React.FC<MapViewProps> = ({
           
           const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
           
+          const labelColor = palette.text || popupStyle.textColor;
+          const haloColor = palette.land || popupStyle.backgroundColor;
+
           return {
               type: 'Feature',
               properties: {
@@ -477,8 +506,8 @@ const MapView: React.FC<MapViewProps> = ({
                   subcategory: match.subcategory,
                   description: el.tags?.['addr:street'] ? `${el.tags['addr:street']} ${el.tags['addr:housenumber']||''}` : '',
                   iconKey,
-                  textColor: popupStyle.textColor,
-                  haloColor: popupStyle.backgroundColor
+                  textColor: labelColor,
+                  haloColor
               },
               geometry: {
                   type: 'Point',
@@ -502,7 +531,7 @@ const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
       if (!loaded || !mapInstance.current) return;
       refreshData(mapInstance.current);
-  }, [activeIcons, popupStyle, loaded]);
+  }, [activeIcons, popupStyle, loaded, palette]);
 
   return (
     <div className="relative w-full h-full bg-gray-200">

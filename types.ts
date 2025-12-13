@@ -21,6 +21,7 @@ export interface MapStylePreset {
   iconTheme?: string; // AI-generated art direction for icons
   createdAt: string;
   mapStyleJson: any; // Mapbox Style Spec JSON
+  palette?: Record<string, string>;
   iconsByCategory: Record<string, IconDefinition>;
   popupStyle: PopupStyle;
   isBundledDefault?: boolean;
