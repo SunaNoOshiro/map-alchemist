@@ -1,8 +1,9 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
 import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL } from '../constants';
+import { normalizeMapStyle } from '../services/defaultThemes';
 
 // --- SAFE BASE URL HELPER ---
 const safeBaseHref = () => {
@@ -159,61 +160,74 @@ const MapView: React.FC<MapViewProps> = ({
   }, []);
 
   // --- STYLE UPDATER ---
+  const palette = useMemo(() => {
+    if (!mapStyleJson) return {} as Record<string, string>;
+    if (Array.isArray(mapStyleJson)) return normalizeMapStyle(mapStyleJson);
+    if (mapStyleJson.colors) return mapStyleJson.colors;
+    return mapStyleJson as Record<string, string>;
+  }, [mapStyleJson]);
+
   useEffect(() => {
-    if (!loaded || !mapInstance.current || !mapStyleJson || isDefaultTheme) return;
+    if (!loaded || !mapInstance.current || !palette) return;
     const map = mapInstance.current;
 
-    const colors = mapStyleJson;
+    const applyPaletteToLayers = () => {
+        const colors = palette;
+        const styleLayers = map.getStyle()?.layers || [];
 
-    const setColor = (layerIds: string[], paintProp: string, color?: string) => {
-        if (!color) return;
-        layerIds.forEach(id => {
-            if (map.getLayer(id)) {
-                try {
-                    map.setPaintProperty(id, paintProp, color);
-                } catch (e) {
-                    // ignore coloring failures for optional layers
-                }
-            }
-        });
+        const applyColor = (predicate: (layerId: string) => boolean, color?: string) => {
+            if (!color) return;
+            (map.getStyle()?.layers || styleLayers)
+                .filter(l => predicate(l.id))
+                .forEach(l => {
+                    const paintProp =
+                        l.type === 'fill' ? 'fill-color'
+                        : l.type === 'line' ? 'line-color'
+                        : l.type === 'background' ? 'background-color'
+                        : l.type === 'circle' ? 'circle-color'
+                        : null;
+                    if (!paintProp) return;
+                    try {
+                        map.setPaintProperty(l.id, paintProp, color);
+                    } catch (e) {
+                        // ignore coloring failures for optional layers
+                    }
+                });
+        };
+
+        applyColor(id => /water/i.test(id), colors.water);
+        applyColor(id => /(land|park|green|nature|background|vegetation)/i.test(id), colors.park || colors.land);
+        applyColor(id => /building/i.test(id), colors.building);
+        applyColor(id => /(road|transport|highway|street|motorway|primary|secondary|tertiary|residential|trunk|path)/i.test(id), colors.road);
+
+        if (colors.text) {
+            (map.getStyle()?.layers || styleLayers)
+                .filter(l => l.type === 'symbol')
+                .forEach(l => {
+                    try {
+                        map.setPaintProperty(l.id, 'text-color', colors.text);
+                    } catch (e) {
+                        // ignore
+                    }
+                });
+        }
+
+        // Sync clusters & labels to the theme so POIs reflect the palette
+        if (map.getLayer('clusters')) {
+            try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); } catch (e) {/* ignore */}
+        }
+        if (map.getLayer('cluster-count')) {
+            try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+        }
+        if (map.getLayer('unclustered-point')) {
+            try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
+        }
     };
 
-    setColor(['water', 'waterway', 'waterway-name'], 'line-color', colors.water);
-    setColor(['water', 'waterway', 'waterway-area'], 'fill-color', colors.water);
-
-    setColor(['background', 'landcover', 'land'], 'background-color', colors.land);
-    setColor(['park', 'landuse', 'landcover_park'], 'fill-color', colors.park || colors.land);
-
-    setColor(['building'], 'fill-color', colors.building);
-
-    const roadLayers = (map.getStyle()?.layers || [])
-        .filter(l => l.type === 'line' && /transportation|road/i.test(l.id))
-        .map(l => l.id);
-    setColor([...roadLayers, 'road-primary'], 'line-color', colors.road);
-
-    if (colors.text) {
-        (map.getStyle()?.layers || [])
-            .filter(l => l.type === 'symbol')
-            .forEach(l => {
-                try {
-                    map.setPaintProperty(l.id, 'text-color', colors.text);
-                } catch (e) {
-                    // ignore
-                }
-            });
-    }
-
-    // Sync clusters & labels to the theme so POIs reflect the palette
-    if (map.getLayer('clusters')) {
-        try { map.setPaintProperty('clusters', 'circle-color', colors.road || colors.water); } catch (e) {/* ignore */}
-    }
-    if (map.getLayer('cluster-count')) {
-        try { map.setPaintProperty('cluster-count', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
-    }
-    if (map.getLayer('unclustered-point')) {
-        try { map.setPaintProperty('unclustered-point', 'text-color', colors.text || popupStyle.textColor); } catch (e) {/* ignore */}
-    }
-  }, [mapStyleJson, isDefaultTheme, loaded, popupStyle]);
+    applyPaletteToLayers();
+    map.on('styledata', applyPaletteToLayers);
+    return () => { map.off('styledata', applyPaletteToLayers); };
+  }, [palette, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
@@ -335,6 +349,16 @@ const MapView: React.FC<MapViewProps> = ({
              if (e.error?.message !== 'The user aborted a request.') {
                  console.error("Map Error", e);
              }
+          });
+
+          map.on('styleimagemissing', (e) => {
+              if (map.hasImage(e.id)) return;
+              try {
+                  const empty = { width: 1, height: 1, data: new Uint8Array(4) } as any;
+                  map.addImage(e.id, empty, { pixelRatio: 1 });
+              } catch (err) {
+                  console.warn('Failed to supply fallback image for', e.id, err);
+              }
           });
 
           map.on('load', () => {
