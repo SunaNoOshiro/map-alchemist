@@ -149,6 +149,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const showPopupRef = useRef<(feature: any, coordinates: [number, number]) => void>();
   const lastPopupFeature = useRef<any | null>(null);
   const lastPopupCoords = useRef<[number, number] | null>(null);
   const placesRef = useRef<any[]>([]);
@@ -323,10 +324,13 @@ const MapView: React.FC<MapViewProps> = ({
       const border = popupStyle.borderColor || palette.road || '#dadce0';
       
       const html = `
-        <div style="font-family: ${popupStyle.fontFamily}; color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 12px; min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+        <div style="position:relative; font-family: ${popupStyle.fontFamily}; color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 12px 12px 10px; min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:6px; right:6px; background: transparent; border: 1px solid ${border}; color:${text}; width:22px; height:22px; border-radius: 6px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; line-height:1;">
+                ×
+            </button>
             <div style="display: flex; gap: 10px;">
                 ${headerImg ? `<div style="width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 6px; padding: 4px; display:flex; align-items:center; justify-content:center;"><img src="${headerImg}" style="max-width:100%; max-height:100%;" /></div>` : ''}
-                <div style="flex:1;">
+                <div style="flex:1; padding-right: 12px;">
                     <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
                     <div style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub}</div>
                 </div>
@@ -338,7 +342,7 @@ const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
-      const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 15, maxWidth: '320px' })
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 15, maxWidth: '320px' })
           .setLngLat(coordinates)
           .setHTML(html)
           .addTo(mapInstance.current);
@@ -346,15 +350,28 @@ const MapView: React.FC<MapViewProps> = ({
       popupRef.current = popup;
       lastPopupFeature.current = feature;
       lastPopupCoords.current = coordinates;
-      
+
       setTimeout(() => {
           const btn = document.getElementById('popup-edit-btn');
           if (btn && onEditIcon) {
               btn.onclick = () => onEditIcon(sub);
           }
+          const closeBtn = document.getElementById('popup-close-btn');
+          if (closeBtn) {
+              closeBtn.onclick = () => {
+                  popup.remove();
+                  popupRef.current = null;
+                  lastPopupFeature.current = null;
+                  lastPopupCoords.current = null;
+              };
+          }
       }, 50);
 
   }, [activeIcons, popupStyle, palette, isDefaultTheme, onEditIcon]);
+
+  useEffect(() => {
+      showPopupRef.current = showPopup;
+  }, [showPopup]);
 
   // Refresh any open popup when the theme palette or popup styles change
   useEffect(() => {
@@ -449,8 +466,10 @@ const MapView: React.FC<MapViewProps> = ({
               map.on('click', 'unclustered-point', (e) => {
                   if (!e.features || e.features.length === 0) return;
                   const coordinates = (e.features[0].geometry as any).coordinates.slice();
-                  showPopup(e.features[0], coordinates);
-                  selectedPlaceId.current = e.features[0].properties.id;
+                  if (showPopupRef.current) {
+                      showPopupRef.current(e.features[0], coordinates);
+                      selectedPlaceId.current = e.features[0].properties.id;
+                  }
               });
 
               map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer'; });
