@@ -149,6 +149,8 @@ const MapView: React.FC<MapViewProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const lastPopupFeature = useRef<any | null>(null);
+  const lastPopupCoords = useRef<[number, number] | null>(null);
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
 
@@ -316,9 +318,9 @@ const MapView: React.FC<MapViewProps> = ({
       
       const wandIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M10.6 17.4 12 16"/><path d="M12.5 2.5 8 7"/><path d="M17.5 7.5 13 3"/><path d="M7 21l9-9"/><path d="M3 21l9-9"/></svg>`;
 
-      const bg = popupStyle.backgroundColor;
-      const text = popupStyle.textColor;
-      const border = popupStyle.borderColor;
+      const bg = popupStyle.backgroundColor || palette.land || '#ffffff';
+      const text = popupStyle.textColor || palette.text || '#202124';
+      const border = popupStyle.borderColor || palette.road || '#dadce0';
       
       const html = `
         <div style="font-family: ${popupStyle.fontFamily}; color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 12px; min-width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
@@ -336,12 +338,14 @@ const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
-      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 15, maxWidth: '320px' })
+      const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 15, maxWidth: '320px' })
           .setLngLat(coordinates)
           .setHTML(html)
           .addTo(mapInstance.current);
 
       popupRef.current = popup;
+      lastPopupFeature.current = feature;
+      lastPopupCoords.current = coordinates;
       
       setTimeout(() => {
           const btn = document.getElementById('popup-edit-btn');
@@ -350,7 +354,13 @@ const MapView: React.FC<MapViewProps> = ({
           }
       }, 50);
 
-  }, [activeIcons, popupStyle, isDefaultTheme, onEditIcon]);
+  }, [activeIcons, popupStyle, palette, isDefaultTheme, onEditIcon]);
+
+  // Refresh any open popup when the theme palette or popup styles change
+  useEffect(() => {
+      if (!popupRef.current || !lastPopupFeature.current || !lastPopupCoords.current) return;
+      showPopup(lastPopupFeature.current, lastPopupCoords.current);
+  }, [showPopup, popupStyle, palette]);
 
   // --- INITIALIZATION ---
   useEffect(() => {
