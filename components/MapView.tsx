@@ -249,84 +249,6 @@ const MapView: React.FC<MapViewProps> = ({
     if (!loaded || !mapInstance.current) return;
     const map = mapInstance.current;
 
-    const buildSticker = (img: HTMLImageElement, category: string) => {
-        if (!img.width || !img.height) {
-            return buildFallbackSticker(category);
-        }
-        const maxSize = 96;
-        const target = Math.min(maxSize, Math.max(img.width, img.height));
-        const scale = target / Math.max(img.width, img.height);
-        const scaledWidth = img.width * scale;
-        const scaledHeight = img.height * scale;
-        const pad = 14;
-        const diameter = Math.max(scaledWidth, scaledHeight) + pad * 2;
-        const canvas = document.createElement('canvas');
-        canvas.width = diameter;
-        canvas.height = diameter;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return img;
-
-        const center = diameter / 2;
-        const ringRadius = Math.max(scaledWidth, scaledHeight) / 2 + pad / 2;
-        const stickerRadius = Math.max(scaledWidth, scaledHeight) / 2;
-        const ringColor = getCategoryColor(category);
-
-        // Outer ring
-        ctx.beginPath();
-        ctx.arc(center, center, ringRadius, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.lineWidth = 6;
-        ctx.strokeStyle = ringColor;
-        ctx.stroke();
-
-        // Inner image mask
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(img, center - scaledWidth / 2, center - scaledHeight / 2, scaledWidth, scaledHeight);
-        ctx.restore();
-
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-        ctx.beginPath();
-        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
-        ctx.stroke();
-
-        return canvas;
-    };
-
-    const buildFallbackSticker = (category: string) => {
-        const diameter = 60;
-        const canvas = document.createElement('canvas');
-        canvas.width = diameter;
-        canvas.height = diameter;
-        const ctx = canvas.getContext('2d');
-        const ringColor = getCategoryColor(category);
-        if (!ctx) return canvas;
-
-        const center = diameter / 2;
-        const stickerRadius = diameter / 2 - 6;
-        ctx.beginPath();
-        ctx.arc(center, center, stickerRadius + 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.lineWidth = 5;
-        ctx.strokeStyle = ringColor;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(center, center, stickerRadius, 0, Math.PI * 2);
-        ctx.fillStyle = `${ringColor}22`;
-        ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = 'rgba(0,0,0,0.08)';
-        ctx.stroke();
-
-        return canvas;
-    };
-
     Object.entries(activeIcons).forEach(([cat, iconDef]) => {
         const incomingUrl = iconDef.imageUrl;
         const previousUrl = loadedIconUrls.current[cat];
@@ -342,30 +264,19 @@ const MapView: React.FC<MapViewProps> = ({
         const img = new Image();
         img.crossOrigin = "Anonymous";
 
-        const register = (canvas: HTMLCanvasElement | HTMLImageElement, urlToken: string | null) => {
+        img.onload = () => {
             try {
-                if (map.hasImage(cat)) {
-                    map.removeImage(cat);
-                }
-                map.addImage(cat, canvas as any, { pixelRatio: 2 });
-                loadedIconUrls.current[cat] = urlToken;
+                if (map.hasImage(cat)) map.removeImage(cat);
+                map.addImage(cat, img, { pixelRatio: 2 });
+                loadedIconUrls.current[cat] = incomingUrl;
             } catch (e) {
                 log.error('Failed to register image', { cat, error: e });
             }
         };
-
-        img.onload = () => {
-            try {
-                const sticker = buildSticker(img, cat);
-                register(sticker, incomingUrl);
-            } catch (e) {
-                log.warn('Failed to register icon', { cat, error: e });
-                register(buildFallbackSticker(cat), null);
-            }
-        };
         img.onerror = () => {
-            log.warn('Icon failed to load, using fallback', { cat, url: incomingUrl });
-            register(buildFallbackSticker(cat), null);
+            log.warn('Icon failed to load', { cat, url: incomingUrl });
+            if (map.hasImage(cat)) map.removeImage(cat);
+            delete loadedIconUrls.current[cat];
         };
         img.src = incomingUrl;
     });
@@ -380,17 +291,17 @@ const MapView: React.FC<MapViewProps> = ({
 
     if (!map.hasImage('fallback-dot')) {
         const canvas = document.createElement('canvas');
-        canvas.width = 32; canvas.height = 32;
+        canvas.width = 24; canvas.height = 24;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.beginPath();
-            ctx.arc(16, 16, 12, 0, Math.PI*2);
+            ctx.arc(12, 12, 9, 0, Math.PI*2);
             ctx.fillStyle = '#4285F4';
             ctx.fill();
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
             ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
+            map.addImage('fallback-dot', ctx.getImageData(0,0,24,24));
         }
     }
   }, [activeIcons, loaded]);
@@ -558,27 +469,21 @@ const MapView: React.FC<MapViewProps> = ({
                     type: 'symbol',
                     source: 'places',
                     layout: {
-                        'icon-image': [
-                            'case',
-                            ['has-image', ['get', 'iconKey']],
-                            ['get', 'iconKey'],
-                            'fallback-dot'
-                        ],
-                        'icon-size': ['interpolate', ['linear'], ['zoom'], 12, 0.75, 16, 0.9, 18, 1.05],
-                        'icon-padding': 2,
+                        'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
+                        'icon-size': 0.24,
                         'icon-allow-overlap': true,
                         'text-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
-                        'text-offset': [0, 1.2],
+                        'text-offset': [0, 1.1],
                         'text-anchor': 'top',
-                        'text-size': 12,
+                        'text-size': 11,
                         'text-optional': true
                     },
                     paint: {
                         'text-color': ['coalesce', ['get', 'textColor'], '#202124'],
                         'text-halo-color': ['coalesce', ['get', 'haloColor'], '#ffffff'],
-                        'text-halo-width': 2.5
+                        'text-halo-width': 2
                     }
                 });
               }
