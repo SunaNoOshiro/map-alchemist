@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Run for pull requests targeting any branch so previews are available on all MRs
+    branches: ['**']
   workflow_dispatch:
 
 permissions:

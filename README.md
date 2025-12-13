@@ -22,7 +22,8 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vLhztt7l7Qs_Qu10L2KmPF
 ## Preview deployments for pull requests
 
 Pull requests now publish a temporary GitHub Pages preview so you can manually
-verify theme or map changes before merging to `main`:
+verify theme or map changes before merging. Previews run for PRs targeting any
+branch, not just `main`:
 
 - Open the pull request checks and expand the **deploy-preview** job to find the
   **page_url** it produces.
