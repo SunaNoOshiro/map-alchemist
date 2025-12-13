@@ -13,6 +13,7 @@ import { MapStylePreset, LogEntry, AppStatus } from './types';
 import { MAP_CATEGORIES, DEFAULT_STYLE_PRESET } from './constants';
 import * as geminiService from './services/geminiService';
 import { storageService } from './services/storage';
+import { fetchDefaultThemes } from './services/defaultThemes';
 
 function App() {
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -20,6 +21,8 @@ function App() {
 
   const [styles, setStyles] = useState<MapStylePreset[]>([]);
   const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
+  const [defaultThemes, setDefaultThemes] = useState<MapStylePreset[]>([DEFAULT_STYLE_PRESET]);
+  const [defaultThemeIds, setDefaultThemeIds] = useState<string[]>([DEFAULT_STYLE_PRESET.id]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   
   const [prompt, setPrompt] = useState('');
@@ -54,12 +57,32 @@ function App() {
         if (savedStyles && savedStyles.length > 0) {
             setStyles(savedStyles);
             setActiveStyleId(savedStyles[0].id);
+
+            const bundled = savedStyles.filter(s => s.isBundledDefault);
+            if (bundled.length > 0) {
+              setDefaultThemes(bundled);
+              setDefaultThemeIds(bundled.map(s => s.id));
+            }
+
             addLog("Loaded existing styles.", "info");
-        } else {
-            setStyles([DEFAULT_STYLE_PRESET]);
-            setActiveStyleId(DEFAULT_STYLE_PRESET.id);
-            addLog("Standard theme loaded.", "info");
+            return;
         }
+
+        const { themes, defaultIds } = await fetchDefaultThemes();
+        if (themes.length > 0) {
+            setStyles(themes);
+            setActiveStyleId(themes[0].id);
+            setDefaultThemes(themes);
+            setDefaultThemeIds(defaultIds);
+            addLog("Bundled default themes loaded.", "info");
+            return;
+        }
+
+        setStyles([DEFAULT_STYLE_PRESET]);
+        setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+        setDefaultThemes([DEFAULT_STYLE_PRESET]);
+        setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
+        addLog("Standard theme loaded.", "info");
     };
     loadData();
   }, []);
@@ -135,7 +158,7 @@ function App() {
   const handleRegenerateIcon = async (category: string, userPrompt: string) => {
     if (!hasApiKey) return;
 
-    if (!activeStyleId || activeStyleId === DEFAULT_STYLE_PRESET.id) {
+    if (!activeStyleId || defaultThemeIds.includes(activeStyleId)) {
         addLog("Cannot modify default theme assets.", "warning");
         return;
     }
@@ -209,7 +232,7 @@ function App() {
   };
 
   const handleExport = () => {
-    const customStyles = styles.filter(s => s.id !== DEFAULT_STYLE_PRESET.id);
+    const customStyles = styles.filter(s => !defaultThemeIds.includes(s.id));
     if (customStyles.length === 0) {
       addLog("No custom styles to export.", "warning");
       return;
@@ -232,7 +255,7 @@ function App() {
         try {
             const imported = JSON.parse(evt.target?.result as string);
             if (Array.isArray(imported)) {
-                const validImports = imported.filter((s: MapStylePreset) => s.id !== DEFAULT_STYLE_PRESET.id);
+                const validImports = imported.filter((s: MapStylePreset) => !defaultThemeIds.includes(s.id));
                 setStyles(prev => [...prev, ...validImports]);
                 addLog(`Imported ${validImports.length} styles.`, "success");
             }
@@ -245,21 +268,23 @@ function App() {
 
   const handleClear = () => {
       if (confirm("Delete all custom styles? This will preserve the Default Standard theme.")) {
-          setStyles([DEFAULT_STYLE_PRESET]);
-          setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+          const baseDefaults = defaultThemes.length > 0 ? defaultThemes : [DEFAULT_STYLE_PRESET];
+          setStyles(baseDefaults);
+          setActiveStyleId(baseDefaults[0].id);
           storageService.clearStyles();
           addLog("Custom styles cleared.", "warning");
       }
   };
 
   const handleDeleteStyle = (id: string) => {
-      if (id === DEFAULT_STYLE_PRESET.id) {
-          addLog("Cannot delete the default theme.", "warning");
+      if (defaultThemeIds.includes(id)) {
+          addLog("Cannot delete bundled default themes.", "warning");
           return;
       }
       setStyles(s => s.filter(x => x.id !== id));
       if (activeStyleId === id) {
-          setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+          const fallback = defaultThemes[0] || DEFAULT_STYLE_PRESET;
+          setActiveStyleId(fallback.id);
       }
       addLog("Style deleted.", "info");
   };
@@ -317,13 +342,13 @@ function App() {
               {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
 
-            <MapView 
+            <MapView
                 apiKey={""}
                 mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
                 activeIcons={activeIcons}
                 popupStyle={activeStyle ? activeStyle.popupStyle : DEFAULT_STYLE_PRESET.popupStyle}
                 onMapLoad={onMapLoad}
-                isDefaultTheme={activeStyleId === DEFAULT_STYLE_PRESET.id}
+                isDefaultTheme={activeStyleId ? defaultThemeIds.includes(activeStyleId) : false}
                 onEditIcon={handleEditFromPopup}
             />
         </main>

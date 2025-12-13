@@ -23,6 +23,7 @@ export interface MapStylePreset {
   mapStyleJson: any; // Mapbox Style Spec JSON
   iconsByCategory: Record<string, IconDefinition>;
   popupStyle: PopupStyle;
+  isBundledDefault?: boolean;
 }
 
 export interface LogEntry {

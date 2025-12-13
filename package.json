@@ -4,7 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "prepare-default-themes": "node scripts/unzip-default-themes.cjs",
+    "predev": "npm run prepare-default-themes",
     "dev": "vite",
+    "prebuild": "npm run prepare-default-themes",
     "build": "vite build",
     "preview": "vite preview"
   },
