@@ -143,6 +143,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const placesRef = useRef<any[]>([]);
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -159,21 +160,66 @@ const MapView: React.FC<MapViewProps> = ({
 
   // --- STYLE UPDATER ---
   useEffect(() => {
-    if (!loaded || !mapInstance.current) return;
+    if (!loaded || !mapInstance.current || !mapStyleJson) return;
     const map = mapInstance.current;
-    
-    if (mapStyleJson && !isDefaultTheme) {
-        const colors = mapStyleJson; 
+    const colors = mapStyleJson;
+
+    if (!colors || Object.values(colors).filter(Boolean).length === 0) return;
+
+    const layers = map.getStyle()?.layers || [];
+    const matches = (layer: any, keywords: string[]) => {
+        const sourceLayer: string | undefined = (layer as any)['source-layer'];
+        return keywords.some(k => layer.id.toLowerCase().includes(k) || sourceLayer?.toLowerCase().includes(k));
+    };
+
+    const applyPaint = (layerId: string, prop: string, value?: string) => {
+        if (!value) return;
         try {
-            if (colors.water && map.getLayer('water')) map.setPaintProperty('water', 'fill-color', colors.water);
-            if (colors.land && map.getLayer('background')) map.setPaintProperty('background', 'background-color', colors.land);
-            if (colors.building && map.getLayer('building')) map.setPaintProperty('building', 'fill-color', colors.building);
-            if (colors.road && map.getLayer('road-primary')) map.setPaintProperty('road-primary', 'line-color', colors.road);
-        } catch(e) {
-            // ignore
+            if (map.getLayer(layerId) && map.getPaintProperty(layerId, prop) !== undefined) {
+                map.setPaintProperty(layerId, prop, value);
+            }
+        } catch (e) {
+            // ignore coloring failures for optional layers
         }
-    } 
-  }, [mapStyleJson, isDefaultTheme, loaded]);
+    };
+
+    layers.forEach(layer => {
+        if (!layer) return;
+
+        if (matches(layer, ['water', 'ocean', 'river', 'lake'])) {
+            applyPaint(layer.id, 'fill-color', colors.water);
+            applyPaint(layer.id, 'line-color', colors.water);
+            applyPaint(layer.id, 'background-color', colors.water);
+        }
+
+        if (matches(layer, ['land', 'background', 'earth'])) {
+            applyPaint(layer.id, 'background-color', colors.land);
+            applyPaint(layer.id, 'fill-color', colors.land);
+        }
+
+        if (matches(layer, ['park', 'forest', 'green', 'grass', 'garden'])) {
+            applyPaint(layer.id, 'fill-color', colors.park || colors.land);
+            applyPaint(layer.id, 'line-color', colors.park || colors.land);
+        }
+
+        if (matches(layer, ['building', 'structure'])) {
+            applyPaint(layer.id, 'fill-color', colors.building || colors.park || colors.land);
+            applyPaint(layer.id, 'fill-extrusion-color', colors.building || colors.park || colors.land);
+        }
+
+        if (layer.type === 'line' && matches(layer, ['road', 'street', 'highway', 'transport'])) {
+            applyPaint(layer.id, 'line-color', colors.road || colors.text);
+        }
+
+        if (layer.type === 'symbol') {
+            applyPaint(layer.id, 'text-color', colors.text || popupStyle.textColor);
+        }
+    });
+
+    if (map.getLayer('unclustered-point')) {
+        applyPaint('unclustered-point', 'text-color', colors.text || popupStyle.textColor);
+    }
+  }, [mapStyleJson, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
   useEffect(() => {
@@ -307,41 +353,7 @@ const MapView: React.FC<MapViewProps> = ({
                 map.addSource('places', {
                     type: 'geojson',
                     data: { type: 'FeatureCollection', features: [] },
-                    cluster: true,
-                    clusterMaxZoom: 14,
-                    clusterRadius: 50
-                });
-              }
-
-              if (!map.getLayer('clusters')) {
-                map.addLayer({
-                    id: 'clusters',
-                    type: 'circle',
-                    source: 'places',
-                    filter: ['has', 'point_count'],
-                    paint: {
-                        'circle-color': '#51bbd6',
-                        'circle-radius': 18,
-                        'circle-stroke-width': 2,
-                        'circle-stroke-color': '#fff'
-                    }
-                });
-              }
-
-              if (!map.getLayer('cluster-count')) {
-                map.addLayer({
-                    id: 'cluster-count',
-                    type: 'symbol',
-                    source: 'places',
-                    filter: ['has', 'point_count'],
-                    layout: {
-                        'text-field': '{point_count_abbreviated}',
-                        'text-font': ['Noto Sans Regular'], 
-                        'text-size': 12
-                    },
-                    paint: {
-                        'text-color': '#ffffff'
-                    }
+                    cluster: false
                 });
               }
 
@@ -350,10 +362,9 @@ const MapView: React.FC<MapViewProps> = ({
                     id: 'unclustered-point',
                     type: 'symbol',
                     source: 'places',
-                    filter: ['!', ['has', 'point_count']],
                     layout: {
-                        'icon-image': ['get', 'iconKey'], 
-                        'icon-size': 0.8, 
+                        'icon-image': ['get', 'iconKey'],
+                        'icon-size': 0.28,
                         'icon-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
@@ -369,15 +380,6 @@ const MapView: React.FC<MapViewProps> = ({
                     }
                 });
               }
-
-              map.on('click', 'clusters', (e) => {
-                  const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-                  const clusterId = features[0].properties.cluster_id;
-                  (map.getSource('places') as any).getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
-                      if (err) return;
-                      map.easeTo({ center: (features[0].geometry as any).coordinates, zoom: zoom });
-                  });
-              });
 
               map.on('click', 'unclustered-point', (e) => {
                   if (!e.features || e.features.length === 0) return;
@@ -453,6 +455,8 @@ const MapView: React.FC<MapViewProps> = ({
           };
       }).filter(f => f.geometry.coordinates[0]);
 
+      placesRef.current = features as any[];
+
       const source = map.getSource('places') as maplibregl.GeoJSONSource;
       if (source) {
           source.setData({
@@ -461,6 +465,19 @@ const MapView: React.FC<MapViewProps> = ({
           });
       }
   };
+
+  useEffect(() => {
+      if (!popupRef.current || !mapInstance.current || !selectedPlaceId.current) return;
+      const feature = placesRef.current.find(f => f.properties?.id === selectedPlaceId.current);
+      if (!feature) return;
+      const coords = (feature.geometry as any).coordinates as [number, number];
+      showPopup(feature, coords);
+  }, [popupStyle, activeIcons, showPopup]);
+
+  useEffect(() => {
+      if (!loaded || !mapInstance.current) return;
+      refreshData(mapInstance.current);
+  }, [activeIcons, popupStyle, loaded]);
 
   return (
     <div className="relative w-full h-full bg-gray-200">
