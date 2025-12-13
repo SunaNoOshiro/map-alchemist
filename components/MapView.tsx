@@ -143,6 +143,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const placesRef = useRef<any[]>([]);
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -346,41 +347,7 @@ const MapView: React.FC<MapViewProps> = ({
                 map.addSource('places', {
                     type: 'geojson',
                     data: { type: 'FeatureCollection', features: [] },
-                    cluster: true,
-                    clusterMaxZoom: 14,
-                    clusterRadius: 50
-                });
-              }
-
-              if (!map.getLayer('clusters')) {
-                map.addLayer({
-                    id: 'clusters',
-                    type: 'circle',
-                    source: 'places',
-                    filter: ['has', 'point_count'],
-                    paint: {
-                        'circle-color': '#51bbd6',
-                        'circle-radius': 18,
-                        'circle-stroke-width': 2,
-                        'circle-stroke-color': '#fff'
-                    }
-                });
-              }
-
-              if (!map.getLayer('cluster-count')) {
-                map.addLayer({
-                    id: 'cluster-count',
-                    type: 'symbol',
-                    source: 'places',
-                    filter: ['has', 'point_count'],
-                    layout: {
-                        'text-field': '{point_count_abbreviated}',
-                        'text-font': ['Noto Sans Regular'], 
-                        'text-size': 12
-                    },
-                    paint: {
-                        'text-color': '#ffffff'
-                    }
+                    cluster: false
                 });
               }
 
@@ -389,10 +356,9 @@ const MapView: React.FC<MapViewProps> = ({
                     id: 'unclustered-point',
                     type: 'symbol',
                     source: 'places',
-                    filter: ['!', ['has', 'point_count']],
                     layout: {
-                        'icon-image': ['get', 'iconKey'], 
-                        'icon-size': 0.8, 
+                        'icon-image': ['get', 'iconKey'],
+                        'icon-size': 0.28,
                         'icon-allow-overlap': true,
                         'text-field': ['get', 'title'],
                         'text-font': ['Noto Sans Regular'],
@@ -408,15 +374,6 @@ const MapView: React.FC<MapViewProps> = ({
                     }
                 });
               }
-
-              map.on('click', 'clusters', (e) => {
-                  const features = map.queryRenderedFeatures(e.point, { layers: ['clusters'] });
-                  const clusterId = features[0].properties.cluster_id;
-                  (map.getSource('places') as any).getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
-                      if (err) return;
-                      map.easeTo({ center: (features[0].geometry as any).coordinates, zoom: zoom });
-                  });
-              });
 
               map.on('click', 'unclustered-point', (e) => {
                   if (!e.features || e.features.length === 0) return;
@@ -491,6 +448,8 @@ const MapView: React.FC<MapViewProps> = ({
               }
           };
       }).filter(f => f.geometry.coordinates[0]);
+
+      placesRef.current = features as any[];
 
       const source = map.getSource('places') as maplibregl.GeoJSONSource;
       if (source) {
