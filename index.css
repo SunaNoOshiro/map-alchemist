@@ -1,0 +1,31 @@
+@import url("https://cdn.jsdelivr.net/npm/tailwindcss@3.4.17/dist/tailwind.min.css");
+
+/* Custom scrollbar for log panel */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* MapLibre Popup Overrides */
+.maplibregl-popup-content {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+.maplibregl-popup-close-button {
+  display: none;
+}
+.maplibregl-popup-tip {
+  border-top-color: #333;
+}
