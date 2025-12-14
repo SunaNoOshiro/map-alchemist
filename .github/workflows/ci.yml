@@ -64,10 +64,9 @@ jobs:
     needs: build-and-test
     if: github.event_name == 'pull_request'
     environment:
-      # GitHub Pages expects the environment name to be "github-pages" for preview
-      # deployments to receive their dedicated preview URL instead of the production
-      # link.
-      name: github-pages
+      # Use a dedicated environment for previews to avoid github-pages branch
+      # protection rules that restrict deployments to main.
+      name: github-pages-preview
       url: ${{ steps.preview_meta.outputs.preview_url }}
     steps:
       - name: Deploy preview to GitHub Pages
