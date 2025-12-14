@@ -470,7 +470,7 @@ const MapView: React.FC<MapViewProps> = ({
                     source: 'places',
                     layout: {
                         'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
-                        'icon-size': 0.24,
+                        'icon-size': 0.16,
                         'icon-allow-overlap': true,
                         'text-allow-overlap': true,
                         'text-field': ['get', 'title'],
