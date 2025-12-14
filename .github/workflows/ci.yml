@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -62,48 +62,62 @@ jobs:
   deploy-preview:
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
     environment:
-      # Use a dedicated environment for previews to avoid github-pages branch
-      # protection rules that restrict deployments to main.
       name: github-pages-preview
-      url: ${{ steps.preview_meta.outputs.preview_url }}
+      url: ${{ steps.publish_preview.outputs.preview_url }}
     steps:
-      - name: Deploy preview to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
         with:
-          preview: true
-          # Use the PR number to give each branch a stable preview URL
-          preview_id: pr-${{ github.event.pull_request.number }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: gh-pages
+          fetch-depth: 0
 
-      - name: Capture preview URL
-        id: preview_meta
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: pr-artifact
+
+      - name: Publish preview to gh-pages/pr-${{ github.event.pull_request.number }}/
+        id: publish_preview
         env:
-          PREVIEW_URL: ${{ steps.deployment.outputs.preview_url }}
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          PR_PATH: pr-${{ github.event.pull_request.number }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "deploy-pages preview_url: $PREVIEW_URL"
-          echo "deploy-pages page_url: $PAGE_URL"
+          set -euo pipefail
 
-          url="${PREVIEW_URL:-$PAGE_URL}"
-          if [ -z "$url" ]; then
-            echo "Expected a preview URL from deploy-pages, but it was empty." >&2
+          PREVIEW_DIR="$PR_PATH"
+
+          rm -rf "$PREVIEW_DIR"
+          mkdir -p "$PREVIEW_DIR"
+
+          if [ -z "$(ls -A pr-artifact)" ]; then
+            echo "Downloaded artifact is empty; cannot publish preview." >&2
             exit 1
           fi
 
-          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+          shopt -s dotglob nullglob
+          cp -r pr-artifact/* "$PREVIEW_DIR"/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "$PREVIEW_DIR"
+
+          if git diff --cached --quiet; then
+            echo "No changes to preview; skipping commit."
+          else
+            git commit -m "Update preview for PR #${{ github.event.pull_request.number }}"
+            git push origin gh-pages
+          fi
+
+          echo "preview_url=https://${OWNER}.github.io/${REPO_NAME}/${PREVIEW_DIR}/" >> "$GITHUB_OUTPUT"
 
       - name: Add preview link to job summary
         env:
-          PREVIEW_URL: ${{ steps.preview_meta.outputs.preview_url }}
+          PREVIEW_URL: ${{ steps.publish_preview.outputs.preview_url }}
         run: |
           echo "Preview URL: ${PREVIEW_URL}" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Ensure preview URL was generated
-        run: |
-          if [ -z "${{ steps.preview_meta.outputs.preview_url }}" ]; then
-            echo "Expected a preview_url from deploy-pages, but it was empty." >&2
-            exit 1
-          fi
