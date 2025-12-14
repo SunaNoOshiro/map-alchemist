@@ -138,6 +138,7 @@ const MapView: React.FC<MapViewProps> = ({
       iconAllowOverlap?: any;
       textAllowOverlap?: any;
   }>({});
+  const defaultPoiMinZoomRef = useRef<number>(10);
   const poiSourcesRef = useRef<{ source: string; sourceLayer: string }[]>([]);
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
@@ -543,6 +544,13 @@ const MapView: React.FC<MapViewProps> = ({
                   return acc;
               }, []);
 
+              const minZooms = poiLayers
+                  .map((layer) => typeof (layer as any).minzoom === 'number' ? (layer as any).minzoom : null)
+                  .filter((z): z is number => z !== null);
+              if (minZooms.length) {
+                  defaultPoiMinZoomRef.current = Math.min(...minZooms);
+              }
+
               // Add POI Layers...
               if (!map.getSource('places')) {
                 map.addSource('places', {
@@ -624,9 +632,10 @@ const MapView: React.FC<MapViewProps> = ({
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
       const zoom = map.getZoom();
+      const minPoiZoom = defaultPoiMinZoomRef.current ?? 13;
 
-      if (zoom < 13) {
-          log.debug('Skipping POI refresh; zoom below threshold', { zoom });
+      if (zoom < minPoiZoom) {
+          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom });
           const source = map.getSource('places') as maplibregl.GeoJSONSource;
           if (source) {
               source.setData({ type: 'FeatureCollection', features: [] });
