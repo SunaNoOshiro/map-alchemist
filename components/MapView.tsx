@@ -1,8 +1,8 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
-import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
-import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
+import { IconDefinition, PopupStyle } from '../types';
+import { OSM_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
 import { derivePalette } from '../services/defaultThemes';
 import { createLogger } from '../services/logger';
 
@@ -54,49 +54,16 @@ interface MapViewProps {
 }
 
 // --- OVERPASS SERVICE ---
-const fetchOverpassData = async (
-    bounds: maplibregl.LngLatBounds,
-    signal?: AbortSignal
-): Promise<{ elements: any[]; ok: boolean; aborted?: boolean }> => {
-    const s = bounds.getSouth();
-    const w = bounds.getWest();
-    const n = bounds.getNorth();
-    const e = bounds.getEast();
-    
-    // Safety check for large areas
-    if ((n - s) * (e - w) > 1.0) {
-        log.warn("Area too large for Overpass demo");
-        return [];
-    }
-
-    const query = `
-      [out:json][timeout:15];
-      (
-        node["amenity"](${s},${w},${n},${e});
-        node["shop"](${s},${w},${n},${e});
-        node["tourism"](${s},${w},${n},${e});
-        node["leisure"](${s},${w},${n},${e});
-      );
-      out center;
-    `;
-
-    try {
-        const response = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            body: query,
-            signal
-        });
-        const data = await response.json();
-        return { elements: data.elements || [], ok: true };
-    } catch (err) {
-        if ((err as any)?.name === 'AbortError') {
-            log.debug("Overpass request aborted");
-            return { elements: [], ok: false, aborted: true };
+const SUBCLASS_MAPPING: Record<string, { category: string; subcategory: string }> = Object.entries(OSM_MAPPING).reduce(
+    (acc, [combo, value]) => {
+        const [, rawSubclass] = combo.split('=');
+        if (rawSubclass) {
+            acc[rawSubclass.toLowerCase()] = { category: value.category, subcategory: value.subcategory };
         }
-        log.error("Overpass Fetch Error", err);
-        return { elements: [], ok: false };
-    }
-};
+        return acc;
+    },
+    {} as Record<string, { category: string; subcategory: string }>
+);
 
 // --- SAFE STYLE LOADER ---
 const loadSafeStyle = async (styleUrl: string) => {
@@ -172,8 +139,7 @@ const MapView: React.FC<MapViewProps> = ({
   }>({});
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
-  const overpassAbortRef = useRef<AbortController | null>(null);
-  const overpassSeqRef = useRef(0);
+  const poiLayerIdsRef = useRef<string[]>([]);
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -487,6 +453,10 @@ const MapView: React.FC<MapViewProps> = ({
                   };
               }
 
+              poiLayerIdsRef.current = styleLayers
+                  .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'))
+                  .map(l => l.id);
+
               // Add POI Layers...
               if (!map.getSource('places')) {
                 map.addSource('places', {
@@ -557,10 +527,6 @@ const MapView: React.FC<MapViewProps> = ({
 
       return () => {
           if (mapInstance.current) {
-              if (overpassAbortRef.current) {
-                  overpassAbortRef.current.abort();
-                  overpassAbortRef.current = null;
-              }
               mapInstance.current.remove();
               mapInstance.current = null;
           }
@@ -569,60 +535,43 @@ const MapView: React.FC<MapViewProps> = ({
 
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
-      const bounds = map.getBounds();
       const zoom = map.getZoom();
 
       if (zoom < 13) {
-          log.debug('Skipping Overpass fetch; zoom below threshold', { zoom });
-          return;
-      }
-
-      overpassSeqRef.current += 1;
-      const seq = overpassSeqRef.current;
-
-      if (overpassAbortRef.current) {
-          overpassAbortRef.current.abort();
-      }
-
-      const controller = new AbortController();
-      overpassAbortRef.current = controller;
-
-      const { elements: rawElements, ok, aborted } = await fetchOverpassData(bounds, controller.signal);
-
-      // Ignore stale responses that completed after a newer request
-      if (seq !== overpassSeqRef.current) {
-          log.debug('Discarding stale Overpass response', { seq, latest: overpassSeqRef.current });
-          return;
-      }
-
-      if (overpassAbortRef.current === controller) {
-          overpassAbortRef.current = null;
-      }
-
-      // If the request was aborted or failed, keep the existing data so markers don't flicker away
-      if (!ok) {
-          log.debug('Overpass fetch did not complete successfully; keeping existing features', { aborted });
-          return;
-      }
-
-      const features = rawElements.map(el => {
-          const id = el.id?.toString();
-          const name = el.tags?.name;
-          if (!id || !name) return null; // stay aligned with default POI logic that prioritizes named places
-
-          let match: typeof FALLBACK_MAPPING | undefined;
-          if (el.tags) {
-              for (const [key, value] of Object.entries(el.tags)) {
-                  const combo = `${key}=${value}`;
-                  if (OSM_MAPPING[combo]) {
-                      match = OSM_MAPPING[combo];
-                      break;
-                  }
-              }
+          log.debug('Skipping POI refresh; zoom below threshold', { zoom });
+          const source = map.getSource('places') as maplibregl.GeoJSONSource;
+          if (source) {
+              source.setData({ type: 'FeatureCollection', features: [] });
           }
+          return;
+      }
 
-          // Skip unrecognized categories so we don't show noisy "Store" fallbacks everywhere
-          if (!match) return null;
+      if (!map.areTilesLoaded()) {
+          map.once('idle', () => refreshData(map));
+      }
+      const layerIds = poiLayerIdsRef.current;
+      if (!layerIds.length) {
+          log.debug('No base POI layers discovered; skipping refresh');
+          return;
+      }
+
+      const rendered = map.queryRenderedFeatures(undefined, { layers: layerIds });
+
+      const byId = new Map<string, any>();
+      rendered.forEach((feature) => {
+          const props = feature.properties || {} as any;
+          const name = props.name || props['name:en'];
+          if (!name) return;
+
+          const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
+          const match = SUBCLASS_MAPPING[subclass];
+          if (!match) return;
+
+          const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass}-${name}-${feature.id}`;
+          if (byId.has(fid)) return;
+
+          const coords = (feature.geometry as any)?.coordinates;
+          if (!coords || !coords.length) return;
 
           const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory
               : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
@@ -630,24 +579,26 @@ const MapView: React.FC<MapViewProps> = ({
           const labelColor = palette.text || popupStyle.textColor || '#202124';
           const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
 
-          return {
+          byId.set(fid, {
               type: 'Feature',
               properties: {
-                  id,
+                  id: fid,
                   title: name,
                   category: match.category,
                   subcategory: match.subcategory,
-                  description: el.tags?.['addr:street'] ? `${el.tags['addr:street']} ${el.tags['addr:housenumber']||''}` : '',
+                  description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
                   iconKey,
                   textColor: labelColor,
                   haloColor
               },
               geometry: {
                   type: 'Point',
-                  coordinates: [el.lon || el.center?.lon, el.lat || el.center?.lat]
+                  coordinates: coords
               }
-          };
-      }).filter((f): f is any => !!f && f.geometry.coordinates[0]);
+          });
+      });
+
+      const features = Array.from(byId.values());
 
       placesRef.current = features as any[];
 
@@ -657,9 +608,9 @@ const MapView: React.FC<MapViewProps> = ({
               type: 'FeatureCollection',
               features: features as any
           });
-          log.debug('Refreshed Overpass features', { count: features.length, zoom });
-      }
-  };
+            log.debug('Refreshed POI features', { count: features.length, zoom });
+        }
+    };
 
   useEffect(() => {
       if (!loaded || !mapInstance.current) return;
