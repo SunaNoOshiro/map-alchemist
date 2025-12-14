@@ -634,14 +634,11 @@ const MapView: React.FC<MapViewProps> = ({
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
       const zoom = map.getZoom();
-      const minPoiZoom = defaultPoiMinZoomRef.current ?? 13;
+      const baseMinPoiZoom = defaultPoiMinZoomRef.current ?? 13;
+      const effectiveMinPoiZoom = Math.max(0, baseMinPoiZoom - 1);
 
-      if (zoom < minPoiZoom) {
-          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom });
-          const source = map.getSource('places') as maplibregl.GeoJSONSource;
-          if (source) {
-              source.setData({ type: 'FeatureCollection', features: [] });
-          }
+      if (zoom < effectiveMinPoiZoom) {
+          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom: effectiveMinPoiZoom });
           return;
       }
 
