@@ -67,7 +67,7 @@ jobs:
     # that may restrict deployments from PR merge branches.
     environment:
       name: github-pages-preview
-      url: ${{ steps.deployment.outputs.preview_url }}
+      url: ${{ steps.preview_meta.outputs.preview_url }}
     steps:
       - name: Deploy preview to GitHub Pages
         id: deployment
@@ -78,15 +78,29 @@ jobs:
           preview_id: pr-${{ github.event.pull_request.number }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Add preview link to job summary
+      - name: Capture preview URL
+        id: preview_meta
         env:
           PREVIEW_URL: ${{ steps.deployment.outputs.preview_url }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          url="${PREVIEW_URL:-$PAGE_URL}"
+          if [ -z "$url" ]; then
+            echo "Expected a preview URL from deploy-pages, but it was empty." >&2
+            exit 1
+          fi
+
+          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Add preview link to job summary
+        env:
+          PREVIEW_URL: ${{ steps.preview_meta.outputs.preview_url }}
         run: |
           echo "Preview URL: ${PREVIEW_URL}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Ensure preview URL was generated
         run: |
-          if [ -z "${{ steps.deployment.outputs.preview_url }}" ]; then
+          if [ -z "${{ steps.preview_meta.outputs.preview_url }}" ]; then
             echo "Expected a preview_url from deploy-pages, but it was empty." >&2
             exit 1
           fi
