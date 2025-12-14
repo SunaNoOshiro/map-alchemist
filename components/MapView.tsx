@@ -152,6 +152,16 @@ const MapView: React.FC<MapViewProps> = ({
   const showPopupRef = useRef<(feature: any, coordinates: [number, number]) => void>();
   const lastPopupFeature = useRef<any | null>(null);
   const lastPopupCoords = useRef<[number, number] | null>(null);
+  const mapReadyRef = useRef(false);
+  const defaultPoiStyleRef = useRef<{
+      iconSize?: any;
+      textSize?: any;
+      textFont?: any;
+      textOffset?: any;
+      textAnchor?: any;
+      iconAllowOverlap?: any;
+      textAllowOverlap?: any;
+  }>({});
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
 
@@ -450,7 +460,22 @@ const MapView: React.FC<MapViewProps> = ({
           map.on('load', () => {
               log.info("Map Loaded");
               setLoaded(true);
+              mapReadyRef.current = true;
               if (onMapLoad) onMapLoad(map);
+
+              const styleLayers = map.getStyle()?.layers || [];
+              const poiLayer = styleLayers.find(l => l.type === 'symbol' && (l.id.includes('poi') || l.id.includes('amenity') || l.id.includes('place')));
+              if (poiLayer?.layout) {
+                  defaultPoiStyleRef.current = {
+                      iconSize: poiLayer.layout['icon-size'],
+                      textSize: poiLayer.layout['text-size'],
+                      textFont: poiLayer.layout['text-font'],
+                      textOffset: poiLayer.layout['text-offset'],
+                      textAnchor: poiLayer.layout['text-anchor'],
+                      iconAllowOverlap: poiLayer.layout['icon-allow-overlap'],
+                      textAllowOverlap: poiLayer.layout['text-allow-overlap']
+                  };
+              }
 
               // Add POI Layers...
               if (!map.getSource('places')) {
@@ -470,22 +495,22 @@ const MapView: React.FC<MapViewProps> = ({
                     source: 'places',
                     layout: {
                         'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
-                        'icon-size': [
+                        'icon-size': defaultPoiStyleRef.current.iconSize ?? [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            6, 0.05,
-                            10, 0.07,
-                            14, 0.1,
-                            18, 0.13
+                            8, 0.35,
+                            12, 0.55,
+                            16, 0.75,
+                            20, 0.9
                         ],
-                        'icon-allow-overlap': true,
-                        'text-allow-overlap': true,
+                        'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
+                        'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
                         'text-field': ['get', 'title'],
-                        'text-font': ['Noto Sans Regular'],
-                        'text-offset': [0, 1.1],
-                        'text-anchor': 'top',
-                        'text-size': 11,
+                        'text-font': defaultPoiStyleRef.current.textFont ?? ['Noto Sans Regular'],
+                        'text-offset': defaultPoiStyleRef.current.textOffset ?? [0, 1.1],
+                        'text-anchor': defaultPoiStyleRef.current.textAnchor ?? 'top',
+                        'text-size': defaultPoiStyleRef.current.textSize ?? 11,
                         'text-optional': true
                     },
                     paint: {
@@ -512,7 +537,7 @@ const MapView: React.FC<MapViewProps> = ({
           });
 
           map.on('moveend', () => {
-              if (loaded) refreshData(map);
+              if (mapReadyRef.current) refreshData(map);
           });
 
           mapInstance.current = map;
