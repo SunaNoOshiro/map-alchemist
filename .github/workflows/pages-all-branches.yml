@@ -93,7 +93,6 @@ jobs:
           publish_branch: gh-pages
           publish_dir: publish
           keep_files: true
-          force_orphan: true
 
       - name: Publish deployment URL summary
         run: |
@@ -153,4 +152,3 @@ jobs:
           publish_branch: gh-pages
           publish_dir: publish
           keep_files: true
-          force_orphan: true
