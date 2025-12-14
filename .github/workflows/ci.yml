@@ -63,10 +63,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.event_name == 'pull_request'
-    # Use a dedicated preview environment to avoid github-pages protection rules
-    # that may restrict deployments from PR merge branches.
     environment:
-      name: github-pages-preview
+      # GitHub Pages expects the environment name to be "github-pages" for preview
+      # deployments to receive their dedicated preview URL instead of the production
+      # link.
+      name: github-pages
       url: ${{ steps.preview_meta.outputs.preview_url }}
     steps:
       - name: Deploy preview to GitHub Pages
@@ -84,6 +85,9 @@ jobs:
           PREVIEW_URL: ${{ steps.deployment.outputs.preview_url }}
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
+          echo "deploy-pages preview_url: $PREVIEW_URL"
+          echo "deploy-pages page_url: $PAGE_URL"
+
           url="${PREVIEW_URL:-$PAGE_URL}"
           if [ -z "$url" ]; then
             echo "Expected a preview URL from deploy-pages, but it was empty." >&2
