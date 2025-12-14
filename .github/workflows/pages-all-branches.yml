@@ -37,6 +37,7 @@ jobs:
         id: vars
         shell: bash
         run: |
+          BASE_PREFIX="/${{ github.event.repository.name }}"
           if [[ "${{ github.event_name }}" == pull_request* ]]; then
             SLUG="pr/${{ github.event.number }}"
           else
@@ -47,9 +48,9 @@ jobs:
           echo "slug=$SLUG" >> $GITHUB_OUTPUT
 
           if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" = "push" ]; then
-            echo "base_path=/" >> $GITHUB_OUTPUT
+            echo "base_path=${BASE_PREFIX}/" >> $GITHUB_OUTPUT
           else
-            echo "base_path=/${SLUG}/" >> $GITHUB_OUTPUT
+            echo "base_path=${BASE_PREFIX}/${SLUG}/" >> $GITHUB_OUTPUT
           fi
 
       # For Vite: set correct base path
