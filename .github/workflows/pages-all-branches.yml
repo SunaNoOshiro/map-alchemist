@@ -9,6 +9,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages-${{ github.ref }}
@@ -51,26 +53,62 @@ jobs:
       - name: Build
         run: BASE_PATH=${{ steps.vars.outputs.base_path }} npm run build
 
-      - name: Prepare publish directory
+      - name: Restore current gh-pages content
+        id: restore
         shell: bash
         run: |
-          mkdir -p out
-          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            # main -> root
-            cp -R dist/* out/
+          mkdir -p publish
+          if git ls-remote --exit-code origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages
+            git worktree add --detach gh-pages-worktree gh-pages
+            rsync -a gh-pages-worktree/ publish/ --exclude '.git'
           else
-            # any branch / PR -> subfolder
-            mkdir -p out/${{ steps.vars.outputs.slug }}
-            cp -R dist/* out/${{ steps.vars.outputs.slug }}/
+            echo "gh-pages branch missing; starting fresh"
           fi
 
-      - name: Deploy to gh-pages (keeps other folders)
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Stage new site content
+        shell: bash
+        run: |
+          # Keep previews while refreshing production files
+          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            find publish -mindepth 1 -maxdepth 1 ! -name pr ! -name b -exec rm -rf {} +
+            mkdir -p publish
+            cp -R dist/* publish/
+          else
+            TARGET="publish/${{ steps.vars.outputs.slug }}"
+            rm -rf "$TARGET"
+            mkdir -p "$TARGET"
+            cp -R dist/* "$TARGET"/
+          fi
+
+          touch publish/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: out
-          keep_files: true
+          path: publish
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+
+      - name: Persist gh-pages branch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse --verify gh-pages >/dev/null 2>&1; then
+            git worktree add --detach gh-pages-push gh-pages
+          else
+            git branch gh-pages
+            git worktree add --detach gh-pages-push gh-pages
+          fi
+
+          rsync -a publish/ gh-pages-push/ --delete --exclude '.git'
+          cd gh-pages-push
+          git add -A
+          git commit -m "Update Pages content for ${{ github.ref_name }}" || exit 0
+          git push origin HEAD:gh-pages
 
       - name: Comment link on PR
         if: github.event_name == 'pull_request'
@@ -91,15 +129,47 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: gh-pages
+
+      - name: Restore current gh-pages content
+        shell: bash
+        run: |
+          mkdir -p publish
+          if git ls-remote --exit-code origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages
+            git worktree add --detach gh-pages-worktree gh-pages
+            rsync -a gh-pages-worktree/ publish/ --exclude '.git'
+          else
+            echo "gh-pages branch missing; nothing to clean"
+          fi
 
       - name: Remove PR preview folder
         shell: bash
         run: |
-          rm -rf pr/${{ github.event.number }} || true
+          rm -rf publish/pr/${{ github.event.number }}
+          touch publish/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish
+
+      - name: Deploy cleanup to GitHub Pages
+        uses: actions/deploy-pages@v4
+
+      - name: Persist gh-pages branch after cleanup
+        shell: bash
+        run: |
+          if git rev-parse --verify gh-pages >/dev/null 2>&1; then
+            git worktree add --detach gh-pages-push gh-pages
+          else
+            git branch gh-pages
+            git worktree add --detach gh-pages-push gh-pages
+          fi
+
+          rsync -a publish/ gh-pages-push/ --delete --exclude '.git'
+          cd gh-pages-push
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "Remove PR preview pr/${{ github.event.number }}" || exit 0
-          git push
+          git push origin HEAD:gh-pages
