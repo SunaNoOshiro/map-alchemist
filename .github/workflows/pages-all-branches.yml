@@ -93,6 +93,17 @@ jobs:
           publish_dir: publish
           keep_files: true
           force_orphan: true
+          force: true
+
+      - name: Publish deployment URL summary
+        run: |
+          BASE="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" = "push" ]; then
+            URL="$BASE/"
+          else
+            URL="$BASE/${{ steps.vars.outputs.slug }}/"
+          fi
+          echo "Deployment URL: ${URL}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Comment link on PR
         if: startsWith(github.event_name, 'pull_request')
@@ -143,3 +154,4 @@ jobs:
           publish_dir: publish
           keep_files: true
           force_orphan: true
+          force: true
