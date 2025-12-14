@@ -14,7 +14,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  # Keep previews for different refs isolated so parallel PRs aren't canceled
+  group: pages-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -71,3 +72,5 @@ jobs:
       - name: Deploy preview to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          preview: true
