@@ -93,7 +93,6 @@ jobs:
           publish_dir: publish
           keep_files: true
           force_orphan: true
-          force: true
 
       - name: Publish deployment URL summary
         run: |
@@ -154,4 +153,3 @@ jobs:
           publish_dir: publish
           keep_files: true
           force_orphan: true
-          force: true
