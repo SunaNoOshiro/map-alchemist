@@ -1,0 +1,105 @@
+name: Pages: deploy all branches
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Compute target path + BASE_PATH
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SLUG="pr/${{ github.event.number }}"
+          else
+            # branch name -> safe slug
+            BR="${{ github.ref_name }}"
+            SLUG="b/${BR//\//-}"
+          fi
+          echo "slug=$SLUG" >> $GITHUB_OUTPUT
+
+          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "base_path=/" >> $GITHUB_OUTPUT
+          else
+            echo "base_path=/${SLUG}/" >> $GITHUB_OUTPUT
+          fi
+
+      # For Vite: set correct base path
+      - name: Build
+        run: BASE_PATH=${{ steps.vars.outputs.base_path }} npm run build
+
+      - name: Prepare publish directory
+        shell: bash
+        run: |
+          mkdir -p out
+          if [ "${{ github.ref_name }}" = "main" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            # main -> root
+            cp -R dist/* out/
+          else
+            # any branch / PR -> subfolder
+            mkdir -p out/${{ steps.vars.outputs.slug }}
+            cp -R dist/* out/${{ steps.vars.outputs.slug }}/
+          fi
+
+      - name: Deploy to gh-pages (keeps other folders)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: out
+          keep_files: true
+
+      - name: Comment link on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request.number;
+            const url = `https://${owner}.github.io/${repo}/pr/${pr}/`;
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: pr,
+              body: `✅ Preview: ${url}`
+            });
+
+  cleanup-pr:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Remove PR preview folder
+        shell: bash
+        run: |
+          rm -rf pr/${{ github.event.number }} || true
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove PR preview pr/${{ github.event.number }}" || exit 0
+          git push
