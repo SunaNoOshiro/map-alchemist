@@ -141,6 +141,7 @@ const MapView: React.FC<MapViewProps> = ({
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
   const iconCacheRef = useRef<Record<string, ImageBitmap | HTMLImageElement>>({});
+  const iconLoadPromisesRef = useRef<Record<string, Promise<ImageBitmap | HTMLImageElement>>>({});
   const poiLayerIdsRef = useRef<string[]>([]);
 
   const [loaded, setLoaded] = useState(false);
@@ -253,29 +254,69 @@ const MapView: React.FC<MapViewProps> = ({
               return;
           } catch (e) {
               log.error('Failed to re-register cached image', { cat, error: e });
+              // fall through to reload
           }
       }
 
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
+      const loadIcon = () => {
+          if (iconLoadPromisesRef.current[incomingUrl]) return iconLoadPromisesRef.current[incomingUrl];
 
-      img.onload = async () => {
-          try {
-              const bitmap = typeof createImageBitmap === 'function' ? await createImageBitmap(img) : img;
-              iconCacheRef.current[incomingUrl] = bitmap;
-              if (map.hasImage(cat)) map.removeImage(cat);
-              map.addImage(cat, bitmap, { pixelRatio: 1 });
-              loadedIconUrls.current[cat] = incomingUrl;
-          } catch (e) {
-              log.error('Failed to register image', { cat, error: e });
-          }
+          const promise = new Promise<ImageBitmap | HTMLImageElement>((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = "Anonymous";
+
+              img.onload = async () => {
+                  try {
+                      const maxSize = 64;
+                      let bitmap: ImageBitmap | HTMLImageElement;
+
+                      if (typeof createImageBitmap === 'function') {
+                          bitmap = await createImageBitmap(img, {
+                              resizeWidth: maxSize,
+                              resizeHeight: maxSize,
+                              resizeQuality: 'high'
+                          } as any);
+                      } else {
+                          const canvas = document.createElement('canvas');
+                          canvas.width = maxSize;
+                          canvas.height = maxSize;
+                          const ctx = canvas.getContext('2d');
+                          if (!ctx) throw new Error('Canvas unavailable');
+                          ctx.drawImage(img, 0, 0, maxSize, maxSize);
+                          const tmp = new Image();
+                          tmp.src = canvas.toDataURL();
+                          bitmap = tmp;
+                      }
+
+                      resolve(bitmap);
+                  } catch (e) {
+                      reject(e);
+                  }
+              };
+
+              img.onerror = () => reject(new Error('Icon failed to load'));
+              img.src = incomingUrl;
+          })
+          .catch((e) => {
+              delete iconLoadPromisesRef.current[incomingUrl];
+              throw e;
+          });
+
+          iconLoadPromisesRef.current[incomingUrl] = promise;
+          return promise;
       };
-      img.onerror = () => {
-          log.warn('Icon failed to load', { cat, url: incomingUrl });
+
+      try {
+          const bitmap = await loadIcon();
+          iconCacheRef.current[incomingUrl] = bitmap;
+          if (map.hasImage(cat)) map.removeImage(cat);
+          map.addImage(cat, bitmap, { pixelRatio: 1 });
+          loadedIconUrls.current[cat] = incomingUrl;
+      } catch (e) {
+          log.warn('Icon failed to load', { cat, url: incomingUrl, error: e });
           if (map.hasImage(cat)) map.removeImage(cat);
           delete loadedIconUrls.current[cat];
-      };
-      img.src = incomingUrl;
+      }
   }, []);
 
   const ensureAllIcons = useCallback((map?: maplibregl.Map) => {
@@ -525,10 +566,10 @@ const MapView: React.FC<MapViewProps> = ({
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            8, 0.25,
-                            12, 0.4,
-                            16, 0.6,
-                            20, 0.8
+                            8, 0.18,
+                            12, 0.3,
+                            16, 0.45,
+                            20, 0.6
                         ],
                         'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
                         'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
