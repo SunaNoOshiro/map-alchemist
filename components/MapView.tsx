@@ -54,7 +54,10 @@ interface MapViewProps {
 }
 
 // --- OVERPASS SERVICE ---
-const fetchOverpassData = async (bounds: maplibregl.LngLatBounds, signal?: AbortSignal): Promise<any[]> => {
+const fetchOverpassData = async (
+    bounds: maplibregl.LngLatBounds,
+    signal?: AbortSignal
+): Promise<{ elements: any[]; ok: boolean; aborted?: boolean }> => {
     const s = bounds.getSouth();
     const w = bounds.getWest();
     const n = bounds.getNorth();
@@ -84,14 +87,14 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds, signal?: Abort
             signal
         });
         const data = await response.json();
-        return data.elements || [];
+        return { elements: data.elements || [], ok: true };
     } catch (err) {
         if ((err as any)?.name === 'AbortError') {
             log.debug("Overpass request aborted");
-            return [];
+            return { elements: [], ok: false, aborted: true };
         }
         log.error("Overpass Fetch Error", err);
-        return [];
+        return { elements: [], ok: false };
     }
 };
 
@@ -584,7 +587,7 @@ const MapView: React.FC<MapViewProps> = ({
       const controller = new AbortController();
       overpassAbortRef.current = controller;
 
-      const rawElements = await fetchOverpassData(bounds, controller.signal);
+      const { elements: rawElements, ok, aborted } = await fetchOverpassData(bounds, controller.signal);
 
       // Ignore stale responses that completed after a newer request
       if (seq !== overpassSeqRef.current) {
@@ -596,10 +599,18 @@ const MapView: React.FC<MapViewProps> = ({
           overpassAbortRef.current = null;
       }
 
+      // If the request was aborted or failed, keep the existing data so markers don't flicker away
+      if (!ok) {
+          log.debug('Overpass fetch did not complete successfully; keeping existing features', { aborted });
+          return;
+      }
+
       const features = rawElements.map(el => {
-          const id = el.id.toString();
-          
-          let match = FALLBACK_MAPPING;
+          const id = el.id?.toString();
+          const name = el.tags?.name;
+          if (!id || !name) return null; // stay aligned with default POI logic that prioritizes named places
+
+          let match: typeof FALLBACK_MAPPING | undefined;
           if (el.tags) {
               for (const [key, value] of Object.entries(el.tags)) {
                   const combo = `${key}=${value}`;
@@ -609,9 +620,13 @@ const MapView: React.FC<MapViewProps> = ({
                   }
               }
           }
-          
-          const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
-          
+
+          // Skip unrecognized categories so we don't show noisy "Store" fallbacks everywhere
+          if (!match) return null;
+
+          const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory
+              : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
+
           const labelColor = palette.text || popupStyle.textColor || '#202124';
           const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
 
@@ -619,7 +634,7 @@ const MapView: React.FC<MapViewProps> = ({
               type: 'Feature',
               properties: {
                   id,
-                  title: el.tags?.name || match.subcategory,
+                  title: name,
                   category: match.category,
                   subcategory: match.subcategory,
                   description: el.tags?.['addr:street'] ? `${el.tags['addr:street']} ${el.tags['addr:housenumber']||''}` : '',
@@ -632,7 +647,7 @@ const MapView: React.FC<MapViewProps> = ({
                   coordinates: [el.lon || el.center?.lon, el.lat || el.center?.lat]
               }
           };
-      }).filter(f => f.geometry.coordinates[0]);
+      }).filter((f): f is any => !!f && f.geometry.coordinates[0]);
 
       placesRef.current = features as any[];
 
