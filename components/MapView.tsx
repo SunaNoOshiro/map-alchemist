@@ -130,6 +130,7 @@ const MapView: React.FC<MapViewProps> = ({
   const mapReadyRef = useRef(false);
   const idleRefreshPendingRef = useRef(false);
   const defaultPoiStyleRef = useRef<{
+      iconImage?: any;
       iconSize?: any;
       textSize?: any;
       textFont?: any;
@@ -521,6 +522,7 @@ const MapView: React.FC<MapViewProps> = ({
               const poiLayer = poiLayers.find(l => (l.id.includes('poi') || l.id.includes('amenity') || l.id.includes('place')));
               if (poiLayer?.layout) {
                   defaultPoiStyleRef.current = {
+                      iconImage: poiLayer.layout['icon-image'],
                       iconSize: poiLayer.layout['icon-size'],
                       textSize: poiLayer.layout['text-size'],
                       textFont: poiLayer.layout['text-font'],
@@ -570,7 +572,7 @@ const MapView: React.FC<MapViewProps> = ({
                     type: 'symbol',
                         source: 'places',
                         layout: {
-                            'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
+                            'icon-image': ['coalesce', ['get', 'iconKey'], defaultPoiStyleRef.current.iconImage ?? 'fallback-dot'],
                         'icon-size': defaultPoiStyleRef.current.iconSize ?? [
                             'interpolate',
                             ['linear'],
@@ -698,7 +700,7 @@ const MapView: React.FC<MapViewProps> = ({
               const category = match?.category || subclass || 'poi';
               const subcategory = match?.subcategory || subclass || category;
               const iconKey = activeIcons[subcategory]?.imageUrl ? subcategory
-                  : (activeIcons[category]?.imageUrl ? category : 'fallback-dot');
+                  : (activeIcons[category]?.imageUrl ? category : null);
 
               const labelColor = palette.text || popupStyle.textColor || '#202124';
               const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
@@ -710,6 +712,9 @@ const MapView: React.FC<MapViewProps> = ({
                       title: name,
                       category,
                       subcategory,
+                      class: props.class,
+                      subclass,
+                      maki: (props as any).maki,
                       description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
                       iconKey,
                       textColor: labelColor,
