@@ -228,9 +228,9 @@ const MapView: React.FC<MapViewProps> = ({
     };
 
     applyPaletteToLayers();
-    map.on('styledata', applyPaletteToLayers);
-    log.debug('Attached styledata listener for palette synchronization');
-    return () => { map.off('styledata', applyPaletteToLayers); };
+    map.on('style.load', applyPaletteToLayers);
+    log.debug('Attached style.load listener for palette synchronization');
+    return () => { map.off('style.load', applyPaletteToLayers); };
   }, [palette, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
@@ -360,8 +360,8 @@ const MapView: React.FC<MapViewProps> = ({
       const map = mapInstance.current;
       if (!map) return;
       const handler = () => ensureAllIcons(map);
-      map.on('styledata', handler);
-      return () => { map.off('styledata', handler); };
+      map.on('style.load', handler);
+      return () => { map.off('style.load', handler); };
   }, [ensureAllIcons]);
 
   // --- POPUP HANDLER ---
