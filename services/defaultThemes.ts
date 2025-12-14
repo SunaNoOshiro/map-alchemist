@@ -1,8 +1,9 @@
 import { DEFAULT_STYLE_PRESET } from '../constants';
 import { MapStylePreset, PopupStyle } from '../types';
 
-const DEFAULT_THEMES_URL = '/default-themes.json';
-const DEFAULT_THEMES_GZ_URL = '/default-themes.json.gz';
+const baseUrl = (import.meta as any).env?.BASE_URL || '/';
+const DEFAULT_THEMES_URL = `${baseUrl}default-themes.json`;
+const DEFAULT_THEMES_GZ_URL = `${baseUrl}default-themes.json.gz`;
 
 export const normalizePopupStyle = (raw?: Partial<PopupStyle> | null): PopupStyle => ({
   backgroundColor: raw?.backgroundColor || DEFAULT_STYLE_PRESET.popupStyle.backgroundColor,
