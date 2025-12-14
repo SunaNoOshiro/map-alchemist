@@ -140,6 +140,7 @@ const MapView: React.FC<MapViewProps> = ({
   const poiSourcesRef = useRef<{ source: string; sourceLayer: string }[]>([]);
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
+  const iconCacheRef = useRef<Record<string, ImageBitmap | HTMLImageElement>>({});
   const poiLayerIdsRef = useRef<string[]>([]);
 
   const [loaded, setLoaded] = useState(false);
@@ -232,67 +233,95 @@ const MapView: React.FC<MapViewProps> = ({
   }, [palette, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
+  const registerIcon = useCallback(async (map: maplibregl.Map, cat: string, incomingUrl?: string | null) => {
+      if (!incomingUrl) {
+          if (map.hasImage(cat)) map.removeImage(cat);
+          delete loadedIconUrls.current[cat];
+          return;
+      }
+
+      const previousUrl = loadedIconUrls.current[cat];
+      if (previousUrl === incomingUrl && map.hasImage(cat)) return;
+
+      // Reuse cached bitmaps across theme switches to avoid refetching
+      const cached = iconCacheRef.current[incomingUrl];
+      if (cached) {
+          try {
+              if (map.hasImage(cat)) map.removeImage(cat);
+              map.addImage(cat, cached, { pixelRatio: 1 });
+              loadedIconUrls.current[cat] = incomingUrl;
+              return;
+          } catch (e) {
+              log.error('Failed to re-register cached image', { cat, error: e });
+          }
+      }
+
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+
+      img.onload = async () => {
+          try {
+              const bitmap = typeof createImageBitmap === 'function' ? await createImageBitmap(img) : img;
+              iconCacheRef.current[incomingUrl] = bitmap;
+              if (map.hasImage(cat)) map.removeImage(cat);
+              map.addImage(cat, bitmap, { pixelRatio: 1 });
+              loadedIconUrls.current[cat] = incomingUrl;
+          } catch (e) {
+              log.error('Failed to register image', { cat, error: e });
+          }
+      };
+      img.onerror = () => {
+          log.warn('Icon failed to load', { cat, url: incomingUrl });
+          if (map.hasImage(cat)) map.removeImage(cat);
+          delete loadedIconUrls.current[cat];
+      };
+      img.src = incomingUrl;
+  }, []);
+
+  const ensureAllIcons = useCallback((map?: maplibregl.Map) => {
+      const m = map || mapInstance.current;
+      if (!loaded || !m) return;
+
+      Object.entries(activeIcons).forEach(([cat, iconDef]) => {
+          registerIcon(m, cat, iconDef.imageUrl);
+      });
+
+      // Remove icons that are no longer present in the active set
+      Object.keys(loadedIconUrls.current).forEach((cat) => {
+          if (!activeIcons[cat] && m.hasImage(cat)) {
+              m.removeImage(cat);
+              delete loadedIconUrls.current[cat];
+          }
+      });
+
+      if (!m.hasImage('fallback-dot')) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 20; canvas.height = 20;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              ctx.beginPath();
+              ctx.arc(10, 10, 7, 0, Math.PI*2);
+              ctx.fillStyle = '#4285F4';
+              ctx.fill();
+              ctx.strokeStyle = 'white';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              m.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
+          }
+      }
+  }, [activeIcons, loaded, registerIcon]);
+
   useEffect(() => {
-    if (!loaded || !mapInstance.current) return;
-    const map = mapInstance.current;
+    ensureAllIcons();
+  }, [activeIcons, loaded, ensureAllIcons]);
 
-    Object.entries(activeIcons).forEach(([cat, iconDef]) => {
-        const incomingUrl = iconDef.imageUrl;
-        const previousUrl = loadedIconUrls.current[cat];
-
-        if (!incomingUrl) {
-            if (map.hasImage(cat)) map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-            return;
-        }
-
-        if (previousUrl === incomingUrl && map.hasImage(cat)) return;
-
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-
-        img.onload = () => {
-            try {
-                if (map.hasImage(cat)) map.removeImage(cat);
-                // Use the native pixel ratio to avoid oversized markers when zooming
-                map.addImage(cat, img, { pixelRatio: 1 });
-                loadedIconUrls.current[cat] = incomingUrl;
-            } catch (e) {
-                log.error('Failed to register image', { cat, error: e });
-            }
-        };
-        img.onerror = () => {
-            log.warn('Icon failed to load', { cat, url: incomingUrl });
-            if (map.hasImage(cat)) map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-        };
-        img.src = incomingUrl;
-    });
-
-    // Remove icons that are no longer present in the active set
-    Object.keys(loadedIconUrls.current).forEach((cat) => {
-        if (!activeIcons[cat] && map.hasImage(cat)) {
-            map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-        }
-    });
-
-    if (!map.hasImage('fallback-dot')) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 20; canvas.height = 20;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.beginPath();
-            ctx.arc(10, 10, 7, 0, Math.PI*2);
-            ctx.fillStyle = '#4285F4';
-            ctx.fill();
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
-        }
-    }
-  }, [activeIcons, loaded]);
+  useEffect(() => {
+      const map = mapInstance.current;
+      if (!map) return;
+      const handler = () => ensureAllIcons(map);
+      map.on('styledata', handler);
+      return () => { map.off('styledata', handler); };
+  }, [ensureAllIcons]);
 
   // --- POPUP HANDLER ---
   const showPopup = useCallback((feature: any, coordinates: [number, number]) => {
@@ -418,6 +447,7 @@ const MapView: React.FC<MapViewProps> = ({
               }
           });
 
+
           const ensureFallbackDot = () => {
               if (map.hasImage('fallback-dot')) return;
               const canvas = document.createElement('canvas');
@@ -482,21 +512,23 @@ const MapView: React.FC<MapViewProps> = ({
 
               ensureFallbackDot();
 
+              ensureAllIcons(map);
+
               if (!map.getLayer('unclustered-point')) {
                 map.addLayer({
                     id: 'unclustered-point',
                     type: 'symbol',
                         source: 'places',
-                    layout: {
-                        'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
+                        layout: {
+                            'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
                         'icon-size': defaultPoiStyleRef.current.iconSize ?? [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            8, 0.35,
-                            12, 0.55,
-                            16, 0.8,
-                            20, 1
+                            8, 0.25,
+                            12, 0.4,
+                            16, 0.6,
+                            20, 0.8
                         ],
                         'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
                         'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
