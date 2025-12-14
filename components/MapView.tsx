@@ -128,6 +128,7 @@ const MapView: React.FC<MapViewProps> = ({
   const lastPopupFeature = useRef<any | null>(null);
   const lastPopupCoords = useRef<[number, number] | null>(null);
   const mapReadyRef = useRef(false);
+  const idleRefreshPendingRef = useRef(false);
   const defaultPoiStyleRef = useRef<{
       iconSize?: any;
       textSize?: any;
@@ -656,6 +657,18 @@ const MapView: React.FC<MapViewProps> = ({
           return;
       }
 
+      if (typeof map.areTilesLoaded === 'function' && !map.areTilesLoaded()) {
+          if (!idleRefreshPendingRef.current) {
+              idleRefreshPendingRef.current = true;
+              map.once('idle', () => {
+                  idleRefreshPendingRef.current = false;
+                  refreshData(map);
+              });
+          }
+          log.debug('Deferring POI refresh until tiles finish loading');
+          return;
+      }
+
       const byId = new Map<string, any>();
       poiSources.forEach(({ source, sourceLayer }) => {
           const rendered = map.querySourceFeatures(source, { sourceLayer });
@@ -702,6 +715,11 @@ const MapView: React.FC<MapViewProps> = ({
       });
 
       const features = Array.from(byId.values());
+
+      if (features.length === 0 && placesRef.current.length > 0) {
+          log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
+          return;
+      }
 
       placesRef.current = features as any[];
 
