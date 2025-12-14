@@ -74,7 +74,7 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
         node["tourism"](${s},${w},${n},${e});
         node["leisure"](${s},${w},${n},${e});
       );
-      out center 50;
+      out center;
     `;
 
     try {
@@ -602,12 +602,6 @@ const MapView: React.FC<MapViewProps> = ({
               }
           };
       }).filter(f => f.geometry.coordinates[0]);
-
-      // If no features came back and we already have data, keep the previous batch
-      if (features.length === 0 && placesRef.current.length > 0) {
-          log.warn('Overpass returned no features, keeping previous data');
-          return;
-      }
 
       placesRef.current = features as any[];
 
