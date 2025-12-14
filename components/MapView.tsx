@@ -54,7 +54,7 @@ interface MapViewProps {
 }
 
 // --- OVERPASS SERVICE ---
-const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]> => {
+const fetchOverpassData = async (bounds: maplibregl.LngLatBounds, signal?: AbortSignal): Promise<any[]> => {
     const s = bounds.getSouth();
     const w = bounds.getWest();
     const n = bounds.getNorth();
@@ -80,11 +80,16 @@ const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]
     try {
         const response = await fetch('https://overpass-api.de/api/interpreter', {
             method: 'POST',
-            body: query
+            body: query,
+            signal
         });
         const data = await response.json();
         return data.elements || [];
     } catch (err) {
+        if ((err as any)?.name === 'AbortError') {
+            log.debug("Overpass request aborted");
+            return [];
+        }
         log.error("Overpass Fetch Error", err);
         return [];
     }
@@ -164,6 +169,8 @@ const MapView: React.FC<MapViewProps> = ({
   }>({});
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
+  const overpassAbortRef = useRef<AbortController | null>(null);
+  const overpassSeqRef = useRef(0);
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -547,11 +554,15 @@ const MapView: React.FC<MapViewProps> = ({
 
       return () => {
           if (mapInstance.current) {
-            mapInstance.current.remove();
-            mapInstance.current = null;
+              if (overpassAbortRef.current) {
+                  overpassAbortRef.current.abort();
+                  overpassAbortRef.current = null;
+              }
+              mapInstance.current.remove();
+              mapInstance.current = null;
           }
       };
-  }, [styleJSON]); 
+  }, [styleJSON]);
 
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
@@ -563,7 +574,27 @@ const MapView: React.FC<MapViewProps> = ({
           return;
       }
 
-      const rawElements = await fetchOverpassData(bounds);
+      overpassSeqRef.current += 1;
+      const seq = overpassSeqRef.current;
+
+      if (overpassAbortRef.current) {
+          overpassAbortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      overpassAbortRef.current = controller;
+
+      const rawElements = await fetchOverpassData(bounds, controller.signal);
+
+      // Ignore stale responses that completed after a newer request
+      if (seq !== overpassSeqRef.current) {
+          log.debug('Discarding stale Overpass response', { seq, latest: overpassSeqRef.current });
+          return;
+      }
+
+      if (overpassAbortRef.current === controller) {
+          overpassAbortRef.current = null;
+      }
 
       const features = rawElements.map(el => {
           const id = el.id.toString();
