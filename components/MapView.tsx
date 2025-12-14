@@ -1,8 +1,8 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
-import { IconDefinition, PlaceMarker, PopupStyle } from '../types';
-import { OSM_MAPPING, FALLBACK_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
+import { IconDefinition, PopupStyle } from '../types';
+import { OSM_MAPPING, DEFAULT_STYLE_URL, getCategoryColor } from '../constants';
 import { derivePalette } from '../services/defaultThemes';
 import { createLogger } from '../services/logger';
 
@@ -54,41 +54,16 @@ interface MapViewProps {
 }
 
 // --- OVERPASS SERVICE ---
-const fetchOverpassData = async (bounds: maplibregl.LngLatBounds): Promise<any[]> => {
-    const s = bounds.getSouth();
-    const w = bounds.getWest();
-    const n = bounds.getNorth();
-    const e = bounds.getEast();
-    
-    // Safety check for large areas
-    if ((n - s) * (e - w) > 1.0) {
-        log.warn("Area too large for Overpass demo");
-        return [];
-    }
-
-    const query = `
-      [out:json][timeout:15];
-      (
-        node["amenity"](${s},${w},${n},${e});
-        node["shop"](${s},${w},${n},${e});
-        node["tourism"](${s},${w},${n},${e});
-        node["leisure"](${s},${w},${n},${e});
-      );
-      out center 50;
-    `;
-
-    try {
-        const response = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            body: query
-        });
-        const data = await response.json();
-        return data.elements || [];
-    } catch (err) {
-        log.error("Overpass Fetch Error", err);
-        return [];
-    }
-};
+const SUBCLASS_MAPPING: Record<string, { category: string; subcategory: string }> = Object.entries(OSM_MAPPING).reduce(
+    (acc, [combo, value]) => {
+        const [, rawSubclass] = combo.split('=');
+        if (rawSubclass) {
+            acc[rawSubclass.toLowerCase()] = { category: value.category, subcategory: value.subcategory };
+        }
+        return acc;
+    },
+    {} as Record<string, { category: string; subcategory: string }>
+);
 
 // --- SAFE STYLE LOADER ---
 const loadSafeStyle = async (styleUrl: string) => {
@@ -152,8 +127,25 @@ const MapView: React.FC<MapViewProps> = ({
   const showPopupRef = useRef<(feature: any, coordinates: [number, number]) => void>();
   const lastPopupFeature = useRef<any | null>(null);
   const lastPopupCoords = useRef<[number, number] | null>(null);
+  const mapReadyRef = useRef(false);
+  const idleRefreshPendingRef = useRef(false);
+  const defaultPoiStyleRef = useRef<{
+      iconImage?: any;
+      iconSize?: any;
+      textSize?: any;
+      textFont?: any;
+      textOffset?: any;
+      textAnchor?: any;
+      iconAllowOverlap?: any;
+      textAllowOverlap?: any;
+  }>({});
+  const defaultPoiMinZoomRef = useRef<number>(10);
+  const poiSourcesRef = useRef<{ source: string; sourceLayer: string }[]>([]);
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
+  const iconCacheRef = useRef<Record<string, ImageBitmap | HTMLImageElement>>({});
+  const iconLoadPromisesRef = useRef<Record<string, Promise<ImageBitmap | HTMLImageElement>>>({});
+  const poiLayerIdsRef = useRef<string[]>([]);
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -239,72 +231,141 @@ const MapView: React.FC<MapViewProps> = ({
     };
 
     applyPaletteToLayers();
-    map.on('styledata', applyPaletteToLayers);
-    log.debug('Attached styledata listener for palette synchronization');
-    return () => { map.off('styledata', applyPaletteToLayers); };
+    map.on('style.load', applyPaletteToLayers);
+    log.debug('Attached style.load listener for palette synchronization');
+    return () => { map.off('style.load', applyPaletteToLayers); };
   }, [palette, loaded, popupStyle]);
 
   // --- ICON UPDATER ---
+  const registerIcon = useCallback(async (map: maplibregl.Map, cat: string, incomingUrl?: string | null) => {
+      if (!incomingUrl) {
+          if (map.hasImage(cat)) map.removeImage(cat);
+          delete loadedIconUrls.current[cat];
+          return;
+      }
+
+      const previousUrl = loadedIconUrls.current[cat];
+      if (previousUrl === incomingUrl && map.hasImage(cat)) return;
+
+      // Reuse cached bitmaps across theme switches to avoid refetching
+      const cached = iconCacheRef.current[incomingUrl];
+      if (cached) {
+          try {
+              if (map.hasImage(cat)) map.removeImage(cat);
+              map.addImage(cat, cached, { pixelRatio: 1 });
+              loadedIconUrls.current[cat] = incomingUrl;
+              return;
+          } catch (e) {
+              log.error('Failed to re-register cached image', { cat, error: e });
+              // fall through to reload
+          }
+      }
+
+      const loadIcon = () => {
+          if (iconLoadPromisesRef.current[incomingUrl]) return iconLoadPromisesRef.current[incomingUrl];
+
+          const promise = new Promise<ImageBitmap | HTMLImageElement>((resolve, reject) => {
+              const img = new Image();
+              img.crossOrigin = "Anonymous";
+
+              img.onload = async () => {
+                  try {
+                      const maxSize = 64;
+                      let bitmap: ImageBitmap | HTMLImageElement;
+
+                      if (typeof createImageBitmap === 'function') {
+                          bitmap = await createImageBitmap(img, {
+                              resizeWidth: maxSize,
+                              resizeHeight: maxSize,
+                              resizeQuality: 'high'
+                          } as any);
+                      } else {
+                          const canvas = document.createElement('canvas');
+                          canvas.width = maxSize;
+                          canvas.height = maxSize;
+                          const ctx = canvas.getContext('2d');
+                          if (!ctx) throw new Error('Canvas unavailable');
+                          ctx.drawImage(img, 0, 0, maxSize, maxSize);
+                          const tmp = new Image();
+                          tmp.src = canvas.toDataURL();
+                          bitmap = tmp;
+                      }
+
+                      resolve(bitmap);
+                  } catch (e) {
+                      reject(e);
+                  }
+              };
+
+              img.onerror = () => reject(new Error('Icon failed to load'));
+              img.src = incomingUrl;
+          })
+          .catch((e) => {
+              delete iconLoadPromisesRef.current[incomingUrl];
+              throw e;
+          });
+
+          iconLoadPromisesRef.current[incomingUrl] = promise;
+          return promise;
+      };
+
+      try {
+          const bitmap = await loadIcon();
+          iconCacheRef.current[incomingUrl] = bitmap;
+          if (map.hasImage(cat)) map.removeImage(cat);
+          map.addImage(cat, bitmap, { pixelRatio: 1 });
+          loadedIconUrls.current[cat] = incomingUrl;
+      } catch (e) {
+          log.warn('Icon failed to load', { cat, url: incomingUrl, error: e });
+          if (map.hasImage(cat)) map.removeImage(cat);
+          delete loadedIconUrls.current[cat];
+      }
+  }, []);
+
+  const ensureAllIcons = useCallback((map?: maplibregl.Map) => {
+      const m = map || mapInstance.current;
+      if (!loaded || !m) return;
+
+      Object.entries(activeIcons).forEach(([cat, iconDef]) => {
+          registerIcon(m, cat, iconDef.imageUrl);
+      });
+
+      // Remove icons that are no longer present in the active set
+      Object.keys(loadedIconUrls.current).forEach((cat) => {
+          if (!activeIcons[cat] && m.hasImage(cat)) {
+              m.removeImage(cat);
+              delete loadedIconUrls.current[cat];
+          }
+      });
+
+      if (!m.hasImage('fallback-dot')) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 20; canvas.height = 20;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+              ctx.beginPath();
+              ctx.arc(10, 10, 7, 0, Math.PI*2);
+              ctx.fillStyle = '#4285F4';
+              ctx.fill();
+              ctx.strokeStyle = 'white';
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              m.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
+          }
+      }
+  }, [activeIcons, loaded, registerIcon]);
+
   useEffect(() => {
-    if (!loaded || !mapInstance.current) return;
-    const map = mapInstance.current;
+    ensureAllIcons();
+  }, [activeIcons, loaded, ensureAllIcons]);
 
-    Object.entries(activeIcons).forEach(([cat, iconDef]) => {
-        const incomingUrl = iconDef.imageUrl;
-        const previousUrl = loadedIconUrls.current[cat];
-
-        if (!incomingUrl) {
-            if (map.hasImage(cat)) map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-            return;
-        }
-
-        if (previousUrl === incomingUrl && map.hasImage(cat)) return;
-
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-
-        img.onload = () => {
-            try {
-                if (map.hasImage(cat)) map.removeImage(cat);
-                map.addImage(cat, img, { pixelRatio: 2 });
-                loadedIconUrls.current[cat] = incomingUrl;
-            } catch (e) {
-                log.error('Failed to register image', { cat, error: e });
-            }
-        };
-        img.onerror = () => {
-            log.warn('Icon failed to load', { cat, url: incomingUrl });
-            if (map.hasImage(cat)) map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-        };
-        img.src = incomingUrl;
-    });
-
-    // Remove icons that are no longer present in the active set
-    Object.keys(loadedIconUrls.current).forEach((cat) => {
-        if (!activeIcons[cat] && map.hasImage(cat)) {
-            map.removeImage(cat);
-            delete loadedIconUrls.current[cat];
-        }
-    });
-
-    if (!map.hasImage('fallback-dot')) {
-        const canvas = document.createElement('canvas');
-        canvas.width = 24; canvas.height = 24;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-            ctx.beginPath();
-            ctx.arc(12, 12, 9, 0, Math.PI*2);
-            ctx.fillStyle = '#4285F4';
-            ctx.fill();
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,24,24));
-        }
-    }
-  }, [activeIcons, loaded]);
+  useEffect(() => {
+      const map = mapInstance.current;
+      if (!map) return;
+      const handler = () => ensureAllIcons(map);
+      map.on('style.load', handler);
+      return () => { map.off('style.load', handler); };
+  }, [ensureAllIcons]);
 
   // --- POPUP HANDLER ---
   const showPopup = useCallback((feature: any, coordinates: [number, number]) => {
@@ -430,27 +491,67 @@ const MapView: React.FC<MapViewProps> = ({
               }
           });
 
+
           const ensureFallbackDot = () => {
               if (map.hasImage('fallback-dot')) return;
               const canvas = document.createElement('canvas');
-              canvas.width = 32; canvas.height = 32;
+              canvas.width = 20; canvas.height = 20;
               const ctx = canvas.getContext('2d');
               if (ctx) {
                   ctx.beginPath();
-                  ctx.arc(16, 16, 12, 0, Math.PI*2);
+                  ctx.arc(10, 10, 7, 0, Math.PI*2);
                   ctx.fillStyle = '#4285F4';
                   ctx.fill();
                   ctx.strokeStyle = 'white';
                   ctx.lineWidth = 2;
                   ctx.stroke();
-                  map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
+                  map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
               }
           };
 
           map.on('load', () => {
               log.info("Map Loaded");
               setLoaded(true);
+              mapReadyRef.current = true;
               if (onMapLoad) onMapLoad(map);
+
+              const styleLayers = map.getStyle()?.layers || [];
+              const poiLayers = styleLayers
+                  .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'));
+
+              const poiLayer = poiLayers.find(l => (l.id.includes('poi') || l.id.includes('amenity') || l.id.includes('place')));
+              if (poiLayer?.layout) {
+                  defaultPoiStyleRef.current = {
+                      iconImage: poiLayer.layout['icon-image'],
+                      iconSize: poiLayer.layout['icon-size'],
+                      textSize: poiLayer.layout['text-size'],
+                      textFont: poiLayer.layout['text-font'],
+                      textOffset: poiLayer.layout['text-offset'],
+                      textAnchor: poiLayer.layout['text-anchor'],
+                      iconAllowOverlap: poiLayer.layout['icon-allow-overlap'],
+                      textAllowOverlap: poiLayer.layout['text-allow-overlap']
+                  };
+              }
+
+              poiLayerIdsRef.current = poiLayers.map(l => l.id);
+              const seenSources = new Set<string>();
+              poiSourcesRef.current = poiLayers.reduce<{ source: string; sourceLayer: string }[]>((acc, layer) => {
+                  const source = (layer as any).source as string | undefined;
+                  const sourceLayer = (layer as any)['source-layer'] as string | undefined;
+                  if (!source || !sourceLayer) return acc;
+                  const key = `${source}|${sourceLayer}`;
+                  if (seenSources.has(key)) return acc;
+                  seenSources.add(key);
+                  acc.push({ source, sourceLayer });
+                  return acc;
+              }, []);
+
+              const minZooms = poiLayers
+                  .map((layer) => typeof (layer as any).minzoom === 'number' ? (layer as any).minzoom : null)
+                  .filter((z): z is number => z !== null);
+              if (minZooms.length) {
+                  defaultPoiMinZoomRef.current = Math.min(...minZooms);
+              }
 
               // Add POI Layers...
               if (!map.getSource('places')) {
@@ -463,21 +564,31 @@ const MapView: React.FC<MapViewProps> = ({
 
               ensureFallbackDot();
 
+              ensureAllIcons(map);
+
               if (!map.getLayer('unclustered-point')) {
                 map.addLayer({
                     id: 'unclustered-point',
                     type: 'symbol',
-                    source: 'places',
-                    layout: {
-                        'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
-                        'icon-size': 0.24,
-                        'icon-allow-overlap': true,
-                        'text-allow-overlap': true,
+                        source: 'places',
+                        layout: {
+                            'icon-image': ['coalesce', ['get', 'iconKey'], defaultPoiStyleRef.current.iconImage ?? 'fallback-dot'],
+                        'icon-size': defaultPoiStyleRef.current.iconSize ?? [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            8, 0.18,
+                            12, 0.3,
+                            16, 0.45,
+                            20, 0.6
+                        ],
+                        'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
+                        'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
                         'text-field': ['get', 'title'],
-                        'text-font': ['Noto Sans Regular'],
-                        'text-offset': [0, 1.1],
-                        'text-anchor': 'top',
-                        'text-size': 11,
+                        'text-font': defaultPoiStyleRef.current.textFont ?? ['Noto Sans Regular'],
+                        'text-offset': defaultPoiStyleRef.current.textOffset ?? [0, 1.1],
+                        'text-anchor': defaultPoiStyleRef.current.textAnchor ?? 'top',
+                        'text-size': defaultPoiStyleRef.current.textSize ?? 11,
                         'text-optional': true
                     },
                     paint: {
@@ -504,7 +615,7 @@ const MapView: React.FC<MapViewProps> = ({
           });
 
           map.on('moveend', () => {
-              if (loaded) refreshData(map);
+              if (mapReadyRef.current) refreshData(map);
           });
 
           mapInstance.current = map;
@@ -514,65 +625,113 @@ const MapView: React.FC<MapViewProps> = ({
 
       return () => {
           if (mapInstance.current) {
-            mapInstance.current.remove();
-            mapInstance.current = null;
+              mapInstance.current.remove();
+              mapInstance.current = null;
           }
       };
-  }, [styleJSON]); 
+  }, [styleJSON]);
 
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
-      const bounds = map.getBounds();
       const zoom = map.getZoom();
+      const minPoiZoom = defaultPoiMinZoomRef.current ?? 13;
 
-      if (zoom < 13) {
-          log.debug('Skipping Overpass fetch; zoom below threshold', { zoom });
+      if (zoom < minPoiZoom) {
+          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom });
+          const source = map.getSource('places') as maplibregl.GeoJSONSource;
+          if (source) {
+              source.setData({ type: 'FeatureCollection', features: [] });
+          }
           return;
       }
 
-      const rawElements = await fetchOverpassData(bounds);
+      const layerIds = poiLayerIdsRef.current;
+      if (!layerIds.length) {
+          log.debug('No base POI layers discovered; skipping refresh');
+          return;
+      }
 
-      const features = rawElements.map(el => {
-          const id = el.id.toString();
-          
-          let match = FALLBACK_MAPPING;
-          if (el.tags) {
-              for (const [key, value] of Object.entries(el.tags)) {
-                  const combo = `${key}=${value}`;
-                  if (OSM_MAPPING[combo]) {
-                      match = OSM_MAPPING[combo];
-                      break;
-                  }
-              }
-          }
-          
-          const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
-          
-          const labelColor = palette.text || popupStyle.textColor || '#202124';
-          const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+      const poiSources = poiSourcesRef.current;
+      if (!poiSources.length) {
+          log.debug('No POI sources discovered; skipping refresh');
+          return;
+      }
 
-          return {
-              type: 'Feature',
-              properties: {
-                  id,
-                  title: el.tags?.name || match.subcategory,
-                  category: match.category,
-                  subcategory: match.subcategory,
-                  description: el.tags?.['addr:street'] ? `${el.tags['addr:street']} ${el.tags['addr:housenumber']||''}` : '',
-                  iconKey,
-                  textColor: labelColor,
-                  haloColor
-              },
-              geometry: {
-                  type: 'Point',
-                  coordinates: [el.lon || el.center?.lon, el.lat || el.center?.lat]
-              }
+      const pendingSource = poiSources.find(({ source }) => !map.isSourceLoaded(source));
+      if (pendingSource) {
+          const onData = (e: any) => {
+              if (!e.isSourceLoaded || e.sourceId !== pendingSource.source) return;
+              map.off('sourcedata', onData);
+              refreshData(map);
           };
-      }).filter(f => f.geometry.coordinates[0]);
+          map.on('sourcedata', onData);
+          return;
+      }
 
-      // If no features came back and we already have data, keep the previous batch
+      if (typeof map.areTilesLoaded === 'function' && !map.areTilesLoaded()) {
+          if (!idleRefreshPendingRef.current) {
+              idleRefreshPendingRef.current = true;
+              map.once('idle', () => {
+                  idleRefreshPendingRef.current = false;
+                  refreshData(map);
+              });
+          }
+          log.debug('Deferring POI refresh until tiles finish loading');
+          return;
+      }
+
+      const byId = new Map<string, any>();
+      poiSources.forEach(({ source, sourceLayer }) => {
+          const rendered = map.querySourceFeatures(source, { sourceLayer });
+          rendered.forEach((feature) => {
+              const props = feature.properties || {} as any;
+              const name = props.name || props['name:en'];
+              if (!name) return;
+
+              const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
+              const match = SUBCLASS_MAPPING[subclass];
+
+              const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass || 'poi'}-${name}-${feature.id}`;
+              if (byId.has(fid)) return;
+
+              const coords = (feature.geometry as any)?.coordinates;
+              if (!coords || !coords.length) return;
+
+              const category = match?.category || subclass || 'poi';
+              const subcategory = match?.subcategory || subclass || category;
+              const iconKey = activeIcons[subcategory]?.imageUrl ? subcategory
+                  : (activeIcons[category]?.imageUrl ? category : null);
+
+              const labelColor = palette.text || popupStyle.textColor || '#202124';
+              const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+
+              byId.set(fid, {
+                  type: 'Feature',
+                  properties: {
+                      id: fid,
+                      title: name,
+                      category,
+                      subcategory,
+                      class: props.class,
+                      subclass,
+                      maki: (props as any).maki,
+                      description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
+                      iconKey,
+                      textColor: labelColor,
+                      haloColor
+                  },
+                  geometry: {
+                      type: 'Point',
+                      coordinates: coords
+                  }
+              });
+          });
+      });
+
+      const features = Array.from(byId.values());
+
       if (features.length === 0 && placesRef.current.length > 0) {
-          log.warn('Overpass returned no features, keeping previous data');
+          log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
           return;
       }
 
@@ -584,9 +743,9 @@ const MapView: React.FC<MapViewProps> = ({
               type: 'FeatureCollection',
               features: features as any
           });
-          log.debug('Refreshed Overpass features', { count: features.length, zoom });
-      }
-  };
+            log.debug('Refreshed POI features', { count: features.length, zoom });
+        }
+    };
 
   useEffect(() => {
       if (!loaded || !mapInstance.current) return;
