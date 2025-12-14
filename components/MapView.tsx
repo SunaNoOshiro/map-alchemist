@@ -137,6 +137,7 @@ const MapView: React.FC<MapViewProps> = ({
       iconAllowOverlap?: any;
       textAllowOverlap?: any;
   }>({});
+  const poiSourcesRef = useRef<{ source: string; sourceLayer: string }[]>([]);
   const placesRef = useRef<any[]>([]);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
   const poiLayerIdsRef = useRef<string[]>([]);
@@ -441,7 +442,10 @@ const MapView: React.FC<MapViewProps> = ({
               if (onMapLoad) onMapLoad(map);
 
               const styleLayers = map.getStyle()?.layers || [];
-              const poiLayer = styleLayers.find(l => l.type === 'symbol' && (l.id.includes('poi') || l.id.includes('amenity') || l.id.includes('place')));
+              const poiLayers = styleLayers
+                  .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'));
+
+              const poiLayer = poiLayers.find(l => (l.id.includes('poi') || l.id.includes('amenity') || l.id.includes('place')));
               if (poiLayer?.layout) {
                   defaultPoiStyleRef.current = {
                       iconSize: poiLayer.layout['icon-size'],
@@ -454,9 +458,18 @@ const MapView: React.FC<MapViewProps> = ({
                   };
               }
 
-              poiLayerIdsRef.current = styleLayers
-                  .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'))
-                  .map(l => l.id);
+              poiLayerIdsRef.current = poiLayers.map(l => l.id);
+              const seenSources = new Set<string>();
+              poiSourcesRef.current = poiLayers.reduce<{ source: string; sourceLayer: string }[]>((acc, layer) => {
+                  const source = (layer as any).source as string | undefined;
+                  const sourceLayer = (layer as any)['source-layer'] as string | undefined;
+                  if (!source || !sourceLayer) return acc;
+                  const key = `${source}|${sourceLayer}`;
+                  if (seenSources.has(key)) return acc;
+                  seenSources.add(key);
+                  acc.push({ source, sourceLayer });
+                  return acc;
+              }, []);
 
               // Add POI Layers...
               if (!map.getSource('places')) {
@@ -473,17 +486,17 @@ const MapView: React.FC<MapViewProps> = ({
                 map.addLayer({
                     id: 'unclustered-point',
                     type: 'symbol',
-                    source: 'places',
+                        source: 'places',
                     layout: {
                         'icon-image': ['coalesce', ['get', 'iconKey'], 'fallback-dot'],
                         'icon-size': defaultPoiStyleRef.current.iconSize ?? [
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            8, 0.22,
-                            12, 0.34,
-                            16, 0.46,
-                            20, 0.56
+                            8, 0.35,
+                            12, 0.55,
+                            16, 0.8,
+                            20, 1
                         ],
                         'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
                         'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
@@ -547,57 +560,71 @@ const MapView: React.FC<MapViewProps> = ({
           return;
       }
 
-      if (!map.areTilesLoaded()) {
-          map.once('idle', () => refreshData(map));
-          // Keep existing POIs until fresh tile data is ready
-          return;
-      }
       const layerIds = poiLayerIdsRef.current;
       if (!layerIds.length) {
           log.debug('No base POI layers discovered; skipping refresh');
           return;
       }
 
-      const rendered = map.queryRenderedFeatures(undefined, { layers: layerIds });
+      const poiSources = poiSourcesRef.current;
+      if (!poiSources.length) {
+          log.debug('No POI sources discovered; skipping refresh');
+          return;
+      }
+
+      const pendingSource = poiSources.find(({ source }) => !map.isSourceLoaded(source));
+      if (pendingSource) {
+          const onData = (e: any) => {
+              if (!e.isSourceLoaded || e.sourceId !== pendingSource.source) return;
+              map.off('sourcedata', onData);
+              refreshData(map);
+          };
+          map.on('sourcedata', onData);
+          return;
+      }
 
       const byId = new Map<string, any>();
-      rendered.forEach((feature) => {
-          const props = feature.properties || {} as any;
-          const name = props.name || props['name:en'];
-          if (!name) return;
+      poiSources.forEach(({ source, sourceLayer }) => {
+          const rendered = map.querySourceFeatures(source, { sourceLayer });
+          rendered.forEach((feature) => {
+              const props = feature.properties || {} as any;
+              const name = props.name || props['name:en'];
+              if (!name) return;
 
-          const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
-          const match = SUBCLASS_MAPPING[subclass];
-          if (!match) return;
+              const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
+              const match = SUBCLASS_MAPPING[subclass];
 
-          const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass}-${name}-${feature.id}`;
-          if (byId.has(fid)) return;
+              const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass || 'poi'}-${name}-${feature.id}`;
+              if (byId.has(fid)) return;
 
-          const coords = (feature.geometry as any)?.coordinates;
-          if (!coords || !coords.length) return;
+              const coords = (feature.geometry as any)?.coordinates;
+              if (!coords || !coords.length) return;
 
-          const iconKey = activeIcons[match.subcategory]?.imageUrl ? match.subcategory
-              : (activeIcons[match.category]?.imageUrl ? match.category : 'fallback-dot');
+              const category = match?.category || subclass || 'poi';
+              const subcategory = match?.subcategory || subclass || category;
+              const iconKey = activeIcons[subcategory]?.imageUrl ? subcategory
+                  : (activeIcons[category]?.imageUrl ? category : 'fallback-dot');
 
-          const labelColor = palette.text || popupStyle.textColor || '#202124';
-          const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+              const labelColor = palette.text || popupStyle.textColor || '#202124';
+              const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
 
-          byId.set(fid, {
-              type: 'Feature',
-              properties: {
-                  id: fid,
-                  title: name,
-                  category: match.category,
-                  subcategory: match.subcategory,
-                  description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
-                  iconKey,
-                  textColor: labelColor,
-                  haloColor
-              },
-              geometry: {
-                  type: 'Point',
-                  coordinates: coords
-              }
+              byId.set(fid, {
+                  type: 'Feature',
+                  properties: {
+                      id: fid,
+                      title: name,
+                      category,
+                      subcategory,
+                      description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
+                      iconKey,
+                      textColor: labelColor,
+                      haloColor
+                  },
+                  geometry: {
+                      type: 'Point',
+                      coordinates: coords
+                  }
+              });
           });
       });
 
