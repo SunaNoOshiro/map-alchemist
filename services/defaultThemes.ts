@@ -104,10 +104,10 @@ export const fetchDefaultThemes = async (): Promise<{ themes: MapStylePreset[]; 
 
     let raw: any;
     try {
-      raw = await loadThemes(DEFAULT_THEMES_URL);
-    } catch (jsonError) {
-      // If the plain JSON is missing, attempt to read the gzipped bundle
       raw = await loadThemes(DEFAULT_THEMES_GZ_URL, true);
+    } catch (gzError) {
+      // If the gzipped bundle is missing, attempt to read the plain JSON
+      raw = await loadThemes(DEFAULT_THEMES_URL);
     }
 
     if (!Array.isArray(raw)) return { themes: [], defaultIds: [] };

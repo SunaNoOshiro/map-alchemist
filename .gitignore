@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 public/default-themes.json
+public/default-themes.json.gz
 
 # Editor directories and files
 .vscode/*
