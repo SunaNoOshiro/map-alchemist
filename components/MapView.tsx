@@ -253,7 +253,8 @@ const MapView: React.FC<MapViewProps> = ({
         img.onload = () => {
             try {
                 if (map.hasImage(cat)) map.removeImage(cat);
-                map.addImage(cat, img, { pixelRatio: 2 });
+                // Use the native pixel ratio to avoid oversized markers when zooming
+                map.addImage(cat, img, { pixelRatio: 1 });
                 loadedIconUrls.current[cat] = incomingUrl;
             } catch (e) {
                 log.error('Failed to register image', { cat, error: e });
@@ -277,17 +278,17 @@ const MapView: React.FC<MapViewProps> = ({
 
     if (!map.hasImage('fallback-dot')) {
         const canvas = document.createElement('canvas');
-        canvas.width = 24; canvas.height = 24;
+        canvas.width = 20; canvas.height = 20;
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.beginPath();
-            ctx.arc(12, 12, 9, 0, Math.PI*2);
+            ctx.arc(10, 10, 7, 0, Math.PI*2);
             ctx.fillStyle = '#4285F4';
             ctx.fill();
             ctx.strokeStyle = 'white';
             ctx.lineWidth = 2;
             ctx.stroke();
-            map.addImage('fallback-dot', ctx.getImageData(0,0,24,24));
+            map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
         }
     }
   }, [activeIcons, loaded]);
@@ -419,17 +420,17 @@ const MapView: React.FC<MapViewProps> = ({
           const ensureFallbackDot = () => {
               if (map.hasImage('fallback-dot')) return;
               const canvas = document.createElement('canvas');
-              canvas.width = 32; canvas.height = 32;
+              canvas.width = 20; canvas.height = 20;
               const ctx = canvas.getContext('2d');
               if (ctx) {
                   ctx.beginPath();
-                  ctx.arc(16, 16, 12, 0, Math.PI*2);
+                  ctx.arc(10, 10, 7, 0, Math.PI*2);
                   ctx.fillStyle = '#4285F4';
                   ctx.fill();
                   ctx.strokeStyle = 'white';
                   ctx.lineWidth = 2;
                   ctx.stroke();
-                  map.addImage('fallback-dot', ctx.getImageData(0,0,32,32));
+                  map.addImage('fallback-dot', ctx.getImageData(0,0,20,20));
               }
           };
 
@@ -479,10 +480,10 @@ const MapView: React.FC<MapViewProps> = ({
                             'interpolate',
                             ['linear'],
                             ['zoom'],
-                            8, 0.35,
-                            12, 0.55,
-                            16, 0.75,
-                            20, 0.9
+                            8, 0.22,
+                            12, 0.34,
+                            16, 0.46,
+                            20, 0.56
                         ],
                         'icon-allow-overlap': defaultPoiStyleRef.current.iconAllowOverlap ?? false,
                         'text-allow-overlap': defaultPoiStyleRef.current.textAllowOverlap ?? false,
@@ -548,6 +549,8 @@ const MapView: React.FC<MapViewProps> = ({
 
       if (!map.areTilesLoaded()) {
           map.once('idle', () => refreshData(map));
+          // Keep existing POIs until fresh tile data is ready
+          return;
       }
       const layerIds = poiLayerIdsRef.current;
       if (!layerIds.length) {
