@@ -1,4 +1,4 @@
-name: Pages: deploy all branches
+name: "Pages: deploy all branches"
 
 on:
   push:
