@@ -95,6 +95,7 @@ jobs:
           publish_branch: gh-pages
           publish_dir: publish
           keep_files: true
+          force_orphan: true
 
       - name: Comment link on PR
         if: startsWith(github.event_name, 'pull_request')
@@ -144,3 +145,4 @@ jobs:
           publish_branch: gh-pages
           publish_dir: publish
           keep_files: true
+          force_orphan: true
