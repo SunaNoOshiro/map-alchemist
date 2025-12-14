@@ -2,7 +2,6 @@ name: "Pages: deploy all branches"
 
 on:
   push:
-    branches: ["**"]
     branches-ignore: ["gh-pages"]
   pull_request:
     types: [opened, synchronize, reopened, closed]
