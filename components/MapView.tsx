@@ -151,6 +151,7 @@ const MapView: React.FC<MapViewProps> = ({
   const iconCacheRef = useRef<Record<string, ImageBitmap | HTMLImageElement>>({});
   const iconLoadPromisesRef = useRef<Record<string, Promise<ImageBitmap | HTMLImageElement>>>({});
   const poiLayerIdsRef = useRef<string[]>([]);
+  const lastNonEmptyViewportRef = useRef<string>('');
 
   const [loaded, setLoaded] = useState(false);
   const [styleJSON, setStyleJSON] = useState<any>(null);
@@ -764,15 +765,21 @@ const MapView: React.FC<MapViewProps> = ({
           });
       };
 
+      const { width, height } = canvas.getBoundingClientRect();
       if (belowMinZoom) {
-          const { width, height } = canvas.getBoundingClientRect();
           const rendered = map.queryRenderedFeatures([[0, 0], [width, height]], { layers: layerIds });
           collectFeatures(rendered);
       } else {
-          poiSources.forEach(({ source, sourceLayer }) => {
-              const rendered = map.querySourceFeatures(source, { sourceLayer });
-              collectFeatures(rendered);
-          });
+          const renderedViewport = map.queryRenderedFeatures([[0, 0], [width, height]], { layers: layerIds });
+          collectFeatures(renderedViewport);
+
+          // Fall back to source queries to catch tiles that may not yet be painted
+          if (byId.size === 0) {
+              poiSources.forEach(({ source, sourceLayer }) => {
+                  const rendered = map.querySourceFeatures(source, { sourceLayer });
+                  collectFeatures(rendered);
+              });
+          }
       }
 
       const features = Array.from(byId.values());
@@ -792,13 +799,40 @@ const MapView: React.FC<MapViewProps> = ({
               return;
           }
 
-          if (placesRef.current.length > 0 && emptyFeatureRetriesRef.current < 3) {
-              log.debug('Deferring POI source clear after empty result', { zoom, attempt: emptyFeatureRetriesRef.current, sameViewport });
+          const hadFeatures = placesRef.current.length > 0;
+          const retryLimit = 5;
+          if (hadFeatures && emptyFeatureRetriesRef.current < retryLimit) {
+              if (!idleRefreshPendingRef.current) {
+                  idleRefreshPendingRef.current = true;
+                  map.once('idle', () => {
+                      idleRefreshPendingRef.current = false;
+                      refreshData(map);
+                  });
+              }
+
+              log.debug('Deferring POI source clear after empty result', {
+                  zoom,
+                  attempt: emptyFeatureRetriesRef.current,
+                  sameViewport,
+                  hadFeatures,
+                  retryLimit
+              });
               return;
           }
       } else {
           emptyFeatureRetriesRef.current = 0;
           emptyViewportSigRef.current = '';
+          lastNonEmptyViewportRef.current = viewportSig;
+      }
+
+      if (features.length === 0 && placesRef.current.length > 0) {
+          // Keep rendering the last known POIs to avoid wiping icons mid-navigation
+          log.debug('Keeping previous POIs until viewport confirmed empty', {
+              lastViewport: lastNonEmptyViewportRef.current,
+              currentViewport: viewportSig,
+              emptyAttempts: emptyFeatureRetriesRef.current
+          });
+          return;
       }
 
       placesRef.current = features as any[];
