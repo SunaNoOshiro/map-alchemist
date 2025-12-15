@@ -743,15 +743,25 @@ const MapView: React.FC<MapViewProps> = ({
           return;
       }
 
-      placesRef.current = features as any[];
+      // Merge in previous features so POIs stay visible through zoom/pan transitions
+      const mergedById = new Map<string, any>();
+      placesRef.current.forEach((f: any) => {
+          if (f?.properties?.id) mergedById.set(f.properties.id, f);
+      });
+      features.forEach((f: any) => {
+          if (f?.properties?.id) mergedById.set(f.properties.id, f);
+      });
+
+      const mergedFeatures = Array.from(mergedById.values());
+      placesRef.current = mergedFeatures as any[];
 
       if (source) {
           source.setData({
               type: 'FeatureCollection',
-              features: features as any
+              features: mergedFeatures as any
           });
-            log.debug('Refreshed POI features', { count: features.length, zoom });
-        }
+          log.debug('Refreshed POI features', { count: mergedFeatures.length, zoom });
+      }
     };
 
   useEffect(() => {
