@@ -145,6 +145,7 @@ const MapView: React.FC<MapViewProps> = ({
   const defaultPoiMinZoomRef = useRef<number>(10);
   const poiSourcesRef = useRef<{ source: string; sourceLayer: string }[]>([]);
   const placesRef = useRef<any[]>([]);
+  const emptyFeatureRetriesRef = useRef(0);
   const loadedIconUrls = useRef<Record<string, string | null>>({});
   const iconCacheRef = useRef<Record<string, ImageBitmap | HTMLImageElement>>({});
   const iconLoadPromisesRef = useRef<Record<string, Promise<ImageBitmap | HTMLImageElement>>>({});
@@ -762,16 +763,24 @@ const MapView: React.FC<MapViewProps> = ({
       const features = Array.from(byId.values());
 
       if (features.length === 0) {
+          emptyFeatureRetriesRef.current += 1;
+
           if (belowMinZoom) {
               if (lowZoomRefreshTimeoutRef.current) clearTimeout(lowZoomRefreshTimeoutRef.current);
               lowZoomRefreshTimeoutRef.current = setTimeout(() => {
                   if (mapInstance.current) refreshData(mapInstance.current);
               }, 600);
-          }
-          if (placesRef.current.length > 0) {
-              log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
+
+              log.debug('Skipping low-zoom POI clear while retrying for tiles', { zoom, attempt: emptyFeatureRetriesRef.current });
               return;
           }
+
+          if (placesRef.current.length > 0 && emptyFeatureRetriesRef.current < 2) {
+              log.debug('Deferring POI source clear after empty result', { zoom, attempt: emptyFeatureRetriesRef.current });
+              return;
+          }
+      } else {
+          emptyFeatureRetriesRef.current = 0;
       }
 
       placesRef.current = features as any[];
