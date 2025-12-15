@@ -636,10 +636,10 @@ const MapView: React.FC<MapViewProps> = ({
       const zoom = map.getZoom();
       const baseMinPoiZoom = defaultPoiMinZoomRef.current ?? 13;
       const effectiveMinPoiZoom = Math.max(0, baseMinPoiZoom - 1);
+      const belowMinZoom = zoom < effectiveMinPoiZoom;
 
-      if (zoom < effectiveMinPoiZoom) {
-          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom: effectiveMinPoiZoom });
-          return;
+      if (belowMinZoom) {
+          log.debug('Refreshing POIs even though zoom is below base threshold', { zoom, minPoiZoom: effectiveMinPoiZoom });
       }
 
       const layerIds = poiLayerIdsRef.current;
