@@ -129,6 +129,8 @@ const MapView: React.FC<MapViewProps> = ({
   const lastPopupCoords = useRef<[number, number] | null>(null);
   const mapReadyRef = useRef(false);
   const idleRefreshPendingRef = useRef(false);
+  const lastLowZoomRefreshRef = useRef<number>(0);
+  const effectiveMinPoiZoomRef = useRef<number | null>(null);
   const defaultPoiStyleRef = useRef<{
       iconImage?: any;
       iconSize?: any;
@@ -553,6 +555,19 @@ const MapView: React.FC<MapViewProps> = ({
                   defaultPoiMinZoomRef.current = Math.min(...minZooms);
               }
 
+              const effectiveMinZoom = Math.max((defaultPoiMinZoomRef.current ?? 13) - 1, 0);
+              effectiveMinPoiZoomRef.current = effectiveMinZoom;
+
+              poiLayerIdsRef.current.forEach((layerId) => {
+                  try {
+                      const layer = map.getLayer(layerId) as any;
+                      const maxZoom = typeof layer?.maxzoom === 'number' ? layer.maxzoom : 24;
+                      map.setLayerZoomRange(layerId, effectiveMinZoom, maxZoom);
+                  } catch (e) {
+                      log.debug('Failed to relax POI layer zoom range', { layerId, error: e });
+                  }
+              });
+
               // Add POI Layers...
               if (!map.getSource('places')) {
                 map.addSource('places', {
@@ -634,15 +649,20 @@ const MapView: React.FC<MapViewProps> = ({
   // --- DATA PIPELINE ---
   const refreshData = async (map: maplibregl.Map) => {
       const zoom = map.getZoom();
-      const minPoiZoom = defaultPoiMinZoomRef.current ?? 13;
+      const minPoiZoom = effectiveMinPoiZoomRef.current ?? defaultPoiMinZoomRef.current ?? 13;
+      const belowMinZoom = zoom < minPoiZoom;
+      const now = Date.now();
 
-      if (zoom < minPoiZoom) {
-          log.debug('Skipping POI refresh; zoom below threshold', { zoom, minPoiZoom });
-          const source = map.getSource('places') as maplibregl.GeoJSONSource;
-          if (source) {
-              source.setData({ type: 'FeatureCollection', features: [] });
+      if (belowMinZoom) {
+          const sinceLastRefresh = now - lastLowZoomRefreshRef.current;
+          const throttleMs = 800;
+          if (sinceLastRefresh < throttleMs && placesRef.current.length) {
+              log.debug('Throttling low-zoom POI refresh', { zoom, minPoiZoom, sinceLastRefresh });
+              return;
           }
-          return;
+          lastLowZoomRefreshRef.current = now;
+      } else {
+          lastLowZoomRefreshRef.current = 0;
       }
 
       const layerIds = poiLayerIdsRef.current;
