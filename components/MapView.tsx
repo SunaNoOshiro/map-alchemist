@@ -688,9 +688,11 @@ const MapView: React.FC<MapViewProps> = ({
       }
 
       const byId = new Map<string, any>();
-      poiSources.forEach(({ source, sourceLayer }) => {
-          const rendered = map.querySourceFeatures(source, { sourceLayer });
-          rendered.forEach((feature) => {
+
+      // Prefer rendered features so we capture exactly what the user sees at the moment
+      const renderedByLayer = map.queryRenderedFeatures(undefined, { layers: poiLayerIdsRef.current });
+      if (renderedByLayer.length) {
+          renderedByLayer.forEach((feature) => {
               const props = feature.properties || {} as any;
               const name = props.name || props['name:en'];
               if (!name) return;
@@ -733,7 +735,57 @@ const MapView: React.FC<MapViewProps> = ({
                   }
               });
           });
-      });
+      }
+
+      // Fall back to source features if nothing is currently rendered (e.g., during a quick zoom/drag)
+      if (byId.size === 0) {
+          poiSources.forEach(({ source, sourceLayer }) => {
+              const rendered = map.querySourceFeatures(source, { sourceLayer });
+              rendered.forEach((feature) => {
+                  const props = feature.properties || {} as any;
+                  const name = props.name || props['name:en'];
+                  if (!name) return;
+
+                  const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
+                  const match = SUBCLASS_MAPPING[subclass];
+
+                  const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass || 'poi'}-${name}-${feature.id}`;
+                  if (byId.has(fid)) return;
+
+                  const coords = (feature.geometry as any)?.coordinates;
+                  if (!coords || !coords.length) return;
+
+                  const category = match?.category || subclass || 'poi';
+                  const subcategory = match?.subcategory || subclass || category;
+                  const iconKey = activeIcons[subcategory]?.imageUrl ? subcategory
+                      : (activeIcons[category]?.imageUrl ? category : null);
+
+                  const labelColor = palette.text || popupStyle.textColor || '#202124';
+                  const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+
+                  byId.set(fid, {
+                      type: 'Feature',
+                      properties: {
+                          id: fid,
+                          title: name,
+                          category,
+                          subcategory,
+                          class: props.class,
+                          subclass,
+                          maki: (props as any).maki,
+                          description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber']||''}` : '',
+                          iconKey,
+                          textColor: labelColor,
+                          haloColor
+                      },
+                      geometry: {
+                          type: 'Point',
+                          coordinates: coords
+                      }
+                  });
+              });
+          });
+      }
 
       const features = Array.from(byId.values());
 
