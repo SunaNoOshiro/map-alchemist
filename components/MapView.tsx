@@ -727,8 +727,8 @@ const MapView: React.FC<MapViewProps> = ({
 
       const features = Array.from(byId.values());
 
-      if (features.length === 0 && placesRef.current.length > 0) {
-          log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
+      if (features.length === 0) {
+          log.debug('Skipping POI source clear; keeping previous features until a non-empty refresh succeeds', { zoom, retained: placesRef.current.length });
           return;
       }
 
