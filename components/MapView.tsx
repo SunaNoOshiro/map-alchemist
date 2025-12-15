@@ -727,14 +727,24 @@ const MapView: React.FC<MapViewProps> = ({
 
       const features = Array.from(byId.values());
 
+      const source = map.getSource('places') as maplibregl.GeoJSONSource;
+
       if (features.length === 0) {
-          log.debug('Skipping POI source clear; keeping previous features until a non-empty refresh succeeds', { zoom, retained: placesRef.current.length });
+          if (source && placesRef.current.length) {
+              // Re-apply the last known POIs so zoom/pan events don't wipe icons
+              source.setData({
+                  type: 'FeatureCollection',
+                  features: placesRef.current as any
+              });
+              log.debug('Re-applying cached POIs because refresh returned empty', { zoom, retained: placesRef.current.length });
+          } else {
+              log.debug('Skipping POI source clear; keeping previous features until a non-empty refresh succeeds', { zoom, retained: placesRef.current.length });
+          }
           return;
       }
 
       placesRef.current = features as any[];
 
-      const source = map.getSource('places') as maplibregl.GeoJSONSource;
       if (source) {
           source.setData({
               type: 'FeatureCollection',
