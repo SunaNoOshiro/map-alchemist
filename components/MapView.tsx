@@ -560,6 +560,16 @@ const MapView: React.FC<MapViewProps> = ({
                     data: { type: 'FeatureCollection', features: [] },
                     cluster: false
                 });
+
+                // Immediately restore any cached POIs so icons persist through style reloads
+                if (placesRef.current.length) {
+                    const cached = placesRef.current as any[];
+                    (map.getSource('places') as maplibregl.GeoJSONSource).setData({
+                        type: 'FeatureCollection',
+                        features: cached
+                    });
+                    log.debug('Rehydrated POIs after source creation', { count: cached.length });
+                }
               }
 
               ensureFallbackDot();
