@@ -132,6 +132,7 @@ const MapView: React.FC<MapViewProps> = ({
   const lastLowZoomRefreshRef = useRef<number>(0);
   const effectiveMinPoiZoomRef = useRef<number | null>(null);
   const lowZoomRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const emptyViewportSigRef = useRef<string>('');
   const defaultPoiStyleRef = useRef<{
       iconImage?: any;
       iconSize?: any;
@@ -712,10 +713,13 @@ const MapView: React.FC<MapViewProps> = ({
           lastLowZoomRefreshRef.current = now;
       }
 
+      const canvas = map.getCanvas();
+      const bounds = map.getBounds();
+      const viewportSig = `${zoom.toFixed(2)}|${bounds.toArray().flat().map((n) => n.toFixed(4)).join(',')}`;
+
       const byId = new Map<string, any>();
-      poiSources.forEach(({ source, sourceLayer }) => {
-          const rendered = map.querySourceFeatures(source, { sourceLayer });
-          rendered.forEach((feature) => {
+      const collectFeatures = (rawFeatures: any[]) => {
+          rawFeatures.forEach((feature) => {
               const props = feature.properties || {} as any;
               const name = props.name || props['name:en'];
               if (!name) return;
@@ -758,29 +762,43 @@ const MapView: React.FC<MapViewProps> = ({
                   }
               });
           });
-      });
+      };
+
+      if (belowMinZoom) {
+          const { width, height } = canvas.getBoundingClientRect();
+          const rendered = map.queryRenderedFeatures([[0, 0], [width, height]], { layers: layerIds });
+          collectFeatures(rendered);
+      } else {
+          poiSources.forEach(({ source, sourceLayer }) => {
+              const rendered = map.querySourceFeatures(source, { sourceLayer });
+              collectFeatures(rendered);
+          });
+      }
 
       const features = Array.from(byId.values());
 
       if (features.length === 0) {
-          emptyFeatureRetriesRef.current += 1;
+          const sameViewport = viewportSig === emptyViewportSigRef.current;
+          emptyFeatureRetriesRef.current = sameViewport ? emptyFeatureRetriesRef.current + 1 : 1;
+          emptyViewportSigRef.current = viewportSig;
 
           if (belowMinZoom) {
               if (lowZoomRefreshTimeoutRef.current) clearTimeout(lowZoomRefreshTimeoutRef.current);
               lowZoomRefreshTimeoutRef.current = setTimeout(() => {
                   if (mapInstance.current) refreshData(mapInstance.current);
-              }, 600);
+              }, 650);
 
               log.debug('Skipping low-zoom POI clear while retrying for tiles', { zoom, attempt: emptyFeatureRetriesRef.current });
               return;
           }
 
-          if (placesRef.current.length > 0 && emptyFeatureRetriesRef.current < 2) {
-              log.debug('Deferring POI source clear after empty result', { zoom, attempt: emptyFeatureRetriesRef.current });
+          if (placesRef.current.length > 0 && emptyFeatureRetriesRef.current < 3) {
+              log.debug('Deferring POI source clear after empty result', { zoom, attempt: emptyFeatureRetriesRef.current, sameViewport });
               return;
           }
       } else {
           emptyFeatureRetriesRef.current = 0;
+          emptyViewportSigRef.current = '';
       }
 
       placesRef.current = features as any[];
