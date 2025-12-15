@@ -151,6 +151,44 @@ const MapView: React.FC<MapViewProps> = ({
   const [styleJSON, setStyleJSON] = useState<any>(null);
   const selectedPlaceId = useRef<string | null>(null);
 
+  // --- STYLE UPDATER ---
+  const palette = useMemo(() => {
+    if (paletteProp) return paletteProp;
+    return derivePalette(mapStyleJson);
+  }, [mapStyleJson, paletteProp]);
+
+  const restyleCachedPois = useCallback((map?: maplibregl.Map) => {
+      if (!placesRef.current.length) return;
+
+      const textColor = palette.text || popupStyle.textColor || '#202124';
+      const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+
+      const updated = placesRef.current.map((feature) => {
+          const props = feature?.properties || {} as any;
+          const category = props.category || props.subcategory || 'poi';
+          const subcategory = props.subcategory || category;
+          const iconKey = activeIcons[subcategory]?.imageUrl ? subcategory
+              : (activeIcons[category]?.imageUrl ? category : null);
+
+          return {
+              ...feature,
+              properties: {
+                  ...props,
+                  iconKey,
+                  textColor,
+                  haloColor
+              }
+          };
+      });
+
+      placesRef.current = updated as any[];
+
+      const source = (map || mapInstance.current)?.getSource('places') as maplibregl.GeoJSONSource;
+      if (source) {
+          source.setData({ type: 'FeatureCollection', features: updated as any });
+      }
+  }, [activeIcons, palette, popupStyle]);
+
   // 1. Fetch Style Manually
   useEffect(() => {
     const initStyle = async () => {
@@ -159,12 +197,6 @@ const MapView: React.FC<MapViewProps> = ({
     };
     initStyle();
   }, []);
-
-  // --- STYLE UPDATER ---
-  const palette = useMemo(() => {
-    if (paletteProp) return paletteProp;
-    return derivePalette(mapStyleJson);
-  }, [mapStyleJson, paletteProp]);
 
   useEffect(() => {
     if (!loaded || !mapInstance.current || !palette) return;
@@ -828,8 +860,9 @@ const MapView: React.FC<MapViewProps> = ({
 
   useEffect(() => {
       if (!loaded || !mapInstance.current) return;
+      restyleCachedPois(mapInstance.current);
       refreshData(mapInstance.current);
-  }, [activeIcons, popupStyle, loaded, palette]);
+  }, [activeIcons, popupStyle, loaded, palette, restyleCachedPois]);
 
   return (
     <div className="relative w-full h-full bg-gray-200">
