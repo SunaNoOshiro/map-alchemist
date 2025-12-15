@@ -131,6 +131,7 @@ const MapView: React.FC<MapViewProps> = ({
   const idleRefreshPendingRef = useRef(false);
   const lastLowZoomRefreshRef = useRef<number>(0);
   const effectiveMinPoiZoomRef = useRef<number | null>(null);
+  const lowZoomRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const defaultPoiStyleRef = useRef<{
       iconImage?: any;
       iconSize?: any;
@@ -639,6 +640,10 @@ const MapView: React.FC<MapViewProps> = ({
       }
 
       return () => {
+          if (lowZoomRefreshTimeoutRef.current) {
+              clearTimeout(lowZoomRefreshTimeoutRef.current);
+              lowZoomRefreshTimeoutRef.current = null;
+          }
           if (mapInstance.current) {
               mapInstance.current.remove();
               mapInstance.current = null;
@@ -663,6 +668,10 @@ const MapView: React.FC<MapViewProps> = ({
           lastLowZoomRefreshRef.current = now;
       } else {
           lastLowZoomRefreshRef.current = 0;
+          if (lowZoomRefreshTimeoutRef.current) {
+              clearTimeout(lowZoomRefreshTimeoutRef.current);
+              lowZoomRefreshTimeoutRef.current = null;
+          }
       }
 
       const layerIds = poiLayerIdsRef.current;
@@ -750,9 +759,17 @@ const MapView: React.FC<MapViewProps> = ({
 
       const features = Array.from(byId.values());
 
-      if (features.length === 0 && placesRef.current.length > 0) {
-          log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
-          return;
+      if (features.length === 0) {
+          if (belowMinZoom) {
+              if (lowZoomRefreshTimeoutRef.current) clearTimeout(lowZoomRefreshTimeoutRef.current);
+              lowZoomRefreshTimeoutRef.current = setTimeout(() => {
+                  if (mapInstance.current) refreshData(mapInstance.current);
+              }, 600);
+          }
+          if (placesRef.current.length > 0) {
+              log.debug('Skipping POI source clear while tiles load; keeping previous features', { zoom });
+              return;
+          }
       }
 
       placesRef.current = features as any[];
