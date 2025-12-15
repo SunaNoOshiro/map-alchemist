@@ -658,15 +658,7 @@ const MapView: React.FC<MapViewProps> = ({
       const belowMinZoom = zoom < minPoiZoom;
       const now = Date.now();
 
-      if (belowMinZoom) {
-          const sinceLastRefresh = now - lastLowZoomRefreshRef.current;
-          const throttleMs = 800;
-          if (sinceLastRefresh < throttleMs && placesRef.current.length) {
-              log.debug('Throttling low-zoom POI refresh', { zoom, minPoiZoom, sinceLastRefresh });
-              return;
-          }
-          lastLowZoomRefreshRef.current = now;
-      } else {
+      if (!belowMinZoom) {
           lastLowZoomRefreshRef.current = 0;
           if (lowZoomRefreshTimeoutRef.current) {
               clearTimeout(lowZoomRefreshTimeoutRef.current);
@@ -707,6 +699,16 @@ const MapView: React.FC<MapViewProps> = ({
           }
           log.debug('Deferring POI refresh until tiles finish loading');
           return;
+      }
+
+      if (belowMinZoom) {
+          const sinceLastRefresh = now - lastLowZoomRefreshRef.current;
+          const throttleMs = 800;
+          if (sinceLastRefresh < throttleMs && placesRef.current.length) {
+              log.debug('Throttling low-zoom POI refresh', { zoom, minPoiZoom, sinceLastRefresh });
+              return;
+          }
+          lastLowZoomRefreshRef.current = now;
       }
 
       const byId = new Map<string, any>();
