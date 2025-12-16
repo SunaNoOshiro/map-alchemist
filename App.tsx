@@ -24,15 +24,15 @@ function App() {
   const [defaultThemes, setDefaultThemes] = useState<MapStylePreset[]>([DEFAULT_STYLE_PRESET]);
   const [defaultThemeIds, setDefaultThemeIds] = useState<string[]>([DEFAULT_STYLE_PRESET.id]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  
+
   const [prompt, setPrompt] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
-  
+
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-  
+
   const activeStyle = styles.find(s => s.id === activeStyleId) || null;
   const activeIcons = activeStyle ? activeStyle.iconsByCategory : {};
 
@@ -53,36 +53,36 @@ function App() {
   // Load Data
   useEffect(() => {
     const loadData = async () => {
-        const savedStyles = await storageService.getStyles();
-        if (savedStyles && savedStyles.length > 0) {
-            setStyles(savedStyles);
-            setActiveStyleId(savedStyles[0].id);
+      const savedStyles = await storageService.getStyles();
+      if (savedStyles && savedStyles.length > 0) {
+        setStyles(savedStyles);
+        setActiveStyleId(savedStyles[0].id);
 
-            const bundled = savedStyles.filter(s => s.isBundledDefault);
-            if (bundled.length > 0) {
-              setDefaultThemes(bundled);
-              setDefaultThemeIds(bundled.map(s => s.id));
-            }
-
-            addLog("Loaded existing styles.", "info");
-            return;
+        const bundled = savedStyles.filter(s => s.isBundledDefault);
+        if (bundled.length > 0) {
+          setDefaultThemes(bundled);
+          setDefaultThemeIds(bundled.map(s => s.id));
         }
 
-        const { themes, defaultIds } = await fetchDefaultThemes();
-        if (themes.length > 0) {
-            setStyles(themes);
-            setActiveStyleId(themes[0].id);
-            setDefaultThemes(themes);
-            setDefaultThemeIds(defaultIds);
-            addLog("Bundled default themes loaded.", "info");
-            return;
-        }
+        addLog("Loaded existing styles.", "info");
+        return;
+      }
 
-        setStyles([DEFAULT_STYLE_PRESET]);
-        setActiveStyleId(DEFAULT_STYLE_PRESET.id);
-        setDefaultThemes([DEFAULT_STYLE_PRESET]);
-        setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
-        addLog("Standard theme loaded.", "info");
+      const { themes, defaultIds } = await fetchDefaultThemes();
+      if (themes.length > 0) {
+        setStyles(themes);
+        setActiveStyleId(themes[0].id);
+        setDefaultThemes(themes);
+        setDefaultThemeIds(defaultIds);
+        addLog("Bundled default themes loaded.", "info");
+        return;
+      }
+
+      setStyles([DEFAULT_STYLE_PRESET]);
+      setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+      setDefaultThemes([DEFAULT_STYLE_PRESET]);
+      setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
+      addLog("Standard theme loaded.", "info");
     };
     loadData();
   }, []);
@@ -90,7 +90,7 @@ function App() {
   // Save Data
   useEffect(() => {
     if (styles.length > 0) {
-       storageService.saveStyles(styles);
+      storageService.saveStyles(styles);
     }
   }, [styles]);
 
@@ -109,9 +109,9 @@ function App() {
         await (window as any).aistudio.openSelectKey();
         const has = await (window as any).aistudio.hasSelectedApiKey();
         if (has) {
-            setHasApiKey(true);
-            setIsGuestMode(false);
-            addLog("API Key connected successfully.", "success");
+          setHasApiKey(true);
+          setIsGuestMode(false);
+          addLog("API Key connected successfully.", "success");
         }
       } catch (e) {
         console.error("Key selection failed", e);
@@ -124,9 +124,9 @@ function App() {
 
   const handleGenerateStyle = async () => {
     if (!hasApiKey) {
-        addLog("API Key required to generate styles.", "warning");
-        handleSelectKey();
-        return;
+      addLog("API Key required to generate styles.", "warning");
+      handleSelectKey();
+      return;
     }
 
     if (!prompt.trim()) return;
@@ -136,12 +136,12 @@ function App() {
 
     try {
       const newPreset = await geminiService.generateMapTheme(
-          prompt, 
-          MAP_CATEGORIES,
-          (msg) => {
-              setLoadingMessage(msg);
-              addLog(msg, "info");
-          }
+        prompt,
+        MAP_CATEGORIES,
+        (msg) => {
+          setLoadingMessage(msg);
+          addLog(msg, "info");
+        }
       );
 
       setStyles(prev => [newPreset, ...prev]);
@@ -158,77 +158,80 @@ function App() {
   const handleRegenerateIcon = async (category: string, userPrompt: string) => {
     if (!hasApiKey) return;
 
-    if (!activeStyleId || defaultThemeIds.includes(activeStyleId)) {
-        addLog("Cannot modify default theme assets.", "warning");
-        return;
+    if (!activeStyleId) {
+      addLog("No active style selected.", "warning");
+      return;
     }
-    
+
+    // We allow modifying defaults now (user copy logic or just mutable session defaults)
+    // const style = styles.find(s => s.id === activeStyleId);
+
     const style = styles.find(s => s.id === activeStyleId);
     const effectivePrompt = userPrompt || style?.iconTheme || style?.prompt || `Icon for ${category}`;
 
     setStatus(AppStatus.GENERATING_ICON);
-    
+
     setStyles(prev => prev.map(s => {
-        if (s.id === activeStyleId) {
-            return {
-                ...s,
-                iconsByCategory: {
-                    ...s.iconsByCategory,
-                    [category]: { ...s.iconsByCategory[category], isLoading: true }
-                }
-            };
-        }
-        return s;
+      if (s.id === activeStyleId) {
+        return {
+          ...s,
+          iconsByCategory: {
+            ...s.iconsByCategory,
+            [category]: { ...s.iconsByCategory[category], isLoading: true }
+          }
+        };
+      }
+      return s;
     }));
-    
+
     addLog(`Regenerating ${category} icon...`, "info");
 
     try {
       const imageUrl = await geminiService.generateIconImage(category, effectivePrompt, '1K');
-      
+
       setStyles(prev => prev.map(s => {
         if (s.id === activeStyleId) {
-            return {
-                ...s,
-                iconsByCategory: {
-                    ...s.iconsByCategory,
-                    [category]: { 
-                        category, 
-                        prompt: effectivePrompt, 
-                        imageUrl, 
-                        isLoading: false 
-                    }
-                }
-            };
+          return {
+            ...s,
+            iconsByCategory: {
+              ...s.iconsByCategory,
+              [category]: {
+                category,
+                prompt: effectivePrompt,
+                imageUrl,
+                isLoading: false
+              }
+            }
+          };
         }
         return s;
-    }));
+      }));
       addLog(`Icon for ${category} updated.`, "success");
 
     } catch (error) {
       addLog(`Failed to generate icon: ${error}`, "error");
-       setStyles(prev => prev.map(s => {
+      setStyles(prev => prev.map(s => {
         if (s.id === activeStyleId) {
-            return {
-                ...s,
-                iconsByCategory: {
-                    ...s.iconsByCategory,
-                    [category]: { ...s.iconsByCategory[category], isLoading: false }
-                }
-            };
+          return {
+            ...s,
+            iconsByCategory: {
+              ...s.iconsByCategory,
+              [category]: { ...s.iconsByCategory[category], isLoading: false }
+            }
+          };
         }
         return s;
-    }));
+      }));
     } finally {
       setStatus(AppStatus.IDLE);
     }
   };
 
   const handleEditFromPopup = (category: string) => {
-      if (!isRightSidebarOpen) {
-          setIsRightSidebarOpen(true);
-      }
-      setSelectedCategory(category);
+    if (!isRightSidebarOpen) {
+      setIsRightSidebarOpen(true);
+    }
+    setSelectedCategory(category);
   };
 
   const handleExport = () => {
@@ -252,45 +255,45 @@ function App() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
-        try {
-            const imported = JSON.parse(evt.target?.result as string);
-            if (Array.isArray(imported)) {
-                const validImports = imported.filter((s: MapStylePreset) => !defaultThemeIds.includes(s.id));
-                setStyles(prev => [...prev, ...validImports]);
-                addLog(`Imported ${validImports.length} styles.`, "success");
-            }
-        } catch (err) {
-            addLog("Failed to parse JSON.", "error");
+      try {
+        const imported = JSON.parse(evt.target?.result as string);
+        if (Array.isArray(imported)) {
+          const validImports = imported.filter((s: MapStylePreset) => !defaultThemeIds.includes(s.id));
+          setStyles(prev => [...prev, ...validImports]);
+          addLog(`Imported ${validImports.length} styles.`, "success");
         }
+      } catch (err) {
+        addLog("Failed to parse JSON.", "error");
+      }
     };
     reader.readAsText(file);
   };
 
   const handleClear = () => {
-      if (confirm("Delete all custom styles? This will preserve the Default Standard theme.")) {
-          const baseDefaults = defaultThemes.length > 0 ? defaultThemes : [DEFAULT_STYLE_PRESET];
-          setStyles(baseDefaults);
-          setActiveStyleId(baseDefaults[0].id);
-          storageService.clearStyles();
-          addLog("Custom styles cleared.", "warning");
-      }
+    if (confirm("Delete all custom styles? This will preserve the Default Standard theme.")) {
+      const baseDefaults = defaultThemes.length > 0 ? defaultThemes : [DEFAULT_STYLE_PRESET];
+      setStyles(baseDefaults);
+      setActiveStyleId(baseDefaults[0].id);
+      storageService.clearStyles();
+      addLog("Custom styles cleared.", "warning");
+    }
   };
 
   const handleDeleteStyle = (id: string) => {
-      if (defaultThemeIds.includes(id)) {
-          addLog("Cannot delete bundled default themes.", "warning");
-          return;
-      }
-      setStyles(s => s.filter(x => x.id !== id));
-      if (activeStyleId === id) {
-          const fallback = defaultThemes[0] || DEFAULT_STYLE_PRESET;
-          setActiveStyleId(fallback.id);
-      }
-      addLog("Style deleted.", "info");
+    if (defaultThemeIds.includes(id)) {
+      addLog("Cannot delete bundled default themes.", "warning");
+      return;
+    }
+    setStyles(s => s.filter(x => x.id !== id));
+    if (activeStyleId === id) {
+      const fallback = defaultThemes[0] || DEFAULT_STYLE_PRESET;
+      setActiveStyleId(fallback.id);
+    }
+    addLog("Style deleted.", "info");
   };
 
   const onMapLoad = useCallback((map: any) => {
-      // Empty
+    // Empty
   }, []);
 
   if (!hasApiKey && !isGuestMode) {
@@ -299,8 +302,8 @@ function App() {
 
   return (
     <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden">
-      
-      <LeftSidebar 
+
+      <LeftSidebar
         isOpen={isLeftSidebarOpen}
         prompt={prompt}
         setPrompt={setPrompt}
@@ -318,53 +321,53 @@ function App() {
         hasApiKey={hasApiKey}
         onConnectApi={handleSelectKey}
       />
-      
+
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <TopToolbar 
-            styles={styles}
-            activeStyleId={activeStyleId}
-            onSelectStyle={setActiveStyleId}
-            status={status}
+        <TopToolbar
+          styles={styles}
+          activeStyleId={activeStyleId}
+          onSelectStyle={setActiveStyleId}
+          status={status}
         />
-        
+
         <main className="flex-1 relative bg-gray-200 group overflow-hidden">
-            <button 
-              onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-              className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
-            >
-              {isLeftSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-            </button>
+          <button
+            onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+          >
+            {isLeftSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+          </button>
 
-            <button 
-              onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-              className="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
-            >
-              {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-            </button>
+          <button
+            onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+          >
+            {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
 
-            <MapView
-                apiKey={""}
-                mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
-                palette={activeStyle?.palette}
-                activeIcons={activeIcons}
-                popupStyle={normalizePopupStyle(
-                  activeStyle?.popupStyle || (activeStyle as any)?.mapStyleJson?.popupStyle
-                )}
-                onMapLoad={onMapLoad}
-                isDefaultTheme={activeStyleId ? defaultThemeIds.includes(activeStyleId) : false}
-                onEditIcon={handleEditFromPopup}
-            />
+          <MapView
+            apiKey={""}
+            mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
+            palette={activeStyle?.palette}
+            activeIcons={activeIcons}
+            popupStyle={normalizePopupStyle(
+              activeStyle?.popupStyle || (activeStyle as any)?.mapStyleJson?.popupStyle
+            )}
+            onMapLoad={onMapLoad}
+            isDefaultTheme={activeStyleId ? defaultThemeIds.includes(activeStyleId) : false}
+            onEditIcon={handleEditFromPopup}
+          />
         </main>
       </div>
 
-      <RightSidebar 
-         isOpen={isRightSidebarOpen}
-         activeIcons={activeIcons}
-         selectedCategory={selectedCategory}
-         onSelectCategory={setSelectedCategory}
-         onRegenerateIcon={handleRegenerateIcon}
-         status={status}
-         hasApiKey={hasApiKey}
+      <RightSidebar
+        isOpen={isRightSidebarOpen}
+        activeIcons={activeIcons}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        onRegenerateIcon={handleRegenerateIcon}
+        status={status}
+        hasApiKey={hasApiKey}
       />
     </div>
   );

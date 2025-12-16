@@ -371,6 +371,8 @@ const MapView: React.FC<MapViewProps> = ({
     const showPopup = useCallback((feature: any, coordinates: [number, number]) => {
         if (!mapInstance.current) return;
 
+        console.log(`[MapView] Showing popup. isDefaultTheme=${isDefaultTheme}`);
+
         if (popupRef.current) popupRef.current.remove();
 
         const props = feature.properties;
@@ -403,7 +405,7 @@ const MapView: React.FC<MapViewProps> = ({
                 <div style="margin-top:10px; font-size:13px; opacity:0.92; border-top:1px solid ${border}40; padding-top:8px;">
                     ${desc}
                 </div>
-                ${!isDefaultTheme ? `<button id=\"popup-edit-btn\" style=\"margin-top:10px; width:100%; padding:6px 8px; background:${border}20; border:1px solid ${border}; border-radius:6px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:6px; color:${text};\">${wandIcon} Remix Icon</button>` : ''}
+                <button id="popup-edit-btn" style="margin-top:10px; width:100%; padding:6px 8px; background:${border}20; border:1px solid ${border}; border-radius:6px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:6px; color:${text};">${wandIcon} Remix Icon</button>
             </div>
         </div>
       `;
@@ -733,6 +735,7 @@ const MapView: React.FC<MapViewProps> = ({
             });
 
             mapInstance.current = map;
+            (window as any).__map = map;
         } catch (e) {
             log.error("Map Init Exception", e);
         }
