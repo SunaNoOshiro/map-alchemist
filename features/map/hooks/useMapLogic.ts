@@ -87,7 +87,7 @@ export const useMapLogic = ({
                             id: 'unclustered-point',
                             type: 'symbol',
                             source: 'places',
-                            minzoom: 13, // Show POIs starting at zoom 13 (street level)
+                                minzoom: 13, // Show POIs starting at zoom 13 (street level)
                             layout: {
                                 'icon-image': ['get', 'iconKey'],
                                 'icon-size': [
@@ -301,10 +301,6 @@ export const useMapLogic = ({
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
 
-        // Map click handler
-        const handleClick = (e: any) => handleMapClick(e, controller, activeIcons, palette, popupStyle);
-        controller.on('click', handleClick);
-
         // Change cursor to pointer when hovering over POI icons
         const rawMap = controller.getRawMap?.();
         if (rawMap) {
@@ -330,7 +326,6 @@ export const useMapLogic = ({
 
         return () => {
             if (mapController.current) {
-                mapController.current.off('click', handleClick);
                 mapController.current.off('moveend', moveendHandler);
 
                 // Clean up cursor event listeners
