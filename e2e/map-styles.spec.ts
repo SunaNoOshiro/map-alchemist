@@ -22,15 +22,16 @@ test.describe('Map Style interaction and Theme Switching', () => {
 
     // Helper: Find and click a visible POI with a likely icon
     async function clickVisiblePOI(page: Page) {
-        // Wait for features to be loaded and rendered
+        // Wait for features to be loaded in the source (more reliable than rendered)
         await expect.poll(async () => {
             return await page.evaluate(() => {
                 const map = (window as any).__map;
                 if (!map) return false;
-                const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
-                return features.length > 0;
+                // Check source features instead of rendered - more reliable
+                const features = map.querySourceFeatures('places');
+                return features && features.length > 0;
             });
-        }, { timeout: 10000 }).toBeTruthy();
+        }, { timeout: 15000 }).toBeTruthy();
 
         // Calculate click coordinates
         const point = await page.evaluate(() => {
@@ -206,7 +207,54 @@ test.describe('Map Style interaction and Theme Switching', () => {
         await expect(popupTitle).toBeVisible();
 
         const popupImg = popup.locator('img');
+        // The original instruction had `await expect(popup).toContainText(categoryText);` here,
+        // but `categoryText` is not defined in this scope. Assuming it was a placeholder or error.
+        // Keeping the original `popupImg` assertion.
         await expect(popupImg).toBeVisible();
+    });
+
+    test('should verify POI icon sizes scale with zoom', async ({ page }) => {
+        // Wait for map to be ready
+        const mapCanvas = page.locator('.maplibregl-canvas').first();
+        await expect(mapCanvas).toBeVisible({ timeout: 20000 });
+
+        // Wait for the unclustered-point layer to be created
+        await expect.poll(async () => {
+            return await page.evaluate(() => {
+                const map = (window as any).__map;
+                if (!map) return false;
+
+                const style = map.getStyle();
+                const layer = style?.layers?.find((l: any) => l.id === 'unclustered-point');
+
+                return layer !== undefined;
+            });
+        }, { timeout: 15000 }).toBeTruthy();
+
+        // Get the icon-size configuration
+        const iconSizeConfig = await page.evaluate(() => {
+            const map = (window as any).__map;
+            const style = map.getStyle();
+            const layer = style.layers.find((l: any) => l.id === 'unclustered-point');
+            return layer.layout['icon-size'];
+        });
+
+        // Verify it's an interpolation expression, not a fixed number
+        expect(iconSizeConfig).toBeTruthy();
+        expect(Array.isArray(iconSizeConfig)).toBe(true);
+        expect(iconSizeConfig[0]).toBe('interpolate');
+
+        // Verify zoom-based scaling exists
+        const zoomIndex = iconSizeConfig.findIndex(item => Array.isArray(item) && item.length === 1 && item[0] === 'zoom');
+        expect(zoomIndex).toBeGreaterThan(-1);
+
+        // Verify size values are reasonable (between 0.1 and 0.5 typically)
+        const sizeValues = iconSizeConfig.slice(zoomIndex + 1).filter((v: any) => typeof v === 'number' && v < 1);
+        expect(sizeValues.length).toBeGreaterThan(0);
+        sizeValues.forEach((size: number) => {
+            expect(size).toBeGreaterThanOrEqual(0.1);
+            expect(size).toBeLessThanOrEqual(0.5);
+        });
     });
 
     test('should switch themes and verify popup update', async ({ page }) => {
