@@ -14,9 +14,9 @@ This document establishes the binding rules of engagement for all AI Agents oper
 **Rule:** Code is guilty until proven innocent by tests.
 
 ### 1.1 When to Run Tests
-- **Pre-Flight Check:** Before requesting any user review of "complete" work, you MUST run the relevant test suite.
-- **Regression Guard:** If you modify existing functionality (refactoring, bug fixes), run the specific test file covering that feature (e.g., `npx playwright test e2e/map-styles.spec.ts`).
-- **Sanity Check:** If the change is broad (e.g., changing `MapView.tsx` or `App.tsx`), run all core E2E tests.
+- **Pre-Flight Check:** Before requesting any user review, you MUST run the relevant test suite (Unit via `npm test` or E2E BDD via `npm run test:e2e:bdd`).
+- **Regression Guard:** If you modify existing functionality, run the logic test mirroring that path (e.g., `npm test test/core/services/storage.test.ts`).
+- **Sanity Check:** If the change is broad, run all tests.
 
 ### 1.2 When to Update Tests
 - **Feature Evolution:** If you change the behavior of a feature (e.g., "Remix" button is now visible where it wasn't before), you MUST update the test expectation immediately. Do not leave broken tests for "later".
@@ -25,6 +25,10 @@ This document establishes the binding rules of engagement for all AI Agents oper
 ### 1.3 When to Add New Tests
 - **New Frontiers:** Every new User Story or Feature Request (e.g., "Add User Login", "Create Export Feature") requires a corresponding test file or test case.
 - **Bug Reports:** If a user reports a bug (e.g., "Icon missing on Pirates theme"), you MUST create a reproduction test case that fails before the fix and passes after the fix.
+
+### 1.4 BDD Step Reuse
+- **Check Before Creating:** Before implementing a new step definition, search existing `test/**/*.steps.ts` or `test/**/*.test.ts` files for similar logic.
+- **Reuse Over Duplication:** Always reuse existing steps where possible. If a step is broadly applicable (e.g., 'Given I am on the home page'), ensure it is accessible to multiple features to maintain a clean and DRY test suite.
 
 ---
 
@@ -35,8 +39,8 @@ We adhere to SOLID to ensure scalable, maintainable, and understandable code.
 ### S - Single Responsibility Principle (SRP)
 *   **Definition:** A module should have one, and only one, reason to change.
 *   **Application:** 
-    *   Don't put API fetching logic inside a UI component. Use a `service` (e.g., `services/geminiService.ts`).
-    *   Don't put complex data transformation inside `MapView.tsx`. Extract it to a utility or hook.
+    *   Don't put API fetching logic inside a UI component. Use a `service` (e.g., `src/features/ai/services/GeminiService.ts`).
+    *   Don't put complex data transformation inside `MapView.tsx`. Extract it to a specialized hook (e.g., `src/features/map/hooks/useMapLogic.ts`).
     *   **Bad:** `MapComponent` that handles rendering, fetching styles, and authenticating users.
     *   **Good:** `MapComponent` renders map. `useMapStyles` hook manages data. `AuthService` handles login.
 
@@ -159,18 +163,18 @@ For significant features, create a markdown file in `docs/features/` (or similar
 
 ## 7. Architecture & Code Organization ("The Blueprint")
 
-### 7.1 Feature-Based Structure
+### 7.1 Feature-Based Structure (Inside `src/`)
 *   **Rule:** Organize code by **feature**, not just technical role.
-*   **Practice:** Instead of dumping all components in `components/` and all hooks in `hooks/`, consider:
+*   **Structure:**
     ```
-    features/
-      map/
-        MapView.tsx
-        useMapLogic.ts
-        mapConstants.ts
-      auth/
-        LoginForm.tsx
-        authService.ts
+    src/
+      core/          # App-wide logic (logger, storage, types)
+      features/      # Feature-sliced folders
+        auth/        # Component, hooks, services for Auth
+        map/         # Component, hooks, services for Map rendering
+        ai/          # AI generation logic
+      shared/        # Reusable UI components, hooks, utils
+      api/           # Base API client definitions
     ```
 *   **Benefit:** Keeps related logic co-located. If you delete a feature, you delete the folder.
 
@@ -185,10 +189,10 @@ For significant features, create a markdown file in `docs/features/` (or similar
 *   **Rule:** Only truly reusable utility code goes into root-level `shared/` or `utils/`.
 *   **Practice:** If a helper is used only by *Map* features, keep it in `features/map/utils.ts`. Do not pollute the global namespace.
 
-### 7.4 Colocation
-*   **Rule:** Things that change together stay together.
-*   **Tests:** `MyComponent.test.tsx` lives next to `MyComponent.tsx`.
-*   **Styles:** `MyComponent.module.css` (if using modules) lives next to `MyComponent.tsx`.
+### 7.4 Java-Style Test Structure
+*   **Rule:** Tests do NOT live next to code. They live in a mirrored `test/` directory at the project root.
+*   **Unit Tests:** `test/core/logger.test.ts` mirrors `src/core/logger.ts`.
+*   **BDD Tests:** Feature files and their step definitions live in `test/features/` or `test/e2e/`.
 
 
 ---
@@ -215,11 +219,10 @@ For significant features, create a markdown file in `docs/features/` (or similar
 ---
 
 ## 9. Developer Cheat Sheet ("The Shortcuts")
-*   **Start Dev Server:** `npm run dev` (Runs on localhost:3000)
-*   **Run All Tests:** `npx playwright test`
-*   **Run Specific Test:** `npx playwright test e2e/map-styles.spec.ts`
-*   **Run UI Mode:** `npx playwright test --ui` (Great for debugging)
-*   **Lint:** `npm run lint` (if available, otherwise check `package.json`)
+*   **Start Dev Server:** `npm run dev`
+*   **Run Unit/Logic BDD:** `npm test`
+*   **Run E2E BDD (Playwright):** `npm run test:e2e:bdd`
+*   **Run Vitest UI:** `npm run test:ui`
 
 ## 10. Git & Commit Guidelines ("The History")
 *   **Commit Style:** Use Conventional Commits.

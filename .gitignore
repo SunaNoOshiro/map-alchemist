@@ -23,3 +23,10 @@ public/default-themes.json
 *.njsproj
 *.sln
 *.sw?
+ 
+# Tests
+test-results/
+playwright-report/
+.features-gen/
+coverage/
+ .vitest-result/
