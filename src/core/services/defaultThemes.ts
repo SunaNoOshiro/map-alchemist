@@ -4,8 +4,11 @@ import { createLogger } from '@/core/logger';
 
 const logger = createLogger('DefaultThemesService');
 
-const DEFAULT_THEMES_URL = '/default-themes.json';
-const DEFAULT_THEMES_GZ_URL = '/default-themes.json.gz';
+const BASE_URL = import.meta.env.BASE_URL || '/';
+const normalizedBase = BASE_URL.endsWith('/') ? BASE_URL : `${BASE_URL}/`;
+
+const DEFAULT_THEMES_URL = `${normalizedBase}default-themes.json`;
+const DEFAULT_THEMES_GZ_URL = `${normalizedBase}default-themes.json.gz`;
 
 export const normalizePopupStyle = (raw?: Partial<PopupStyle> | null): PopupStyle => ({
   backgroundColor: raw?.backgroundColor || DEFAULT_STYLE_PRESET.popupStyle.backgroundColor,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import AuthScreen from '@features/auth/components/AuthScreen';
 import { MainLayout } from '@shared/layouts/MainLayout';
@@ -12,14 +12,14 @@ import { useMapGeneration } from '@features/ai/hooks/useMapGeneration';
 function App() {
   // Shared State (Logs)
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const addLog = (message: string, type: LogEntry['type'] = 'info') => {
+  const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
     setLogs(prev => [...prev, {
       id: uuidv4(),
       timestamp: new Date().toISOString(),
       message,
       type
     }]);
-  };
+  }, []);
 
   // State & Logic Hooks
   const { hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey } = useAppAuth(addLog);

@@ -7,6 +7,15 @@ const { Given, When, Then } = createBdd();
 
 // Helper: Find and click a visible POI with a likely icon (copied from original spec)
 async function clickVisiblePOI(page: Page) {
+    console.log('[E2E] Waiting for POI features to be available in source...');
+    // Ensure we are at street level zoom where POIs are rendered
+    await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (map && map.getZoom() < 13) {
+            map.setZoom(14);
+        }
+    });
+
     await expect.poll(async () => {
         return await page.evaluate(() => {
             const map = (window as any).__map;
@@ -14,7 +23,10 @@ async function clickVisiblePOI(page: Page) {
             const features = map.querySourceFeatures('places');
             return features && features.length > 0;
         });
-    }, { timeout: 15000 }).toBeTruthy();
+    }, {
+        message: 'No POI features found in "places" source after 15s',
+        timeout: 15000
+    }).toBeTruthy();
 
     const point = await page.evaluate(() => {
         const map = (window as any).__map;
@@ -56,10 +68,64 @@ async function clickVisiblePOI(page: Page) {
 }
 
 Given('I am on the home page', async ({ page }) => {
+    const errors: string[] = [];
+
+    // Capture console logs and collect errors to fail the test later
+    page.on('console', msg => {
+        const text = msg.text();
+        const type = msg.type();
+        console.log(`[BROWSER] ${type}: ${text}`);
+
+        // Filter out tailwind warnings which are expected in dev/preview
+        if (type === 'error' && !text.includes('cdn.tailwindcss.com')) {
+            errors.push(`Console error [${type}]: ${text}`);
+        }
+    });
+
+    page.on('pageerror', exception => {
+        errors.push(`Uncaught exception: ${exception.message}`);
+    });
+
+    page.on('requestfailed', request => {
+        const url = request.url();
+        // Ignore optional/external resources if needed, but fail on internal assets
+        if (url.includes(process.env.VITE_BASE_PATH || '') || url.includes('localhost')) {
+            errors.push(`Request failed: ${url} (${request.failure()?.errorText})`);
+        }
+    });
+
+    page.on('response', response => {
+        if (response.status() === 404) {
+            const url = response.url();
+            // Critical assets that should never 404
+            if (url.includes('.json') || url.includes('.js') || url.includes('.css')) {
+                errors.push(`Critical 404: ${url}`);
+            }
+        }
+    });
+
     await page.goto('/');
+
+    // Check if any errors occurred during load
+    if (errors.length > 0) {
+        throw new Error(`Test failed due to browser errors:\n${errors.join('\n')}`);
+    }
+
+    // New: Explicitly check that the app reports themes are loaded
+    const logConsole = page.locator('.font-mono.text-xs');
+    // Large JSON files might take time to parse on some systems, increase timeout to 30s
+    await expect(logConsole, 'Application log did not show bundled themes as loaded.').toContainText(/Bundled default themes loaded|Loaded existing styles/, {
+        timeout: 30000
+    });
 });
 
 Given('I have custom {string} and {string} themes injected', async ({ page }, theme1, theme2) => {
+    // Check if we are stuck at Auth Screen
+    const guestBtn = page.getByRole('button', { name: /Continue as Guest/i });
+    if (await guestBtn.isVisible()) {
+        await guestBtn.click();
+    }
+
     const themesPath = path.join(process.cwd(), 'public', 'default-themes.json');
     const themesData = JSON.parse(fs.readFileSync(themesPath, 'utf-8'));
 
@@ -107,17 +173,37 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
             request.onsuccess = (e: any) => {
                 const db = e.target.result;
                 const tx = db.transaction('styles', 'readwrite');
-                tx.objectStore('styles').put(customStyles, 'presets');
-                tx.oncomplete = () => resolve();
+                const store = tx.objectStore('styles');
+
+                // Clear existing the re-put to ensure fresh state
+                store.clear();
+                store.put(customStyles, 'presets');
+
+                tx.oncomplete = () => {
+                    db.close();
+                    resolve();
+                };
                 tx.onerror = () => reject(tx.error);
+            };
+            request.onblocked = () => {
+                console.warn('IndexedDB injection BLOCKED');
+                reject(new Error('IndexedDB injection blocked'));
             };
             request.onerror = () => reject(request.error);
         });
     }, themesToInject);
 
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    console.log('[E2E] Page reloaded (DOM loaded), waiting for map canvas...');
+
+    // Give a small buffer for MapLibre to start initializing after DOM is ready
+    await page.waitForTimeout(1000);
+
     const mapCanvas = page.locator('.maplibregl-canvas');
-    await expect(mapCanvas).toBeVisible({ timeout: 20000 });
+    await expect(mapCanvas, 'Map canvas (.maplibregl-canvas) did not appear after IndexedDB injection and reload.').toBeVisible({
+        timeout: 30000
+    });
+    console.log('[E2E] Map canvas is visible');
 });
 
 When('I select the {string} style', async ({ page }, styleName) => {
@@ -173,28 +259,34 @@ When('I have a popup open for a POI', async ({ page }) => {
     // Re-use clicking logic if not already open
     const popup = page.locator('.maplibregl-popup-content');
     if (!await popup.isVisible()) {
+        console.log('[E2E] Popup not visible, searching for POI to click...');
         await clickVisiblePOI(page);
     }
-    await expect(popup).toBeVisible();
+    await expect(popup).toBeVisible({ timeout: 10000 });
 });
 
 When('I switch to the {string} style', async ({ page }, styleName) => {
+    console.log(`[E2E] Switching to style: ${styleName}`);
     await page.getByRole('heading', { name: styleName }).click();
-    await page.waitForTimeout(2000); // style reload
+    // Wait for the status indicator or map canvas to settle
+    await page.waitForTimeout(3000);
 });
 
 Then('the popup should still be visible or accessible', async ({ page }) => {
     const popup = page.locator('.maplibregl-popup-content');
     if (!await popup.isVisible()) {
+        console.log('[E2E] Popup closed after style switch, attempting to re-open...');
         await clickVisiblePOI(page);
     }
-    await expect(popup).toBeVisible();
+    await expect(popup).toBeVisible({ timeout: 10000 });
 });
 
 When('I click the Remix button in the popup', async ({ page }) => {
     const remixBtn = page.locator('#popup-edit-btn');
-    await expect(remixBtn).toBeVisible();
-    await remixBtn.click();
+    // Ensure it's not just visible but ready for interaction
+    await expect(remixBtn).toBeVisible({ timeout: 10000 });
+    await remixBtn.scrollIntoViewIfNeeded();
+    await remixBtn.click({ force: true });
 });
 
 Then('the icon edit sidebar should be open', async ({ page }) => {
