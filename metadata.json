@@ -1,7 +1,5 @@
 {
   "name": "MapAlchemist",
-  "description": "AI-powered map style and icon generator using Google Maps and Gemini models. Customize your map aesthetics and generate unique POI icons on the fly.",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
+  "description": "AI-powered map style and icon generator. Customize your map aesthetics and generate unique POI icons on the fly.",
+  "requestFramePermissions": []
 }

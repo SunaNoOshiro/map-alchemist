@@ -18,8 +18,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  verify-and-build:
     runs-on: ubuntu-latest
+    env:
+      VITE_BASE_PATH: /map-alchemist/
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,23 +35,45 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests (stub)
-        run: echo "No automated tests configured yet."
+      - name: Prepare default themes
+        run: npm run prepare-default-themes
+
+      - name: Run unit tests (Vitest)
+        run: npm test -- --run
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(npm ls @playwright/test --json | jq -r '.dependencies["@playwright/test"].version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
 
       - name: Build project
-        env:
-          VITE_BASE_PATH: /map-alchemist/
         run: npm run build
 
+      - name: Run E2E BDD tests
+        run: npm run test:e2e:bdd
+
       - name: Upload build artifact
+        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: verify-and-build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -60,10 +84,10 @@ jobs:
 
   deploy-preview:
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: verify-and-build
     if: github.event_name == 'pull_request'
-    # Use a dedicated preview environment to avoid github-pages protection rules
-    # that may restrict deployments from PR merge branches.
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     environment:
       name: github-pages-preview
       url: ${{ steps.deployment.outputs.page_url }}

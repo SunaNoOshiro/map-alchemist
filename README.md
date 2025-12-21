@@ -52,3 +52,13 @@ localStorage.removeItem('mapAlchemistLogLevel:map-view');
 
 You can also set `VITE_LOG_LEVEL` (error, warn, info, debug, trace) in your
 environment to control the default level for all namespaces when building.
+
+## Testing
+
+The project uses a multi-layered testing strategy:
+
+- **Unit/BDD Tests (Vitest)**: Fast tests for business logic and feature requirements in `test/`.
+  - Run tests: `npm test`
+  - UI Mode: `npm run test:ui`
+- **E2E BDD Tests (Playwright)**: Full-stack browser tests using Gherkin in `test/e2e/`.
+  - Run tests: `npm run test:e2e:bdd`

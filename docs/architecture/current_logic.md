@@ -1,54 +1,35 @@
 # Current Architecture & Logic flow
 
 ## 1. Overview
-The application is a **Client-Side SPA** built with React and Vite. It logic is centralized in `App.tsx`, which manages the global state and orchestrates `geminiService` (AI) and `maplibregl` (Map Rendering).
+The application is a **Client-Side SPA** built with React and Vite. Logic is distributed using a **feature-based architecture** under `src/`. Components depend on specialized hooks and services, decoupled via an `AiFactory`.
 
-## 2. Component Logic
+## 2. Architecture Logic
 
 ### 2.1 App.tsx (The Orchestrator)
-Currently acts as a "God Component".
-*   **State Management:** Holds `styles[]`, `activeStyleId`, `hasApiKey`, and UI toggles (`sidebarOpen`).
-*   **Initialization:**
-    1.  Checks for `window.aistudio` bridge (Google AI Studio context).
-    2.  Loads styles from `IndexedDB` (via `storageService`).
-    3.  If no styles, fetches `defaultThemes` from network.
-*   **Business Logic:**
-    *   `handleGenerateStyle`: Calls `geminiService.generateMapTheme(prompt)`.
-    *   `handleRegenerateIcon`: Calls `geminiService.generateIconImage(category)`.
-    *   `handleExport/Import`: Manages JSON serialization of style objects.
+Now a thin entry point.
+*   **State Management:** Delegates to specialized hooks (`useStyleManager`, `useAppAuth`, `useMapGeneration`).
+*   **Modularity:** Uses path aliases (e.g., `@core`, `@features`) to maintain clean boundaries.
 
-### 2.2 MapView.tsx (The Renderer)
-A complex wrapper around `maplibregl`.
-*   **Initialization:** Creates `maplibregl.Map` instance ref.
-*   **Style Loading:**
-    *   Fetches `DEFAULT_STYLE_URL` (Basic styling).
-    *   **Style Sanitization:** `loadSafeStyle` helper recursively fixes relative URLs in the style JSON to be absolute (crucial for local/blob execution).
-*   **Palette Application:**
-    *   Watches `palette` prop.
-    *   Iterates through **ALL** map layers.
-    *   Regex matches layer IDs (`water`, `land`, `road`) and forcibly `setPaintProperty` with the new colors.
-*   **Icon Management:**
-    *   Watches `activeIcons` prop.
-    *   Loads images via `createImageBitmap`.
-    *   Calls `map.addImage` for every category in the active theme.
-*   **Popups:**
-    *   Intercepts `click` on "unclustered-point".
-    *   Generates HTML string for the popup (including the "Remix" button).
+### 2.2 Feature: Map (`src/features/map`)
+*   **MapView.tsx:** Focused strictly on MapLibre initialization and React rendering.
+*   **useMapLogic.ts:** Handles complex map interactions, paint property updates, and image ingestion.
+*   **Services:** `MapLibreAdapter.ts` encapsulates third-party interactions.
 
-## 3. Service Logic
+### 2.3 Feature: AI (`src/features/ai`)
+*   **useMapGeneration.ts:** Manages the lifecycle of AI theme and icon generation.
+*   **AiFactory.ts:** Implements Dependency Inversion, allowing the app to swap AI providers (Gemini, OpenAI) without changing UI components.
+*   **GeminiService.ts:** Concrete implementation of the AI strategy.
 
-### 3.1 GeminiService ("The Creative")
-*   **Provider:** Hardcoded to Google GenAI (`@google/genai`).
-*   **Flow:**
-    1.  `generateMapTheme(prompt)` -> Calls LLM (Flash 2.5) with system prompt to output JSON (Colors, Popup Style).
-    2.  `generateIconImage(prompt)` -> Calls Image Model (Flash 2.5 Image) -> Receives Base64 -> Calls `removeBackground` (Canvas pixel manipulation) -> Returns transparent PNG Data URL.
+### 2.4 Core Services (`src/core/services`)
+*   **Logger:** Centralized namespaced logging in `logger.ts`.
+*   **Storage:** IndexedDB persistence with automated migration in `storage.ts`.
 
-### 3.2 StorageService ("The Vault")
-*   **Provider:** `IndexedDB` (Native Browser API).
-*   **Schema:** Single object store `styles` containing the full array of presets.
-*   **Migration:** Contains logic to auto-migrate from `localStorage` if found.
+## 3. Testing Logic
+*   **BDD (Vitest + Gherkin):** Tests business logic and flows in `src/**/*.test.ts` (using `.feature` files).
+*   **E2E (Playwright):** Tests visual correctness and real browser interactions in `e2e/*.spec.ts`.
+*   **Unit Tests:** Verify individual logic units (e.g., `derivePalette`, `storage` migration).
 
-## 4. Why Refactor?
-*   **Coupling:** `App.tsx` knows too much about *how* to call Gemini.
-*   **Rigidity:** Changing the Map provider would require rewriting `MapView.tsx`.
-*   **Complexity:** `MapView.tsx` is >700 lines, mixing network requests, canvas drawing, and map events.
+## 4. Why this Architecture?
+*   **Testability:** Decoupled logic is easily mocked for unit and BDD tests.
+*   **Maintainability:** Feature-based folders make it obvious where code lives.
+*   **Scalability:** Adding new AI providers or map renderers requires minimal modification to core logic.
