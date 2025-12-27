@@ -22,7 +22,10 @@ function App() {
   }, []);
 
   // State & Logic Hooks
-  const { hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey } = useAppAuth(addLog);
+  const {
+    hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey,
+    aiConfig, availableModels, updateAiConfig, validateApiKey
+  } = useAppAuth(addLog);
 
   const {
     styles, setStyles, activeStyleId, setActiveStyleId,
@@ -32,15 +35,23 @@ function App() {
   const {
     status, loadingMessage, handleGenerateStyle, handleRegenerateIcon
   } = useMapGeneration({
-    addLog, setStyles, setActiveStyleId, styles, activeStyleId
+    addLog, setStyles, setActiveStyleId, styles, activeStyleId, aiConfig
   });
 
   // Local UI State
   const [prompt, setPrompt] = useState('');
 
   // 1. Auth Guard
-  if (!hasApiKey && !isGuestMode) {
-    return <AuthScreen onConnect={handleSelectKey} onGuestAccess={() => setIsGuestMode(true)} />;
+  if (!hasApiKey && !isGuestMode && !aiConfig.apiKey) {
+    return (
+      <AuthScreen
+        onConnect={handleSelectKey}
+        onGuestAccess={() => setIsGuestMode(true)}
+        aiConfig={aiConfig}
+        availableModels={availableModels}
+        onUpdateAiConfig={updateAiConfig}
+      />
+    );
   }
 
   // 2. Main Application
@@ -53,17 +64,20 @@ function App() {
       logs={logs}
       loadingMessage={loadingMessage}
       prompt={prompt}
-      hasApiKey={hasApiKey}
+      hasApiKey={hasApiKey || !!aiConfig.apiKey}
+      aiConfig={aiConfig}
+      availableModels={availableModels}
       // Handlers
       setPrompt={setPrompt}
-      onGenerate={() => handleGenerateStyle(prompt, hasApiKey, handleSelectKey)}
+      onGenerate={() => handleGenerateStyle(prompt, hasApiKey || !!aiConfig.apiKey, handleSelectKey)}
       onApplyStyle={setActiveStyleId}
       onDeleteStyle={handleDeleteStyle}
       onExport={handleExport}
       onImport={handleImport}
       onClear={handleClear}
       onConnectApi={handleSelectKey}
-      onRegenerateIcon={(cat, p) => handleRegenerateIcon(cat, p, hasApiKey)}
+      onUpdateAiConfig={updateAiConfig}
+      onRegenerateIcon={(cat, p) => handleRegenerateIcon(cat, p, hasApiKey || !!aiConfig.apiKey)}
       onSelectStyle={setActiveStyleId}
     />
   );

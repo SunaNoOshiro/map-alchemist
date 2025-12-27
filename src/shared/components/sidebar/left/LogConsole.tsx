@@ -2,6 +2,7 @@
 import React, { useRef, useEffect } from 'react';
 import { Terminal } from 'lucide-react';
 import { LogEntry } from '@/types';
+import { getSectionColor } from '@/constants';
 
 interface LogConsoleProps {
   logs: LogEntry[];
@@ -9,6 +10,7 @@ interface LogConsoleProps {
 
 const LogConsole: React.FC<LogConsoleProps> = ({ logs }) => {
   const logRef = useRef<HTMLDivElement>(null);
+  const sectionColor = getSectionColor('logs'); // Gray for Logs section
 
   useEffect(() => {
     if (logRef.current) {
@@ -17,12 +19,12 @@ const LogConsole: React.FC<LogConsoleProps> = ({ logs }) => {
   }, [logs]);
 
   return (
-    <div className="h-32 border-t border-gray-700 bg-black p-3 font-mono text-xs overflow-hidden flex flex-col flex-shrink-0">
-      <div className="flex items-center gap-2 text-gray-500 mb-2">
-        <Terminal size={12} />
-        <span className="uppercase font-bold tracking-wider">System Log</span>
+    <div className="bg-gray-900/50 border rounded p-1.5" style={{ borderColor: `${sectionColor}50` }}>
+      <div className="flex items-center gap-1 text-gray-500 mb-1">
+        <Terminal size={10} style={{ color: sectionColor }} />
+        <span className="uppercase font-bold tracking-wider text-[9px]" style={{ color: sectionColor }}>System Log</span>
       </div>
-      <div ref={logRef} className="flex-1 overflow-y-auto scrollbar-thin space-y-1">
+      <div ref={logRef} className="h-32 overflow-y-auto scrollbar-thin space-y-0.5 font-mono text-[9px]">
         {logs.map((log) => (
           <div key={log.id} className={`break-words leading-tight ${log.type === 'error' ? 'text-red-400' :
               log.type === 'success' ? 'text-green-400' :

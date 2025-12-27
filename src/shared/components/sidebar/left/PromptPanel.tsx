@@ -2,6 +2,7 @@
 import React from 'react';
 import { Play, ShieldCheck } from 'lucide-react';
 import { AppStatus } from '@/types';
+import { getSectionColor } from '@/constants';
 
 interface PromptPanelProps {
   prompt: string;
@@ -23,17 +24,23 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
   onConnectApi
 }) => {
   const isGenerating = status === AppStatus.GENERATING_STYLE;
+  const sectionColor = getSectionColor('theme-generator'); // Purple for Theme Generator section
 
   if (!hasApiKey) {
     return (
-      <div className="p-4 space-y-3 border-b border-gray-800 bg-gray-900/50 flex-shrink-0">
-        <label className="block text-sm font-medium text-gray-300">New Style Prompt</label>
-        <div className="h-20 bg-gray-800/50 border border-gray-700/50 rounded-md p-3 text-sm text-gray-500 flex items-center justify-center text-center italic">
+      <div className="p-3 space-y-3 bg-gray-900/50 border rounded-lg" style={{ borderColor: `${sectionColor}50` }}>
+        <label className="block text-xs font-medium text-gray-300 uppercase tracking-wider">New Style Prompt</label>
+        <div className="h-20 bg-gray-800/50 border rounded-md p-3 text-sm text-gray-500 flex items-center justify-center text-center italic" style={{ borderColor: `${sectionColor}30` }}>
           Guest Mode (Read Only)
         </div>
         <button
           onClick={onConnectApi}
-          className="w-full py-2 px-4 rounded-md font-medium text-sm transition-all flex items-center justify-center gap-2 bg-purple-900/30 hover:bg-purple-800/50 text-purple-200 border border-purple-800/50"
+          className="w-full py-2 px-4 rounded-md font-medium text-sm transition-all flex items-center justify-center gap-2"
+          style={{
+            backgroundColor: `${sectionColor}20`,
+            borderColor: `${sectionColor}50`,
+            color: `${sectionColor}`
+          }}
         >
           <ShieldCheck size={16} /> Connect API Key to Generate
         </button>
@@ -42,28 +49,35 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
   }
 
   return (
-    <div className="p-4 space-y-3 border-b border-gray-800 bg-gray-900/50 flex-shrink-0">
-      <label className="block text-sm font-medium text-gray-300">New Style Prompt</label>
+    <div className="p-3 space-y-3 bg-gray-900/50 border rounded-lg" style={{ borderColor: `${sectionColor}50` }}>
+      <label className="block text-xs font-medium text-gray-300 uppercase tracking-wider">New Style Prompt</label>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="e.g., Cyberpunk neon night, cozy watercolor fantasy, matrix code..."
-        className="w-full h-20 bg-gray-800 border border-gray-700 rounded-md p-3 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition-colors"
+        className="w-full h-20 bg-gray-800 border rounded px-2 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none resize-none transition-colors"
+        style={{
+          borderColor: `${sectionColor}50`,
+          outlineColor: sectionColor
+        }}
       />
       <button
         onClick={onGenerate}
         disabled={status !== AppStatus.IDLE || !prompt.trim()}
-        className={`w-full py-2 px-4 rounded-md font-medium text-sm transition-all flex items-center justify-center gap-2
-          ${isGenerating
-            ? 'bg-blue-900 text-blue-200 cursor-not-allowed animate-pulse'
-            : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50'
-          } disabled:opacity-50`}
+        className={`w-full py-1.5 px-3 rounded font-medium text-xs transition-all flex items-center justify-center gap-2`}
+        style={{
+          backgroundColor: isGenerating ? `${sectionColor}30` : sectionColor,
+          borderColor: `${sectionColor}50`,
+          color: isGenerating ? `${sectionColor}` : 'white',
+          cursor: isGenerating ? 'not-allowed' : 'pointer',
+          opacity: (status !== AppStatus.IDLE || !prompt.trim()) && !isGenerating ? '0.5' : '1'
+        }}
       >
         {isGenerating ? (
-          <span className="truncate">{loadingMessage || 'Generating...'}</span>
+          <span className="truncate animate-pulse">{loadingMessage || 'Generating...'}</span>
         ) : (
           <>
-            <Play size={16} /> Generate Theme
+            <Play size={14} /> Generate Theme
           </>
         )}
       </button>

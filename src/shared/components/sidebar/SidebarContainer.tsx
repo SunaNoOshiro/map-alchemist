@@ -15,7 +15,7 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({ isOpen, width, side
     <div 
       className={`relative flex-shrink-0 bg-gray-900 ${borderClass} border-gray-700 flex flex-col h-full transition-all duration-300 ease-in-out ${isOpen ? width : 'w-0 border-none'}`}
     >
-      <div className={`flex flex-col h-full ${width} overflow-hidden ${!isOpen ? 'invisible' : 'visible'}`}>
+      <div className={`flex flex-col h-full ${width} overflow-y-auto ${!isOpen ? 'invisible' : 'visible'}`}>
         {children}
       </div>
     </div>

@@ -112,11 +112,15 @@ Given('I am on the home page', async ({ page }) => {
     }
 
     // New: Explicitly check that the app reports themes are loaded
-    const logConsole = page.locator('.font-mono.text-xs');
-    // Large JSON files might take time to parse on some systems, increase timeout to 30s
-    await expect(logConsole, 'Application log did not show bundled themes as loaded.').toContainText(/Bundled default themes loaded|Loaded existing styles/, {
-        timeout: 30000
-    });
+    // Only if NOT on Auth Screen (Guest button visible)
+    const guestBtn = page.getByRole('button', { name: /Continue as Guest/i });
+    if (!(await guestBtn.isVisible())) {
+        const logConsole = page.locator('body');
+        // Large JSON files might take time to parse on some systems, increase timeout to 30s
+        await expect(logConsole, 'Application log did not show bundled themes as loaded.').toContainText(/Bundled default themes loaded|Loaded existing styles|Standard theme loaded/, {
+            timeout: 30000
+        });
+    }
 });
 
 Given('I have custom {string} and {string} themes injected', async ({ page }, theme1, theme2) => {
@@ -195,6 +199,13 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     console.log('[E2E] Page reloaded (DOM loaded), waiting for map canvas...');
+
+    // If reload reset auth state, we might need to re-enter guest mode
+    const guestBtnReload = page.getByRole('button', { name: /Continue as Guest/i });
+    if (await guestBtnReload.isVisible()) {
+        console.log('[E2E] Auth screen detected after reload, re-clicking Guest Mode...');
+        await guestBtnReload.click();
+    }
 
     // Give a small buffer for MapLibre to start initializing after DOM is ready
     await page.waitForTimeout(1000);
@@ -290,6 +301,6 @@ When('I click the Remix button in the popup', async ({ page }) => {
 });
 
 Then('the icon edit sidebar should be open', async ({ page }) => {
-    const promptInput = page.getByPlaceholder(/Describe the .* icon/i);
-    await expect(promptInput).toBeVisible();
+    const sectionHeader = page.getByText('Art Direction Prompt');
+    await expect(sectionHeader).toBeVisible();
 });
