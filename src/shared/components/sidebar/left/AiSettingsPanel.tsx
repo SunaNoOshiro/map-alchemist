@@ -44,20 +44,20 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
     setIsEditingApiKey(false);
   };
 
-      const handleConnectWithConfig = () => {
-        if (apiKeyInput.trim()) {
-          handleApiKeySubmit();
-        } else {
-          onConnectApi();
-        }
-      };
+  const handleConnectWithConfig = () => {
+    if (apiKeyInput.trim()) {
+      handleApiKeySubmit();
+    } else {
+      onConnectApi();
+    }
+  };
 
   return (
     <div className="bg-gray-800/50 border rounded-lg p-3 space-y-3" style={{ borderColor: `${sectionColor}50` }}>
-      <h3 className="text-xs font-semibold text-gray-200 uppercase tracking-wide flex items-center gap-2">
-        <BrainCircuit className="w-3 h-3" style={{ color: sectionColor }} />
-        <span style={{ color: sectionColor }}>AI Configuration</span>
-      </h3>
+      <p className="text-[10px] text-gray-500 flex items-center gap-2">
+        <BrainCircuit className="w-3 h-3" style={{ color: `${sectionColor}90` }} />
+        <span>Configure provider and key settings</span>
+      </p>
       {/* Provider Selection */}
       <div className="space-y-1">
         <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
