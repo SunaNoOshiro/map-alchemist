@@ -18,7 +18,7 @@ const LogConsole: React.FC<LogConsoleProps> = ({ logs }) => {
 
   return (
     <div className="h-32 border-t border-gray-700 bg-black p-3 font-mono text-xs overflow-hidden flex flex-col flex-shrink-0">
-      <div className="flex items-center gap-2 text-gray-500 mb-2">
+      <div className="flex items-center gap-2 text-blue-400 mb-2">
         <Terminal size={12} />
         <span className="uppercase font-bold tracking-wider">System Log</span>
       </div>

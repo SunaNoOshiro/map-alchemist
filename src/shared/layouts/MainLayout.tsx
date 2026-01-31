@@ -49,8 +49,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onRegenerateIcon,
     onSelectStyle
 }) => {
-    const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-    const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+    const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(
+        typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+    );
+    const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(
+        typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+    );
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
     const activeStyle = styles.find(s => s.id === activeStyleId) || null;
@@ -61,8 +65,21 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         setSelectedCategory(category);
     };
 
+    const isMobileOverlayOpen = (isLeftSidebarOpen || isRightSidebarOpen);
+
     return (
-        <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden">
+        <div className="flex h-full w-full bg-gray-950 text-white font-sans overflow-hidden relative">
+            {isMobileOverlayOpen && (
+                <button
+                    type="button"
+                    aria-label="Close sidebars"
+                    onClick={() => {
+                        setIsLeftSidebarOpen(false);
+                        setIsRightSidebarOpen(false);
+                    }}
+                    className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 md:hidden"
+                />
+            )}
             <LeftSidebar
                 isOpen={isLeftSidebarOpen}
                 prompt={prompt}
@@ -88,19 +105,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                     activeStyleId={activeStyleId}
                     onSelectStyle={onSelectStyle}
                     status={status}
+                    onToggleLeft={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
+                    onToggleRight={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+                    isLeftSidebarOpen={isLeftSidebarOpen}
+                    isRightSidebarOpen={isRightSidebarOpen}
                 />
 
                 <main className="flex-1 relative bg-gray-200 group overflow-hidden">
                     <button
                         onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-                        className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+                        className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
                     >
                         {isLeftSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
                     </button>
 
                     <button
                         onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-                        className="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+                        className="hidden md:flex absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
                     >
                         {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                     </button>
