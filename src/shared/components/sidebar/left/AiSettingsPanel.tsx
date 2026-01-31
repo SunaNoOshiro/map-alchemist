@@ -54,10 +54,10 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
 
   return (
     <div className="bg-gray-800/50 border rounded-lg p-3 space-y-3" style={{ borderColor: `${sectionColor}50` }}>
-      <p className="text-[10px] text-gray-500 flex items-center gap-2">
+      <div className="flex items-center gap-2 text-[10px] text-gray-500">
         <BrainCircuit className="w-3 h-3" style={{ color: `${sectionColor}90` }} />
-        <span>Configure provider and key settings</span>
-      </p>
+        <span className="uppercase tracking-widest">AI setup</span>
+      </div>
       {/* Provider Selection */}
       <div className="space-y-1">
         <label className="text-xs text-gray-300 font-medium flex items-center gap-1">

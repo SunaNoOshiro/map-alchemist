@@ -65,7 +65,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   };
 
   return (
-    <SidebarContainer isOpen={isOpen} width="w-80" side="left">
+    <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="left">
       {/* Header */}
       <div className="p-4 border-b border-gray-800 flex-shrink-0 bg-gray-900">
         <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
