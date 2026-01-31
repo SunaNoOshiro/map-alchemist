@@ -17,8 +17,6 @@ interface MainLayoutProps {
     loadingMessage: string;
     prompt: string;
     hasApiKey: boolean;
-    aiConfig: any;
-    availableModels: Record<string, string>;
     // Handlers
     setPrompt: (p: string) => void;
     onGenerate: () => void;
@@ -28,7 +26,6 @@ interface MainLayoutProps {
     onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onClear: () => void;
     onConnectApi: () => void;
-    onUpdateAiConfig: (config: Partial<any>) => void;
     onRegenerateIcon: (category: string, prompt: string) => void;
     onSelectStyle: (id: string) => void;
 }
@@ -41,8 +38,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     loadingMessage,
     prompt,
     hasApiKey,
-    aiConfig,
-    availableModels,
     setPrompt,
     onGenerate,
     onApplyStyle,
@@ -51,7 +46,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onImport,
     onClear,
     onConnectApi,
-    onUpdateAiConfig,
     onRegenerateIcon,
     onSelectStyle
 }) => {
@@ -86,9 +80,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 logs={logs}
                 hasApiKey={hasApiKey}
                 onConnectApi={onConnectApi}
-                aiConfig={aiConfig}
-                availableModels={availableModels}
-                onUpdateAiConfig={onUpdateAiConfig}
             />
 
             <div className="flex-1 flex flex-col min-w-0 relative">

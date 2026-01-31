@@ -1,12 +1,11 @@
 import type { CSSProperties } from 'react';
 
 export const sidebarIconClasses = {
-  icon: 'h-3 w-3',
-  label: 'text-[10px] font-medium leading-none',
-  actionItem:
-    'flex flex-col items-center justify-center gap-0.5 rounded border border-transparent bg-gray-800 p-1.5 text-[color:var(--section-color)] transition-colors hover:bg-[color:var(--section-color)/0.12] hover:text-[color:var(--section-color)]',
-  iconButton:
-    'rounded p-0.5 text-[color:var(--section-color)] opacity-70 transition-colors hover:bg-[color:var(--section-color)/0.12] hover:opacity-100',
+  icon: 'h-2.5 w-2.5',
+  label: 'text-[9px] font-medium leading-none',
+  actionItemBase:
+    'flex flex-col items-center justify-center gap-0.5 rounded border border-transparent bg-gray-800 p-1 text-xs transition-colors',
+  iconButtonBase: 'rounded p-0.5 transition-colors',
 };
 
 export const getSectionColorStyle = (sectionColor: string): CSSProperties =>

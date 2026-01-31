@@ -47,14 +47,6 @@ export type SectionColorKey = keyof typeof SECTION_COLORS;
 // Section Definitions - Centralized configuration for all sidebar sections
 export const SECTIONS = [
   {
-    id: 'ai-config',
-    title: 'AI Configuration',
-    icon: 'BrainCircuit',
-    color: SECTION_COLORS['ai-config'],
-    tailwindTextColor: 'text-blue-400',
-    tailwindBorderColor: 'border-blue-500/30'
-  },
-  {
     id: 'theme-generator',
     title: 'Theme Generator',
     icon: 'Wand',
