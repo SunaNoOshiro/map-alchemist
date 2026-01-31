@@ -42,24 +42,28 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           </button>
 
           {isStyleMenuOpen && (
-            <div className="absolute z-30 mt-1 w-full bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-              {styles.map((style) => (
-                <button
-                  key={style.id}
-                  type="button"
-                  onClick={() => {
-                    onSelectStyle(style.id);
-                    setIsStyleMenuOpen(false);
-                  }}
-                  className={`w-full px-2 py-1.5 text-left text-xs transition-colors ${
-                    style.id === activeStyleId
-                      ? 'bg-gray-700 text-white'
-                      : 'text-gray-200 hover:bg-gray-700'
-                  }`}
-                >
-                  {style.name}
-                </button>
-              ))}
+            <div className="absolute z-30 mt-1 w-full bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+              {styles.map((style) => {
+                const isActive = style.id === activeStyleId;
+                return (
+                  <button
+                    key={style.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectStyle(style.id);
+                      setIsStyleMenuOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 text-left text-xs transition-colors flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-gray-700 text-white'
+                        : 'text-gray-200 hover:bg-gray-700'
+                    }`}
+                  >
+                    {isActive && <span className="text-blue-400">●</span>}
+                    <span className="truncate">{style.name}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
