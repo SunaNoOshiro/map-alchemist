@@ -17,6 +17,8 @@ interface MainLayoutProps {
     loadingMessage: string;
     prompt: string;
     hasApiKey: boolean;
+    aiConfig: any;
+    availableModels: Record<string, string>;
     // Handlers
     setPrompt: (p: string) => void;
     onGenerate: () => void;
@@ -38,6 +40,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     loadingMessage,
     prompt,
     hasApiKey,
+    aiConfig,
+    availableModels,
     setPrompt,
     onGenerate,
     onApplyStyle,
@@ -80,6 +84,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 logs={logs}
                 hasApiKey={hasApiKey}
                 onConnectApi={onConnectApi}
+                aiConfig={aiConfig}
+                availableModels={availableModels}
             />
 
             <div className="flex-1 flex flex-col min-w-0 relative">

@@ -76,7 +76,6 @@ function App() {
       onImport={handleImport}
       onClear={handleClear}
       onConnectApi={handleSelectKey}
-      onUpdateAiConfig={updateAiConfig}
       onRegenerateIcon={(cat, p) => handleRegenerateIcon(cat, p, hasApiKey || !!aiConfig.apiKey)}
       onSelectStyle={setActiveStyleId}
     />

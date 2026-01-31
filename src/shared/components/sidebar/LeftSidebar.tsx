@@ -1,11 +1,12 @@
 
 import React, { useState } from 'react';
-import { MapStylePreset, LogEntry, AppStatus } from '@/types';
+import { MapStylePreset, LogEntry, AppStatus, AiConfig } from '@/types';
 import SidebarContainer from './SidebarContainer';
 import PromptPanel from './left/PromptPanel';
 import StyleLibrary from './left/StyleLibrary';
 import ActionPanel from './left/ActionPanel';
 import LogConsole from './left/LogConsole';
+import AiSettingsPanel from './left/AiSettingsPanel';
 import { ChevronDown, ChevronRight, BrainCircuit, Wand, Palette, FileText } from 'lucide-react';
 import { SECTIONS } from '@/constants';
 
@@ -26,6 +27,8 @@ interface LeftSidebarProps {
   logs: LogEntry[];
   hasApiKey: boolean;
   onConnectApi: () => void;
+  aiConfig: AiConfig;
+  availableModels: Record<string, string>;
 }
 
 const LeftSidebar: React.FC<LeftSidebarProps> = ({
@@ -45,8 +48,11 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   logs,
   hasApiKey,
   onConnectApi,
+  aiConfig,
+  availableModels,
 }) => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    'ai-config': false,
     'theme-generator': true,
     'theme-library': true,
     'logs': true,
@@ -92,6 +98,15 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
               {/* Section Content */}
               {isExpanded && (
                 <div className="pl-1 space-y-1">
+                  {section.id === 'ai-config' && (
+                    <div className="p-2">
+                      <AiSettingsPanel
+                        aiConfig={aiConfig}
+                        availableModels={availableModels}
+                        hasApiKey={hasApiKey}
+                      />
+                    </div>
+                  )}
                   {section.id === 'theme-generator' && (
                     <div className="p-2">
                       <PromptPanel

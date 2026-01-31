@@ -46,14 +46,14 @@ const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onAp
               </div>
               <div className="flex items-center gap-1 ml-1">
                 {activeStyleId === style.id && (
-                  <Check size={10} className={`${sidebarIconClasses.icon} flex-shrink-0 text-[color:var(--section-color)]`} />
+                  <Check size={12} className={`${sidebarIconClasses.icon} flex-shrink-0 text-[color:var(--section-color)]`} />
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
                   className={`${sidebarIconClasses.iconButtonBase} text-gray-500 hover:bg-red-900/50 hover:text-red-400 opacity-0 group-hover:opacity-100`}
                   title="Delete Style"
                 >
-                  <Trash2 size={10} className={sidebarIconClasses.icon} />
+                  <Trash2 size={12} className={sidebarIconClasses.icon} />
                 </button>
               </div>
             </div>

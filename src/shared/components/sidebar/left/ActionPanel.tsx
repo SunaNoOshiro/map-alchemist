@@ -25,7 +25,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({ onExport, onImport, onClear }
             style={{ borderColor: `${sectionColor}30` }}
             title="Export JSON"
         >
-            <Download size={10} className={`${sidebarIconClasses.icon} mb-0.5`} />
+            <Download size={12} className={`${sidebarIconClasses.icon} mb-0.5`} />
             <span className={sidebarIconClasses.label}>Export</span>
         </button>
         <label
@@ -33,7 +33,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({ onExport, onImport, onClear }
           style={{ borderColor: `${sectionColor}30` }}
           title="Import JSON"
         >
-            <Upload size={10} className={`${sidebarIconClasses.icon} mb-0.5`} />
+            <Upload size={12} className={`${sidebarIconClasses.icon} mb-0.5`} />
             <span className={sidebarIconClasses.label}>Import</span>
             <input type="file" accept=".json" onChange={onImport} className="hidden" />
         </label>
@@ -43,7 +43,7 @@ const ActionPanel: React.FC<ActionPanelProps> = ({ onExport, onImport, onClear }
             style={{ borderColor: `${sectionColor}30` }}
             title="Reset All"
         >
-            <Trash size={10} className={`${sidebarIconClasses.icon} mb-0.5`} />
+            <Trash size={12} className={`${sidebarIconClasses.icon} mb-0.5`} />
             <span className={sidebarIconClasses.label}>Clear</span>
         </button>
     </div>
