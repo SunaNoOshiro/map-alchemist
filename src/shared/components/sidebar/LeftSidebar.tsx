@@ -45,13 +45,13 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onConnectApi
 }) => {
   return (
-    <SidebarContainer isOpen={isOpen} width="w-80" side="left">
+    <SidebarContainer isOpen={isOpen} width="w-72 sm:w-80" side="left">
       {/* Header */}
-      <div className="p-4 border-b border-gray-800 flex-shrink-0">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+      <div className="p-3 sm:p-4 border-b border-gray-800 flex-shrink-0 bg-gray-900/70 backdrop-blur">
+        <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 via-cyan-300 to-purple-400 bg-clip-text text-transparent">
           MapAlchemist
         </h1>
-        <p className="text-xs text-gray-500 mt-1">AI Map Style Generator</p>
+        <p className="text-[10px] sm:text-xs text-gray-500 mt-1">AI Map Style Generator</p>
       </div>
 
       <PromptPanel
