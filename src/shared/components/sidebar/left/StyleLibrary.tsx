@@ -3,6 +3,7 @@ import React from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { MapStylePreset } from '@/types';
 import { getSectionColor } from '@/constants';
+import { getSectionColorStyle, sidebarIconClasses } from './sidebarIconStyles';
 
 interface StyleLibraryProps {
   styles: MapStylePreset[];
@@ -13,9 +14,10 @@ interface StyleLibraryProps {
 
 const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onApplyStyle, onDeleteStyle }) => {
   const sectionColor = getSectionColor('theme-library'); // Green for Theme Library section
+  const sectionColorStyle = getSectionColorStyle(sectionColor);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" style={sectionColorStyle}>
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Style Library</h2>
         <span className="text-[10px] text-gray-600">{styles.length} Saved</span>
@@ -43,13 +45,15 @@ const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onAp
                 </span>
               </div>
               <div className="flex items-center gap-1 ml-1">
-                {activeStyleId === style.id && <Check size={10} className="flex-shrink-0" style={{ color: sectionColor }} />}
+                {activeStyleId === style.id && (
+                  <Check size={12} className={`${sidebarIconClasses.icon} flex-shrink-0 text-[color:var(--section-color)]`} />
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
-                  className="p-0.5 hover:bg-red-900/50 text-gray-500 hover:text-red-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+                  className={`${sidebarIconClasses.iconButton} opacity-0 group-hover:opacity-100`}
                   title="Delete Style"
                 >
-                  <Trash2 size={8} />
+                  <Trash2 size={12} className={sidebarIconClasses.icon} />
                 </button>
               </div>
             </div>
