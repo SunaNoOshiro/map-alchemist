@@ -1,4 +1,3 @@
-
 export interface IconDefinition {
   category: string;
   prompt: string;
@@ -42,26 +41,26 @@ export interface PlaceMarker {
   lat: number;
   lng: number;
   title: string;
-  
+
   // Taxonomy
   category: string;     // e.g., 'Food & Drink'
   subcategory: string;  // e.g., 'restaurant'
   iconKey: string;      // e.g., 'food.restaurant'
-  
+
   // Data
   description?: string;
   rating?: number;
   user_ratings_total?: number;
-  
+
   // Logic
   rank: number; // 0..100
   isCluster?: boolean;
   clusterCount?: number;
-  
+
   // Runtime State
   displayMode?: DisplayMode;
   visualState?: VisualState;
-  
+
   // Source Data
   tags?: Record<string, string>;
 }
@@ -72,4 +71,14 @@ export enum AppStatus {
   IDLE = 'IDLE',
   GENERATING_STYLE = 'GENERATING_STYLE',
   GENERATING_ICON = 'GENERATING_ICON',
+}
+
+// AI Provider Types
+export type AiProvider = 'google-gemini';
+
+export interface AiConfig {
+  provider: AiProvider;
+  model: string;
+  apiKey: string;
+  isCustomKey: boolean;
 }

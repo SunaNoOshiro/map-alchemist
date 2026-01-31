@@ -34,6 +34,78 @@ export const getCategoryColor = (subcategory: string): string => {
   return '#6b7280';
 };
 
+// Section Colors for Left Sidebar
+export const SECTION_COLORS = {
+  'ai-config': '#6366f1',      // Blue - matches Tailwind blue-500
+  'theme-generator': '#a855f7', // Purple - matches Tailwind purple-500
+  'theme-library': '#16a344',   // Green - matches Tailwind green-500
+  'logs': '#6b7280',           // Gray - matches Tailwind gray-500
+} as const;
+
+export type SectionColorKey = keyof typeof SECTION_COLORS;
+
+// Section Definitions - Centralized configuration for all sidebar sections
+export const SECTIONS = [
+  {
+    id: 'ai-config',
+    title: 'AI Configuration',
+    icon: 'BrainCircuit',
+    color: SECTION_COLORS['ai-config'],
+    tailwindTextColor: 'text-blue-400',
+    tailwindBorderColor: 'border-blue-500/30'
+  },
+  {
+    id: 'theme-generator',
+    title: 'Theme Generator',
+    icon: 'Wand',
+    color: SECTION_COLORS['theme-generator'],
+    tailwindTextColor: 'text-purple-400',
+    tailwindBorderColor: 'border-purple-500/30'
+  },
+  {
+    id: 'theme-library',
+    title: 'Theme Library',
+    icon: 'Palette',
+    color: SECTION_COLORS['theme-library'],
+    tailwindTextColor: 'text-green-400',
+    tailwindBorderColor: 'border-green-500/30'
+  },
+  {
+    id: 'logs',
+    title: 'Activity Logs',
+    icon: 'FileText',
+    color: SECTION_COLORS['logs'],
+    tailwindTextColor: 'text-gray-400',
+    tailwindBorderColor: 'border-gray-500/30'
+  },
+] as const;
+
+export type SectionId = typeof SECTIONS[number]['id'];
+export type Section = typeof SECTIONS[number];
+
+// Helper function to get section by ID
+export const getSectionById = (sectionId: SectionId): Section | undefined => {
+  return SECTIONS.find(section => section.id === sectionId);
+};
+
+// Helper function to get section color by ID
+export const getSectionColor = (sectionId: SectionId): string => {
+  const section = getSectionById(sectionId);
+  return section ? section.color : SECTION_COLORS['logs']; // Default to logs color
+};
+
+// Helper function to get tailwind text color by ID
+export const getSectionTailwindTextColor = (sectionId: SectionId): string => {
+  const section = getSectionById(sectionId);
+  return section ? section.tailwindTextColor : 'text-gray-400';
+};
+
+// Helper function to get tailwind border color by ID
+export const getSectionTailwindBorderColor = (sectionId: SectionId): string => {
+  const section = getSectionById(sectionId);
+  return section ? section.tailwindBorderColor : 'border-gray-500/30';
+};
+
 export const MAP_CATEGORIES = Object.values(CATEGORY_GROUPS).flat();
 
 // OSM Tag Mapping

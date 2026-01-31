@@ -2,6 +2,7 @@
 import React from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { MapStylePreset } from '@/types';
+import { getSectionColor } from '@/constants';
 
 interface StyleLibraryProps {
   styles: MapStylePreset[];
@@ -11,45 +12,50 @@ interface StyleLibraryProps {
 }
 
 const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onApplyStyle, onDeleteStyle }) => {
+  const sectionColor = getSectionColor('theme-library'); // Green for Theme Library section
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin min-h-0">
+    <div className="space-y-2">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Style Library</h2>
+        <span className="text-[10px] text-gray-500">Saved styles</span>
         <span className="text-[10px] text-gray-600">{styles.length} Saved</span>
       </div>
 
-      {styles.map((style) => (
-        <div
-          key={style.id}
-          onClick={() => onApplyStyle(style.id)}
-          className={`group p-3 rounded-lg border transition-all cursor-pointer ${activeStyleId === style.id
-              ? 'bg-gray-800 border-blue-500/50 shadow-md transform scale-[1.02]'
-              : 'bg-gray-800/30 border-gray-700/50 hover:border-gray-600 hover:bg-gray-800'
-            }`}
-        >
-          <div className="flex justify-between items-start mb-1">
-            <h3 className={`font-medium text-sm leading-tight pr-2 ${activeStyleId === style.id ? 'text-blue-400' : 'text-gray-300'}`}>
-              {style.name}
-            </h3>
-            {activeStyleId === style.id && <Check size={14} className="text-blue-500 flex-shrink-0" />}
-          </div>
-
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-gray-500 truncate max-w-[120px]">
-              {new Date(style.createdAt).toLocaleDateString()}
-            </span>
-            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
-                className="p-1.5 hover:bg-red-900/50 text-gray-500 hover:text-red-400 rounded transition-colors"
-                title="Delete Style"
-              >
-                <Trash2 size={12} />
-              </button>
+      <div className="space-y-1 max-h-64 overflow-y-auto scrollbar-thin">
+        {styles.map((style) => (
+          <div
+            key={style.id}
+            onClick={() => onApplyStyle(style.id)}
+            className={`group p-1.5 rounded border transition-all cursor-pointer`}
+            style={{
+              backgroundColor: activeStyleId === style.id ? '#27272a' : 'rgba(31, 41, 55, 0.3)',
+              borderColor: activeStyleId === style.id ? `${sectionColor}50` : `${sectionColor}30`,
+              boxShadow: activeStyleId === style.id ? '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)' : 'none'
+            }}
+          >
+            <div className="flex justify-between items-start">
+              <div className="flex-1 min-w-0">
+                <h3 className={`font-medium text-xs leading-tight`} style={{ color: activeStyleId === style.id ? sectionColor : '#d1d5db' }}>
+                  {style.name}
+                </h3>
+                <span className="text-[9px] text-gray-500 truncate max-w-[120px] block mt-0.5">
+                  {new Date(style.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 ml-1">
+                {activeStyleId === style.id && <Check size={10} className="flex-shrink-0" style={{ color: sectionColor }} />}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
+                  className="p-0.5 hover:bg-red-900/50 text-gray-500 hover:text-red-400 rounded transition-colors opacity-0 group-hover:opacity-100"
+                  title="Delete Style"
+                >
+                  <Trash2 size={8} />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 };

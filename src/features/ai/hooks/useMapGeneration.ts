@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AppStatus, MapStylePreset, LogEntry } from '@/types';
+import { AppStatus, MapStylePreset, LogEntry, AiConfig } from '@/types';
 import { AiFactory } from '../services/AiFactory';
 import { MAP_CATEGORIES } from '@/constants';
 import { createLogger } from '@core/logger';
@@ -12,6 +12,7 @@ interface UseMapGenerationProps {
     setActiveStyleId: (id: string) => void;
     styles: MapStylePreset[];
     activeStyleId: string | null;
+    aiConfig: AiConfig;
 }
 
 export const useMapGeneration = ({
@@ -19,13 +20,14 @@ export const useMapGeneration = ({
     setStyles,
     setActiveStyleId,
     styles,
-    activeStyleId
+    activeStyleId,
+    aiConfig
 }: UseMapGenerationProps) => {
     const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
 
     const handleGenerateStyle = async (prompt: string, hasApiKey: boolean, onConnectApi: () => void) => {
-        if (!hasApiKey) {
+        if (!hasApiKey && !aiConfig.apiKey) {
             addLog("API Key required to generate styles.", "warning");
             onConnectApi();
             return;
@@ -37,7 +39,7 @@ export const useMapGeneration = ({
         addLog(`Starting generation for: "${prompt}"`, 'info');
 
         try {
-            const aiService = AiFactory.getService();
+            const aiService = AiFactory.getService(aiConfig);
             const newPreset = await aiService.generateMapTheme(
                 prompt,
                 MAP_CATEGORIES,
@@ -59,7 +61,7 @@ export const useMapGeneration = ({
     };
 
     const handleRegenerateIcon = async (category: string, userPrompt: string, hasApiKey: boolean) => {
-        if (!hasApiKey) return;
+        if (!hasApiKey && !aiConfig.apiKey) return;
 
         if (!activeStyleId) {
             addLog("No active style selected.", "warning");
@@ -87,7 +89,7 @@ export const useMapGeneration = ({
         addLog(`Regenerating ${category} icon...`, "info");
 
         try {
-            const aiService = AiFactory.getService();
+            const aiService = AiFactory.getService(aiConfig);
             const imageUrl = await aiService.generateIconImage(category, effectivePrompt, '1K');
 
             setStyles(prev => prev.map(s => {

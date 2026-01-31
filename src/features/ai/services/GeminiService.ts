@@ -7,9 +7,8 @@ import { createLogger } from "@core/logger";
 const logger = createLogger('GeminiService');
 
 // Helper functions (kept local to the module)
-const getClient = () => {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) throw new Error("API Key not found in environment.");
+const getClient = (apiKey: string) => {
+    if (!apiKey) throw new Error("API Key not found.");
     return new GoogleGenAI({ apiKey });
 };
 
@@ -90,8 +89,8 @@ const removeBackground = (base64Image: string): Promise<string> => {
     });
 };
 
-const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string }> => {
-    const client = getClient();
+const generateMapVisuals = async (prompt: string, apiKey: string, model: string): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string }> => {
+    const client = getClient(apiKey);
 
     const systemInstruction = `You are a Mapbox Style Generator. Output JSON ONLY.
     Task: Create a visual theme definition based on: "${prompt}".
@@ -118,7 +117,7 @@ const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: any, popu
 
     try {
         const response = await client.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: model,
             contents: `Generate map theme for: "${prompt}".`,
             config: {
                 systemInstruction,
@@ -156,8 +155,16 @@ const generateMapVisuals = async (prompt: string): Promise<{ mapStyle: any, popu
 };
 
 export class GeminiService implements IAiService {
+    private apiKey: string;
+    private model: string;
+
+    constructor(apiKey: string, model: string) {
+        this.apiKey = apiKey;
+        this.model = model;
+    }
+
     async generateIconImage(category: string, styleDescription: string, size?: ImageSize): Promise<string> {
-        const client = getClient();
+        const client = getClient(this.apiKey);
 
         const prompt = `Create a single graphical SYMBOL representing: "${category}".
       
@@ -180,7 +187,7 @@ export class GeminiService implements IAiService {
 
         try {
             const response = await client.models.generateContent({
-                model: 'gemini-2.5-flash-image',
+                model: this.model,
                 contents: prompt,
             });
 
@@ -203,7 +210,7 @@ export class GeminiService implements IAiService {
 
     async generateMapTheme(prompt: string, categories: string[], onProgress?: (message: string) => void): Promise<MapStylePreset> {
         onProgress?.("Designing visual language & palette...");
-        const visualsPromise = generateMapVisuals(prompt);
+        const visualsPromise = generateMapVisuals(prompt, this.apiKey, this.model);
         const visuals = await visualsPromise;
 
         const iconTheme = visuals.iconTheme;

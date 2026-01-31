@@ -40,12 +40,31 @@ describeFeature(feature, ({ Scenario }) => {
                 setStyles,
                 setActiveStyleId,
                 styles: [],
-                activeStyleId: null
+                activeStyleId: null,
+                aiConfig: {
+                    provider: 'google-gemini',
+                    model: 'gemini-2.5-flash',
+                    apiKey: 'test-api-key',
+                    isCustomKey: true
+                }
             }));
 
             await act(async () => {
                 await result.current.handleGenerateStyle('Cyberpunk neon city', true, onConnectApi);
             });
+        });
+
+        Then('a new map theme should be created', () => {
+            expect(setStyles).toHaveBeenCalled();
+            expect(setActiveStyleId).toHaveBeenCalled();
+        });
+
+        And('the map should display the new theme colors', () => {
+            expect(addLog).toHaveBeenCalledWith(expect.stringContaining('Theme generation complete'), 'success');
+        });
+
+        And('custom icons should be generated for map categories', () => {
+            expect(mockAiService.generateMapTheme).toHaveBeenCalled();
         });
 
         Then('a new map theme should be created', () => {
