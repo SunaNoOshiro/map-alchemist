@@ -17,7 +17,7 @@ const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onAp
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Style Library</h2>
+        <span className="text-[10px] text-gray-500">Saved styles</span>
         <span className="text-[10px] text-gray-600">{styles.length} Saved</span>
       </div>
 
