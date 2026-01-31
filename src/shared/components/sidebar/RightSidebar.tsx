@@ -73,7 +73,7 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
   const totalIcons = useMemo(() => Object.values(CATEGORY_GROUPS).flat().length, []);
 
   return (
-    <SidebarContainer isOpen={isOpen} width="w-80" side="right">
+    <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="right">
       {/* Header */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0 bg-gray-900">
         <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Icon Assets</h2>
