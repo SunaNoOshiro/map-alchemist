@@ -1,18 +1,17 @@
 # Implementation Plan
 
 ## Goal
-Unify the UI styling across the app, remove unnecessary text (“Configure provider and key settings”), refresh mismatched icons and style selector UI, and improve the mobile layout/behavior.
+Review how panels work on mobile and make them more user-friendly.
 
 ## User Review Required
-Yes. Visual/UI adjustments will change layout, dropdown styling, and icon usage. Please confirm the plan before implementation.
+Yes. Mobile layout adjustments will change panel behavior and spacing. Please confirm the plan before implementation.
 
 ## Proposed Changes
-1. **Audit UI layout/components** responsible for provider text, style selector, and edit icons to identify mismatched elements.
-2. **Normalize style selector** to use the same dropdown pattern as the AI model selector on the left.
-3. **Remove unnecessary text** (“Configure provider and key settings”) from the relevant UI section.
-4. **Update icon set/styling** for edit-style controls to match the overall design system.
-5. **Improve mobile responsiveness** in affected components with consistent spacing, layout, and dropdown behavior.
-6. **Add/update tests** if UI behavior or selectors change (per project rules).
+1. **Audit panel components** and mobile styles to understand current layout, breakpoints, and interaction patterns.
+2. **Identify usability issues** on mobile (stacking, scrolling, touch targets, panel toggles/headers).
+3. **Propose panel layout improvements** (responsive spacing, collapsible behavior, sticky headers, or simplified controls) and note affected files.
+4. **Implement mobile-friendly adjustments** in the relevant panel components/styles.
+5. **Add/update tests** if UI behavior or selectors change (per project rules).
 
 ## Verification Plan
 - Run `npm test` (required pre-flight).
