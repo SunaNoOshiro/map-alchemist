@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, ArrowRight, ShieldCheck, Eye, ChevronDown, Key, BrainCircuit } from 'lucide-react';
 
 interface AuthScreenProps {
@@ -14,6 +14,53 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
+  const providerDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isProviderDropdownOpen && !isModelDropdownOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
+      const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+
+      if (!isInsideProvider && !isInsideModel) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
+      const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+
+      if (!isInsideProvider && !isInsideModel) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: string) => {
     onUpdateAiConfig({ provider, model: Object.keys(availableModels)[0] || 'gemini-2.5-flash' });
@@ -41,14 +88,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
   };
 
   return (
-    <div className="flex items-center justify-center h-screen w-screen bg-gray-900 text-white relative overflow-hidden">
+    <div className="flex items-center justify-center min-h-screen w-screen bg-gray-900 text-white relative overflow-y-auto px-4 py-6 sm:py-8">
       {/* Background Animation */}
       <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
         <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-600 rounded-full blur-[150px]" />
         <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-purple-600 rounded-full blur-[150px]" />
       </div>
 
-      <div className="relative z-10 text-center space-y-6 p-12 bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl max-w-2xl border border-gray-700">
+      <div className="relative z-10 text-center space-y-6 w-full max-w-2xl p-6 sm:p-12 bg-gray-800/80 backdrop-blur-md rounded-2xl shadow-2xl border border-gray-700">
         <div className="flex justify-center mb-4">
           <div className="p-4 bg-gray-700/50 rounded-full border border-gray-600">
             <Sparkles className="w-12 h-12 text-blue-400" />
@@ -76,7 +123,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
             <label className="text-sm text-gray-300 font-medium flex items-center gap-1">
               AI Provider
             </label>
-            <div className="relative">
+            <div className="relative" ref={providerDropdownRef}>
               <button
                 onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
                 className="w-full bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-4 py-2 text-left flex items-center justify-between transition-colors"
@@ -104,7 +151,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
             <label className="text-sm text-gray-300 font-medium flex items-center gap-1">
               AI Model
             </label>
-            <div className="relative">
+            <div className="relative" ref={modelDropdownRef}>
               <button
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                 className="w-full bg-gray-700 hover:bg-gray-600 border border-gray-600 rounded-lg px-4 py-2 text-left flex items-center justify-between transition-colors"
