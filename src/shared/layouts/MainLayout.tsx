@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import LeftSidebar from '@shared/components/sidebar/LeftSidebar';
 import RightSidebar from '@shared/components/sidebar/RightSidebar';
 import TopToolbar from '@shared/components/TopToolbar';
@@ -55,13 +54,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onRegenerateIcon,
     onSelectStyle
 }) => {
-    const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-    const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        return !window.matchMedia('(max-width: 639px)').matches;
+    });
+    const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        return !window.matchMedia('(max-width: 639px)').matches;
+    });
     const [isMobile, setIsMobile] = useState(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 639px)').matches;
     });
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -107,7 +112,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     };
 
     return (
-        <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden">
+        <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden relative">
             <LeftSidebar
                 isOpen={isLeftSidebarOpen}
                 onClose={() => setIsLeftSidebarOpen(false)}
@@ -137,43 +142,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                     activeStyleId={activeStyleId}
                     onSelectStyle={onSelectStyle}
                     status={status}
+                    isLeftSidebarOpen={isLeftSidebarOpen}
+                    isRightSidebarOpen={isRightSidebarOpen}
+                    onToggleLeftSidebar={toggleLeftSidebar}
+                    onToggleRightSidebar={toggleRightSidebar}
                 />
-                <div className="sm:hidden px-4 py-2 border-b border-gray-800 bg-gray-900 flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={toggleLeftSidebar}
-                        className={`flex-1 border border-gray-700 rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-widest ${
-                            isLeftSidebarOpen ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-300'
-                        }`}
-                    >
-                        Controls
-                    </button>
-                    <button
-                        type="button"
-                        onClick={toggleRightSidebar}
-                        className={`flex-1 border border-gray-700 rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-widest ${
-                            isRightSidebarOpen ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-800 text-gray-300'
-                        }`}
-                    >
-                        Icons
-                    </button>
-                </div>
 
                 <main className="flex-1 relative bg-gray-200 group overflow-hidden">
-                    <button
-                        onClick={toggleLeftSidebar}
-                        className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
-                    >
-                        {isLeftSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-                    </button>
-
-                    <button
-                        onClick={toggleRightSidebar}
-                        className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
-                    >
-                        {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-                    </button>
-
                     <MapView
                         apiKey={""}
                         mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}

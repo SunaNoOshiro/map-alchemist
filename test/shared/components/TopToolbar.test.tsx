@@ -31,6 +31,10 @@ describe('TopToolbar', () => {
           activeStyleId="style-1"
           onSelectStyle={() => undefined}
           status={AppStatus.IDLE}
+          isLeftSidebarOpen
+          isRightSidebarOpen
+          onToggleLeftSidebar={() => undefined}
+          onToggleRightSidebar={() => undefined}
         />
         <button type="button">Outside</button>
       </div>

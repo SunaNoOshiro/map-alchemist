@@ -17,6 +17,8 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({ isOpen, width, side
     : side === 'left'
       ? '-translate-x-full'
       : 'translate-x-full';
+  const widthClass = isOpen ? width : 'w-full sm:w-0';
+  const borderVisibilityClass = isOpen ? borderClass : 'border-transparent';
   
   return (
     <>
@@ -29,10 +31,14 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({ isOpen, width, side
         />
       )}
       <div 
-        className={`fixed sm:relative ${positionClass} inset-y-0 z-40 flex-shrink-0 bg-gray-900 ${borderClass} border-gray-700 flex flex-col h-full transform transition-transform duration-300 ease-in-out ${width} ${translateClass} sm:translate-x-0`}
+        className={`fixed sm:relative ${positionClass} inset-y-0 z-40 flex-shrink-0 bg-gray-900 ${borderVisibilityClass} border-gray-700 flex flex-col h-full transform transition-[transform,width] duration-200 ease-out will-change-transform ${widthClass} ${translateClass}`}
       >
-        <div className={`flex flex-col h-full ${width} overflow-y-auto ${!isOpen ? 'invisible sm:visible' : 'visible'}`}>
-        {children}
+        <div
+          className={`flex flex-col h-full ${width} overflow-y-auto transition-opacity duration-150 ${
+            isOpen ? 'visible opacity-100' : 'invisible opacity-0'
+          }`}
+        >
+          {children}
         </div>
       </div>
     </>

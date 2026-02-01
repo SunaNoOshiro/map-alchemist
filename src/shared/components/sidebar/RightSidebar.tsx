@@ -86,10 +86,11 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="sm:hidden text-gray-400 hover:text-white border border-gray-700 rounded-md p-1.5"
+            className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest"
             aria-label="Close panel"
           >
             <X size={14} />
+            <span className="hidden sm:inline">Close</span>
           </button>
         )}
       </div>
