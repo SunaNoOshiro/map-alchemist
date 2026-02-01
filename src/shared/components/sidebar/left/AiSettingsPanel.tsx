@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
@@ -24,6 +24,53 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const [showApiKey, setShowApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   const sectionColor = getSectionColor('ai-config'); // Blue for AI Configuration section
+  const providerDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isProviderDropdownOpen && !isModelDropdownOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
+      const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+
+      if (!isInsideProvider && !isInsideModel) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
+      const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+
+      if (!isInsideProvider && !isInsideModel) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
     onUpdateAiConfig({ provider });
@@ -63,7 +110,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
           AI Provider
         </label>
-        <div className="relative">
+        <div className="relative" ref={providerDropdownRef}>
           <button
             onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
             className="w-full bg-gray-700 hover:bg-gray-600 border rounded px-2 py-1.5 text-left flex items-center justify-between transition-colors text-xs"
@@ -92,7 +139,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
           AI Model
         </label>
-        <div className="relative">
+        <div className="relative" ref={modelDropdownRef}>
           <button
             onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
             className="w-full bg-gray-700 hover:bg-gray-600 border rounded px-2 py-1.5 text-left flex items-center justify-between transition-colors text-xs"
