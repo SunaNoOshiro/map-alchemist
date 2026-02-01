@@ -4,10 +4,11 @@ import { IconDefinition, AppStatus } from '@/types';
 import SidebarContainer from './SidebarContainer';
 import IconItem from './right/IconItem';
 import { CATEGORY_GROUPS } from '@/constants';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, X } from 'lucide-react';
 
 interface RightSidebarProps {
   isOpen: boolean;
+  onClose?: () => void;
   activeIcons: Record<string, IconDefinition>;
   selectedCategory: string | null;
   onSelectCategory: (cat: string | null) => void;
@@ -30,6 +31,7 @@ const GROUP_COLORS: Record<string, string> = {
 
 const RightSidebar: React.FC<RightSidebarProps> = ({
   isOpen,
+  onClose,
   activeIcons,
   selectedCategory,
   onSelectCategory,
@@ -73,15 +75,27 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
   const totalIcons = useMemo(() => Object.values(CATEGORY_GROUPS).flat().length, []);
 
   return (
-    <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="right">
+    <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="right" onClose={onClose}>
       {/* Header */}
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0 bg-gray-900">
-        <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Icon Assets</h2>
-        <span className="text-[10px] text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">{totalIcons} Items</span>
+      <div className="p-4 border-b border-gray-800 flex items-center justify-between gap-2 flex-shrink-0 bg-gray-900">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Icon Assets</h2>
+          <span className="text-[10px] text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">{totalIcons} Items</span>
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="sm:hidden text-gray-400 hover:text-white border border-gray-700 rounded-md p-1.5"
+            aria-label="Close panel"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-4 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-2 space-y-3 sm:space-y-4 scrollbar-thin">
         {Object.entries(CATEGORY_GROUPS).map(([groupName, items]) => {
           const isExpanded = expandedGroups[groupName];
           const colorClass = GROUP_COLORS[groupName] || 'text-gray-400 border-gray-700';
@@ -91,10 +105,10 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
               {/* Group Header */}
               <div
                 onClick={() => toggleGroup(groupName)}
-                className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer select-none border-b ${colorClass.split(' ')[1]} bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm`}
+                className={`flex items-center gap-2 px-3 sm:px-2 py-2 sm:py-1.5 cursor-pointer select-none border-b ${colorClass.split(' ')[1]} bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm`}
               >
                 {isExpanded ? <ChevronDown size={12} className={colorClass.split(' ')[0]} /> : <ChevronRight size={12} className={colorClass.split(' ')[0]} />}
-                <span className={`text-[10px] font-bold uppercase tracking-widest ${colorClass.split(' ')[0]}`}>
+                <span className={`text-[11px] sm:text-[10px] font-bold uppercase tracking-widest ${colorClass.split(' ')[0]}`}>
                   {groupName}
                 </span>
                 <span className="ml-auto text-[9px] text-gray-600">{items.length}</span>

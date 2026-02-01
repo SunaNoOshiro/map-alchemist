@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import LeftSidebar from '@shared/components/sidebar/LeftSidebar';
 import RightSidebar from '@shared/components/sidebar/RightSidebar';
@@ -58,19 +58,59 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
     const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [isMobile, setIsMobile] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.matchMedia('(max-width: 639px)').matches;
+    });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const mediaQuery = window.matchMedia('(max-width: 639px)');
+        const handleChange = (event: MediaQueryListEvent) => {
+            setIsMobile(event.matches);
+        };
+        setIsMobile(mediaQuery.matches);
+        mediaQuery.addEventListener('change', handleChange);
+        return () => mediaQuery.removeEventListener('change', handleChange);
+    }, []);
+
+    useEffect(() => {
+        if (isMobile) {
+            setIsLeftSidebarOpen(false);
+            setIsRightSidebarOpen(false);
+        }
+    }, [isMobile]);
 
     const activeStyle = styles.find(s => s.id === activeStyleId) || null;
     const activeIcons = activeStyle ? activeStyle.iconsByCategory : {};
 
     const handleEditFromPopup = (category: string) => {
+        if (isMobile) setIsLeftSidebarOpen(false);
         if (!isRightSidebarOpen) setIsRightSidebarOpen(true);
         setSelectedCategory(category);
+    };
+
+    const toggleLeftSidebar = () => {
+        setIsLeftSidebarOpen((prev) => {
+            const next = !prev;
+            if (isMobile && next) setIsRightSidebarOpen(false);
+            return next;
+        });
+    };
+
+    const toggleRightSidebar = () => {
+        setIsRightSidebarOpen((prev) => {
+            const next = !prev;
+            if (isMobile && next) setIsLeftSidebarOpen(false);
+            return next;
+        });
     };
 
     return (
         <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden">
             <LeftSidebar
                 isOpen={isLeftSidebarOpen}
+                onClose={() => setIsLeftSidebarOpen(false)}
                 prompt={prompt}
                 setPrompt={setPrompt}
                 onGenerate={onGenerate}
@@ -98,18 +138,38 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                     onSelectStyle={onSelectStyle}
                     status={status}
                 />
+                <div className="sm:hidden px-4 py-2 border-b border-gray-800 bg-gray-900 flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={toggleLeftSidebar}
+                        className={`flex-1 border border-gray-700 rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-widest ${
+                            isLeftSidebarOpen ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-300'
+                        }`}
+                    >
+                        Controls
+                    </button>
+                    <button
+                        type="button"
+                        onClick={toggleRightSidebar}
+                        className={`flex-1 border border-gray-700 rounded-md px-3 py-2 text-xs font-semibold uppercase tracking-widest ${
+                            isRightSidebarOpen ? 'bg-purple-600 text-white border-purple-500' : 'bg-gray-800 text-gray-300'
+                        }`}
+                    >
+                        Icons
+                    </button>
+                </div>
 
                 <main className="flex-1 relative bg-gray-200 group overflow-hidden">
                     <button
-                        onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-                        className="absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+                        onClick={toggleLeftSidebar}
+                        className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-l-0 border-gray-700 text-gray-400 hover:text-white rounded-r-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
                     >
                         {isLeftSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
                     </button>
 
                     <button
-                        onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
-                        className="absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
+                        onClick={toggleRightSidebar}
+                        className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-30 bg-gray-800 border border-r-0 border-gray-700 text-gray-400 hover:text-white rounded-l-md p-1.5 shadow-lg opacity-50 hover:opacity-100 transition-all"
                     >
                         {isRightSidebarOpen ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
                     </button>
@@ -132,6 +192,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
             <RightSidebar
                 isOpen={isRightSidebarOpen}
+                onClose={() => setIsRightSidebarOpen(false)}
                 activeIcons={activeIcons}
                 selectedCategory={selectedCategory}
                 onSelectCategory={setSelectedCategory}
