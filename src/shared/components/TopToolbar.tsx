@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Palette } from 'lucide-react';
 import { AppStatus, MapStylePreset } from '@/types';
 
@@ -18,6 +18,43 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const activeStyle = styles.find((style) => style.id === activeStyleId);
+  const styleMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isStyleMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (styleMenuRef.current && target && !styleMenuRef.current.contains(target)) {
+        setIsStyleMenuOpen(false);
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node | null;
+      if (styleMenuRef.current && target && !styleMenuRef.current.contains(target)) {
+        setIsStyleMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsStyleMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isStyleMenuOpen]);
 
   return (
     <div className="min-h-[4rem] bg-gray-900 border-b border-gray-700 flex flex-col gap-2 px-4 py-2 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:px-6 relative z-20 shadow-md flex-shrink-0">
@@ -30,7 +67,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           <Palette size={14} className="text-blue-400" />
           <label className="text-[10px] text-blue-400 uppercase font-bold tracking-widest">Active Map Theme</label>
         </div>
-        <div className="relative w-full sm:w-64">
+        <div className="relative w-full sm:w-64" ref={styleMenuRef}>
           <button
             type="button"
             onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
