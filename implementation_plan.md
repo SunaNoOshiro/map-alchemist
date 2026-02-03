@@ -1,19 +1,17 @@
 # Implementation Plan
 
 ## Goal
-Review how panels work on mobile and make them more user-friendly.
+Move the open panel buttons into the top header (using the same “Setup” and “Icons” text as mobile), while improving sidebar open/close animations to feel smooth and less laggy.
 
 ## User Review Required
-Yes. Mobile layout adjustments will change panel behavior and spacing. Please confirm the plan before implementation.
+Yes. Desktop header controls and animation timing will change. Please confirm the plan before implementation.
 
 ## Proposed Changes
-1. **Audit panel components** and mobile styles to understand current layout, breakpoints, and interaction patterns.
-2. **Identify usability issues** on mobile (stacking, scrolling, touch targets, panel toggles/headers).
-3. **Propose panel layout improvements** (responsive spacing, collapsible behavior, sticky headers, or simplified controls) and note affected files.
-4. **Implement mobile-friendly adjustments** in the relevant panel components/styles.
-5. **Add/update tests** if UI behavior or selectors change (per project rules).
+1. **Move open buttons to the header** (top toolbar area) and label them “Setup” and “Icons” to match mobile wording.
+2. **Show header buttons only when a panel is closed** to avoid clutter while panels are open.
+3. **Refine sidebar transitions** in `SidebarContainer` to reduce lag (tune duration/easing and avoid visibility flicker) while keeping smooth map reflow.
+4. **Update tests** if toolbar structure or toggle labels change.
 
 ## Verification Plan
 - Run `npm test` (required pre-flight).
-- If needed, run targeted tests covering updated components.
-- Manual visual check in the browser for desktop and mobile breakpoints.
+- Manual visual check on desktop open/close animations to confirm smooth transitions and header button placement.

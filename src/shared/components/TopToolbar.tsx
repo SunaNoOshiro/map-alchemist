@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Palette } from 'lucide-react';
+import { ChevronDown, Palette, Settings2, Sparkles } from 'lucide-react';
 import { AppStatus, MapStylePreset } from '@/types';
 
 interface TopToolbarProps {
@@ -8,13 +8,21 @@ interface TopToolbarProps {
   activeStyleId: string | null;
   onSelectStyle: (id: string) => void;
   status: AppStatus;
+  isLeftSidebarOpen: boolean;
+  isRightSidebarOpen: boolean;
+  onToggleLeftSidebar: () => void;
+  onToggleRightSidebar: () => void;
 }
 
 const TopToolbar: React.FC<TopToolbarProps> = ({
   styles,
   activeStyleId,
   onSelectStyle,
-  status
+  status,
+  isLeftSidebarOpen,
+  isRightSidebarOpen,
+  onToggleLeftSidebar,
+  onToggleRightSidebar
 }) => {
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const activeStyle = styles.find((style) => style.id === activeStyleId);
@@ -57,12 +65,48 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
   }, [isStyleMenuOpen]);
 
   return (
-    <div className="min-h-[4rem] bg-gray-900 border-b border-gray-700 flex flex-col gap-2 px-4 py-2 sm:h-16 sm:flex-row sm:items-center sm:justify-between sm:px-6 relative z-20 shadow-md flex-shrink-0">
-      {/* Left Spacer */}
-      <div className="hidden sm:block w-32"></div>
+    <div className="min-h-[4rem] bg-gray-900 border-b border-gray-700 flex flex-col gap-2 px-4 py-2 sm:h-16 sm:flex-row sm:items-center sm:justify-center sm:gap-2 sm:px-6 relative z-20 shadow-md flex-shrink-0">
+      <div className="order-2 flex w-full items-center gap-2 sm:hidden">
+        {!isLeftSidebarOpen && (
+          <button
+            type="button"
+            onClick={onToggleLeftSidebar}
+            className="flex-1 border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-2"
+            aria-label="Open setup panel"
+          >
+            <Settings2 size={14} className="text-blue-300" />
+            Setup
+          </button>
+        )}
+        {!isRightSidebarOpen && (
+          <button
+            type="button"
+            onClick={onToggleRightSidebar}
+            className="flex-1 border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-2"
+            aria-label="Open icon generation panel"
+          >
+            <Sparkles size={14} className="text-purple-300" />
+            Icons
+          </button>
+        )}
+      </div>
+
+      <div className="hidden sm:flex items-center gap-2 order-1">
+        {!isLeftSidebarOpen && (
+          <button
+            type="button"
+            onClick={onToggleLeftSidebar}
+            className="border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center gap-2"
+            aria-label="Open setup panel"
+          >
+            <Settings2 size={14} className="text-blue-300" />
+            Setup
+          </button>
+        )}
+      </div>
 
       {/* Center: Active Style Selector */}
-      <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-center">
+      <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-center order-1 sm:order-2 sm:flex-none sm:w-72">
         <div className="flex items-center gap-2">
           <Palette size={14} className="text-blue-400" />
           <label className="text-[10px] text-blue-400 uppercase font-bold tracking-widest">Active Map Theme</label>
@@ -106,8 +150,22 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
         </div>
       </div>
 
-      {/* Right: Status Indicator */}
-      <div className="w-full sm:w-32 flex justify-start sm:justify-end">
+      <div className="hidden sm:flex items-center gap-2 order-3">
+        {!isRightSidebarOpen && (
+          <button
+            type="button"
+            onClick={onToggleRightSidebar}
+            className="border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center gap-2"
+            aria-label="Open icon generation panel"
+          >
+            <Sparkles size={14} className="text-purple-300" />
+            Icons
+          </button>
+        )}
+      </div>
+
+      {/* Right: Status */}
+      <div className="w-full sm:w-32 flex justify-start sm:justify-end order-4">
         {status !== AppStatus.IDLE && (
           <div className="flex items-center gap-2 text-xs text-blue-400 animate-pulse bg-blue-900/20 px-3 py-1 rounded-full border border-blue-900/50 whitespace-nowrap">
             <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
