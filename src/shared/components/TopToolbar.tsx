@@ -82,6 +82,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           <button
             type="button"
             onClick={onToggleRightSidebar}
+            data-testid="open-icons-sidebar"
             className="flex-1 border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-2"
             aria-label="Open icon generation panel"
           >
@@ -155,6 +156,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           <button
             type="button"
             onClick={onToggleRightSidebar}
+            data-testid="open-icons-sidebar"
             className="border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center gap-2"
             aria-label="Open icon generation panel"
           >

@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { IconDefinition, AppStatus } from '@/types';
 import SidebarContainer from './SidebarContainer';
 import IconItem from './right/IconItem';
-import { CATEGORY_GROUPS } from '@/constants';
+import { CATEGORY_COLORS, CATEGORY_GROUPS } from '@/constants';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
 
 interface RightSidebarProps {
@@ -11,35 +11,29 @@ interface RightSidebarProps {
   onClose?: () => void;
   activeIcons: Record<string, IconDefinition>;
   selectedCategory: string | null;
+  remixFocusCategory?: string | null;
+  onClearRemixFocus?: () => void;
   onSelectCategory: (cat: string | null) => void;
   onRegenerateIcon: (category: string, prompt: string) => void;
   status: AppStatus;
   hasApiKey: boolean;
 }
 
-// Map group names to colors for visual distinction
-const GROUP_COLORS: Record<string, string> = {
-  'Food & Drink': 'text-orange-400 border-orange-500/30',
-  'Shopping': 'text-blue-400 border-blue-500/30',
-  'Health': 'text-red-400 border-red-500/30',
-  'Recreation': 'text-green-400 border-green-500/30',
-  'Attractions': 'text-purple-400 border-purple-500/30',
-  'Education': 'text-teal-400 border-teal-500/30',
-  'Transport': 'text-cyan-400 border-cyan-500/30',
-  'Services': 'text-gray-400 border-gray-500/30',
-};
-
 const RightSidebar: React.FC<RightSidebarProps> = ({
   isOpen,
   onClose,
   activeIcons,
   selectedCategory,
+  remixFocusCategory,
+  onClearRemixFocus,
   onSelectCategory,
   onRegenerateIcon,
   status,
   hasApiKey
 }) => {
   const selectedRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const isProgrammaticScroll = useRef(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // Initialize all groups as expanded
@@ -47,6 +41,14 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
     const allExpanded = Object.keys(CATEGORY_GROUPS).reduce((acc, key) => ({ ...acc, [key]: true }), {});
     setExpandedGroups(allExpanded);
   }, []);
+
+  const collapseToGroup = (groupName: string) => {
+    const nextState = Object.keys(CATEGORY_GROUPS).reduce((acc, key) => {
+      acc[key] = key === groupName;
+      return acc;
+    }, {} as Record<string, boolean>);
+    setExpandedGroups(nextState);
+  };
 
   // Scroll to selected item and ensure its group is expanded
   useEffect(() => {
@@ -57,16 +59,86 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
       )?.[0];
 
       if (groupName) {
-        setExpandedGroups(prev => ({ ...prev, [groupName]: true }));
+        if (remixFocusCategory) {
+          collapseToGroup(groupName);
+        } else {
+          setExpandedGroups(prev => ({ ...prev, [groupName]: true }));
+        }
       }
 
       if (selectedRef.current) {
-        setTimeout(() => {
-          selectedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 150);
+        const alignSelectedToTop = () => {
+          if (!selectedRef.current) return;
+          if (remixFocusCategory && listRef.current) {
+            const list = listRef.current;
+            const computed = window.getComputedStyle(list);
+            const paddingTop = Number.parseFloat(computed.paddingTop || '0');
+            const paddingBottom = Number.parseFloat(computed.paddingBottom || '0');
+            const headerEl = groupName
+              ? (list.querySelector(
+                  `[data-testid="icon-group-header"][data-group="${groupName}"]`
+                ) as HTMLElement | null)
+              : null;
+            const headerHeight = headerEl?.getBoundingClientRect().height ?? 0;
+            const padding = 8;
+            const targetTop = selectedRef.current.offsetTop;
+            const targetHeight = selectedRef.current.offsetHeight;
+            const desiredTop = Math.max(0, targetTop - headerHeight - paddingTop - padding);
+            isProgrammaticScroll.current = true;
+            list.scrollTop = desiredTop;
+            const ensureVisible = () => {
+              if (!selectedRef.current || !listRef.current) return;
+              const listAfter = listRef.current;
+              const listRect = listAfter.getBoundingClientRect();
+              const itemRect = selectedRef.current.getBoundingClientRect();
+              const minTop = listRect.top + headerHeight + paddingTop + padding;
+              const maxBottom = listRect.bottom - padding;
+              if (itemRect.top < minTop) {
+                listAfter.scrollTop -= (minTop - itemRect.top);
+              } else if (itemRect.bottom > maxBottom) {
+                listAfter.scrollTop += (itemRect.bottom - maxBottom);
+              }
+            };
+            requestAnimationFrame(() => {
+              if (!selectedRef.current || !listRef.current) {
+                isProgrammaticScroll.current = false;
+                return;
+              }
+              ensureVisible();
+              requestAnimationFrame(() => {
+                ensureVisible();
+                isProgrammaticScroll.current = false;
+              });
+            });
+            setTimeout(() => {
+              if (!selectedRef.current || !listRef.current) return;
+              isProgrammaticScroll.current = true;
+              ensureVisible();
+              isProgrammaticScroll.current = false;
+            }, 250);
+            return;
+          }
+          selectedRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+
+        const scheduleScroll = () => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              alignSelectedToTop();
+            });
+          });
+        };
+
+        if (remixFocusCategory) {
+          scheduleScroll();
+        } else {
+          setTimeout(() => {
+            scheduleScroll();
+          }, 150);
+        }
       }
     }
-  }, [selectedCategory, isOpen]);
+  }, [selectedCategory, isOpen, remixFocusCategory]);
 
   const toggleGroup = (group: string) => {
     setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
@@ -96,20 +168,42 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-2 space-y-3 sm:space-y-4 scrollbar-thin">
+      <div
+        ref={listRef}
+        data-testid="icon-assets-list"
+        className="flex-1 overflow-y-auto p-3 pb-32 sm:p-2 sm:pb-32 space-y-3 sm:space-y-4 scrollbar-thin"
+        onScroll={() => {
+          if (remixFocusCategory && onClearRemixFocus && !isProgrammaticScroll.current) {
+            onClearRemixFocus();
+          }
+        }}
+      >
         {Object.entries(CATEGORY_GROUPS).map(([groupName, items]) => {
           const isExpanded = expandedGroups[groupName];
-          const colorClass = GROUP_COLORS[groupName] || 'text-gray-400 border-gray-700';
+          const groupColor = CATEGORY_COLORS[groupName] || '#6b7280';
 
           return (
-            <div key={groupName} className="space-y-1">
+            <div
+              key={groupName}
+              className="space-y-1"
+              data-testid="icon-group"
+              data-group={groupName}
+              data-expanded={isExpanded ? 'true' : 'false'}
+            >
               {/* Group Header */}
               <div
                 onClick={() => toggleGroup(groupName)}
-                className={`flex items-center gap-2 px-3 sm:px-2 py-2 sm:py-1.5 cursor-pointer select-none border-b ${colorClass.split(' ')[1]} bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm`}
+                data-testid="icon-group-header"
+                data-group={groupName}
+                className="flex items-center gap-2 px-3 sm:px-2 py-2 sm:py-1.5 cursor-pointer select-none border-b bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm"
+                style={{ borderColor: groupColor }}
               >
-                {isExpanded ? <ChevronDown size={12} className={colorClass.split(' ')[0]} /> : <ChevronRight size={12} className={colorClass.split(' ')[0]} />}
-                <span className={`text-[11px] sm:text-[10px] font-bold uppercase tracking-widest ${colorClass.split(' ')[0]}`}>
+                {isExpanded ? (
+                  <ChevronDown size={12} style={{ color: groupColor }} />
+                ) : (
+                  <ChevronRight size={12} style={{ color: groupColor }} />
+                )}
+                <span className="text-[11px] sm:text-[10px] font-bold uppercase tracking-widest" style={{ color: groupColor }}>
                   {groupName}
                 </span>
                 <span className="ml-auto text-[9px] text-gray-600">{items.length}</span>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import LeftSidebar from '@shared/components/sidebar/LeftSidebar';
 import RightSidebar from '@shared/components/sidebar/RightSidebar';
 import TopToolbar from '@shared/components/TopToolbar';
@@ -67,6 +67,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         return window.matchMedia('(max-width: 639px)').matches;
     });
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [remixFocusCategory, setRemixFocusCategory] = useState<string | null>(null);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -89,9 +90,29 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     const activeStyle = styles.find(s => s.id === activeStyleId) || null;
     const activeIcons = activeStyle ? activeStyle.iconsByCategory : {};
 
-    const handleEditFromPopup = (category: string) => {
+    const handleEditFromPopup = useCallback((category: string) => {
         if (isMobile) setIsLeftSidebarOpen(false);
         if (!isRightSidebarOpen) setIsRightSidebarOpen(true);
+        setRemixFocusCategory(category);
+        setSelectedCategory(category);
+    }, [isMobile, isRightSidebarOpen]);
+
+    useEffect(() => {
+        if (!import.meta.env.DEV) return;
+        (window as any).__mapAlchemistSetRemixFocus = (category: string) => {
+            handleEditFromPopup(category);
+        };
+        (window as any).__mapAlchemistClearRemixFocus = () => {
+            setRemixFocusCategory(null);
+        };
+        return () => {
+            delete (window as any).__mapAlchemistSetRemixFocus;
+            delete (window as any).__mapAlchemistClearRemixFocus;
+        };
+    }, [handleEditFromPopup]);
+
+    const handleSelectCategory = (category: string | null) => {
+        setRemixFocusCategory(null);
         setSelectedCategory(category);
     };
 
@@ -170,7 +191,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onClose={() => setIsRightSidebarOpen(false)}
                 activeIcons={activeIcons}
                 selectedCategory={selectedCategory}
-                onSelectCategory={setSelectedCategory}
+                remixFocusCategory={remixFocusCategory}
+                onClearRemixFocus={() => setRemixFocusCategory(null)}
+                onSelectCategory={handleSelectCategory}
                 onRegenerateIcon={(cat, prompt) => onRegenerateIcon(cat, prompt)} // Wrapper to match signature if needed
                 status={status}
                 hasApiKey={hasApiKey}

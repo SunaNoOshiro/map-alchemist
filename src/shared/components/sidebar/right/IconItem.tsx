@@ -24,6 +24,7 @@ const IconItem: React.FC<IconItemProps> = ({
     const [localPrompt, setLocalPrompt] = useState(iconDef?.prompt || '');
     const isLoading = iconDef?.isLoading;
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const testId = `icon-item-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
     // Sync state when prop changes
     useEffect(() => {
@@ -32,11 +33,14 @@ const IconItem: React.FC<IconItemProps> = ({
         }
     }, [iconDef]);
 
-    // Auto-resize textarea
+    // Auto-resize textarea with a max height to keep the selected card fully visible
     useEffect(() => {
         if (isSelected && textareaRef.current) {
+            const maxHeight = 80;
             textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+            const nextHeight = Math.min(textareaRef.current.scrollHeight, maxHeight);
+            textareaRef.current.style.height = `${nextHeight}px`;
+            textareaRef.current.style.overflowY = textareaRef.current.scrollHeight > maxHeight ? 'auto' : 'hidden';
         }
     }, [localPrompt, isSelected]);
 
@@ -54,7 +58,8 @@ const IconItem: React.FC<IconItemProps> = ({
 
         return (
             <div
-                className="bg-gray-800 border rounded-lg p-3 mb-2 shadow-lg transition-all relative"
+                data-testid={testId}
+                className="bg-gray-800 border rounded-lg p-2 mb-2 shadow-lg transition-all relative max-h-[520px] overflow-hidden"
                 style={{ borderColor: `${sectionColor}50` }} // 50% opacity
                 onClick={(e) => e.stopPropagation()}
             >
@@ -75,7 +80,7 @@ const IconItem: React.FC<IconItemProps> = ({
                 </button>
 
                 {/* Large Preview with Checkerboard BG */}
-                <div className="w-full aspect-square bg-gray-900 rounded-md border flex items-center justify-center overflow-hidden mb-3 relative group"
+                <div className="w-full h-24 sm:h-32 bg-gray-900 rounded-md border flex items-center justify-center overflow-hidden mb-2 relative group"
                     style={{
                         backgroundImage: `linear-gradient(45deg, #1f2937 25%, transparent 25%), linear-gradient(-45deg, #1f2937 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f2937 75%), linear-gradient(-45deg, transparent 75%, #1f2937 75%)`,
                         backgroundSize: '20px 20px',
@@ -100,10 +105,10 @@ const IconItem: React.FC<IconItemProps> = ({
                 </div>
 
                 {/* Prompt Editing */}
-                <div className="space-y-2">
+                <div className="space-y-1">
                     <label className="text-[10px] text-gray-500 font-semibold uppercase">Art Direction Prompt</label>
                     {isReadOnly ? (
-                        <div className="text-xs text-gray-400 italic bg-gray-900/50 p-2 rounded border" style={{ borderColor: `${sectionColor}50` }}>
+                        <div className="text-xs text-gray-400 italic bg-gray-900/50 p-2 rounded border max-h-16 overflow-y-auto" style={{ borderColor: `${sectionColor}50` }}>
                             {localPrompt || "No specific prompt set."}
                         </div>
                     ) : (
@@ -111,7 +116,7 @@ const IconItem: React.FC<IconItemProps> = ({
                             ref={textareaRef}
                             value={localPrompt}
                             onChange={(e) => setLocalPrompt(e.target.value)}
-                            className="w-full bg-gray-900 border rounded p-2 text-xs text-gray-200 focus:outline-none resize-none min-h-[60px]"
+                            className="w-full bg-gray-900 border rounded p-2 text-xs text-gray-200 focus:outline-none resize-none min-h-[44px] max-h-20"
                             style={{
                                 borderColor: `${sectionColor}50`,
                                 outlineColor: sectionColor
@@ -125,7 +130,7 @@ const IconItem: React.FC<IconItemProps> = ({
                 <button
                     onClick={handleRegenerate}
                     disabled={isLoading || isReadOnly}
-                    className={`w-full mt-3 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all`}
+                    className={`w-full mt-2 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all`}
                     style={{
                         backgroundColor: isReadOnly ? '#27272a' : sectionColor,
                         borderColor: `${sectionColor}50`,
@@ -145,6 +150,7 @@ const IconItem: React.FC<IconItemProps> = ({
 
     return (
         <div
+            data-testid={testId}
             className="group flex items-center gap-3 p-2 rounded transition-all cursor-pointer border border-transparent hover:bg-gray-800/50"
             style={{ borderColor: `${sectionColor}50` }}
             onClick={() => onSelect(category)}

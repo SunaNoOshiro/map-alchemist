@@ -1,17 +1,16 @@
 # Implementation Plan
 
 ## Goal
-Move the open panel buttons into the top header (using the same “Setup” and “Icons” text as mobile), while improving sidebar open/close animations to feel smooth and less laggy.
+Ensure the selected icon card is fully visible (including prompt + Regenerate button) and fix the half-gray map by resizing the map on layout changes.
 
 ## User Review Required
-Yes. Desktop header controls and animation timing will change. Please confirm the plan before implementation.
+Yes. Selected icon card layout and map resize behavior will change.
 
 ## Proposed Changes
-1. **Move open buttons to the header** (top toolbar area) and label them “Setup” and “Icons” to match mobile wording.
-2. **Show header buttons only when a panel is closed** to avoid clutter while panels are open.
-3. **Refine sidebar transitions** in `SidebarContainer` to reduce lag (tune duration/easing and avoid visibility flicker) while keeping smooth map reflow.
-4. **Update tests** if toolbar structure or toggle labels change.
+1. **Clamp selected card height** in `src/shared/components/sidebar/right/IconItem.tsx` with a max height and internal scroll for the prompt so the full card stays visible.
+2. **Ensure scroll reveals the full selected card** in `src/shared/components/sidebar/RightSidebar.tsx`, aligning under the sticky header and ensuring the bottom fits.
+3. **Resize MapLibre on layout changes** in `src/features/map/hooks/useMapLogic.ts` via a `ResizeObserver` on the map container.
 
 ## Verification Plan
 - Run `npm test` (required pre-flight).
-- Manual visual check on desktop open/close animations to confirm smooth transitions and header button placement.
+- Run `npm run test:e2e:bdd` to cover remix focus and scroll scenarios on mobile and desktop.
