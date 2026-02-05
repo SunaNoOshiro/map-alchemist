@@ -5,7 +5,7 @@ import { PopupGenerator } from '../services/PopupGenerator';
 import { PaletteService } from '../services/PaletteService';
 import { PoiService } from '../services/PoiService';
 import { derivePalette } from '@core/services/defaultThemes';
-import { DEFAULT_STYLE_URL, OSM_MAPPING } from '@/constants';
+import { DEFAULT_STYLE_URL, MAP_CATEGORIES, OSM_MAPPING } from '@/constants';
 import { MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 
@@ -150,6 +150,17 @@ export const useMapLogic = ({
         };
     }, []);
 
+    useEffect(() => {
+        if (!loaded || !mapController.current || !containerRef.current) return;
+        const map = mapController.current.getRawMap?.();
+        if (!map) return;
+        const observer = new ResizeObserver(() => {
+            map.resize();
+        });
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, [loaded, containerRef]);
+
     // 2. Derive Palette
     const palette = useMemo(() => {
         if (paletteProp) return paletteProp;
@@ -259,11 +270,18 @@ export const useMapLogic = ({
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
 
+        const resolveEditCategory = (subcategory?: string, category?: string) => {
+            if (subcategory && MAP_CATEGORIES.includes(subcategory)) return subcategory;
+            if (category && MAP_CATEGORIES.includes(category)) return category;
+            return subcategory || category || '';
+        };
+
         const onPointClick = (e: MapEvent) => {
             if (!e.features || e.features.length === 0) return;
             const feature = e.features[0];
             const coords = (feature.geometry as any).coordinates.slice();
             const state = latestState.current;
+            const editTarget = resolveEditCategory(feature.properties?.subcategory, feature.properties?.category);
 
             const html = PopupGenerator.generateHtml(
                 feature,
@@ -279,7 +297,8 @@ export const useMapLogic = ({
             setTimeout(() => {
                 const btn = document.getElementById('popup-edit-btn');
                 if (btn && state.onEditIcon) {
-                    btn.onclick = () => state.onEditIcon?.(feature.properties.subcategory);
+                    btn.setAttribute('data-edit-target', editTarget);
+                    btn.onclick = () => state.onEditIcon?.(editTarget);
                 }
                 const closeBtn = document.getElementById('popup-close-btn');
                 if (closeBtn) {

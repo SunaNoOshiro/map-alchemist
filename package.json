@@ -14,7 +14,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:bdd": "bddgen && playwright test",
+    "test:e2e:bdd": "npm run build && bddgen && playwright test",
     "bddgen": "bddgen"
   },
   "dependencies": {
