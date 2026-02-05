@@ -19,6 +19,85 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vLhztt7l7Qs_Qu10L2KmPF
 3. Run the app:
    `npm run dev`
 
+## Export MapLibre packages
+
+You can export a generated style (colors + AI icons) as a reusable MapLibre package for use in other sites/projects.
+
+1. Select a style in the app.
+2. In **Theme Library**, click **Package** (Export MapLibre Package).
+3. Use the downloaded JSON in your project (it saves as `map-alchemist-<style>.json`, rename if you want a shorter name).
+
+Example usage:
+
+```ts
+import maplibregl from 'maplibre-gl';
+import stylePackage from './map-alchemist-style.json';
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: stylePackage.styleJson
+});
+
+map.on('load', () => {
+  // Register icons (data URIs) so iconKey works in the POI layer.
+  Object.values(stylePackage.iconsByCategory).forEach((icon) => {
+    if (!icon.imageUrl) return;
+    const img = new Image();
+    img.src = icon.imageUrl;
+    img.onload = () => {
+      if (!map.hasImage(icon.category)) {
+        map.addImage(icon.category, img);
+      }
+    };
+  });
+
+  // Optional: provide POI data to the built-in \"places\" source.
+  const places: GeoJSON.FeatureCollection<GeoJSON.Geometry> = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          title: 'Cafe Aurora',
+          iconKey: 'Cafe',
+          textColor: '#111827',
+          haloColor: '#ffffff'
+        },
+        geometry: { type: 'Point', coordinates: [30.5234, 50.4501] }
+      }
+    ]
+  };
+
+  const source = map.getSource(stylePackage.placesSourceId) as maplibregl.GeoJSONSource | undefined;
+  source?.setData(places);
+});
+```
+
+## Export for Maputnik (style + sprites)
+
+Maputnik expects a plain MapLibre style JSON plus sprite assets. MapAlchemist can export both.
+
+1. Select a style in the app.
+2. In **Theme Library**, click **Maputnik**.
+3. Enter a sprite base URL (no extension), for example `https://cdn.example.com/sprites/my-style`.
+4. Upload the downloaded sprite files to your CDN:
+   - `my-style.json`
+   - `my-style.png`
+   - `my-style@2x.json`
+   - `my-style@2x.png`
+5. Load the downloaded `maputnik-<style>-style.json` in Maputnik. The style already points to your sprite base URL.
+
+## Publish to GitHub Pages (one-click)
+
+You can publish Maputnik assets directly to GitHub Pages with a per-user PAT.
+
+1. Create a GitHub token with **contents: write** access.
+2. In **Theme Library**, click **Publish** (Maputnik → GitHub Pages).
+3. The first time, enter your PAT (it is stored in `localStorage` for one-click reuse).
+4. The style JSON and sprite files are uploaded under `public/` on the deploy branch (so they get copied into the Pages build), and the app logs the final `style.json` URL.
+
+Note: Publishing writes commits to the configured deploy branch.
+
 ## Preview deployments for pull requests
 
 Pull requests now publish a temporary GitHub Pages preview so you can manually

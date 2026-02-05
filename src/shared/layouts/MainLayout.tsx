@@ -3,6 +3,7 @@ import LeftSidebar from '@shared/components/sidebar/LeftSidebar';
 import RightSidebar from '@shared/components/sidebar/RightSidebar';
 import TopToolbar from '@shared/components/TopToolbar';
 import MapView from '@features/map/components/MapView';
+import MaputnikPublishModal from '@shared/components/MaputnikPublishModal';
 import { MapStylePreset, LogEntry, AppStatus } from '@/types';
 import { normalizePopupStyle } from '@core/services/defaultThemes';
 import { DEFAULT_STYLE_PRESET } from '@/constants';
@@ -18,18 +19,24 @@ interface MainLayoutProps {
     hasApiKey: boolean;
     aiConfig: any;
     availableModels: Record<string, string>;
+    maputnikPublishInfo: { styleUrl: string; spriteBaseUrl: string } | null;
     // Handlers
     setPrompt: (p: string) => void;
     onGenerate: () => void;
     onApplyStyle: (id: string) => void;
     onDeleteStyle: (id: string) => void;
     onExport: () => void;
+    onExportPackage: () => void;
+    onExportMaputnik: () => void;
+    onPublishMaputnik: () => void;
+    onClearGitHubToken: () => void;
     onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onClear: () => void;
     onConnectApi: () => void;
     onUpdateAiConfig: (config: Partial<any>) => void;
     onRegenerateIcon: (category: string, prompt: string) => void;
     onSelectStyle: (id: string) => void;
+    onCloseMaputnikPublishInfo: () => void;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
@@ -42,17 +49,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     hasApiKey,
     aiConfig,
     availableModels,
+    maputnikPublishInfo,
     setPrompt,
     onGenerate,
     onApplyStyle,
     onDeleteStyle,
     onExport,
+    onExportPackage,
+    onExportMaputnik,
+    onPublishMaputnik,
+    onClearGitHubToken,
     onImport,
     onClear,
     onConnectApi,
     onUpdateAiConfig,
     onRegenerateIcon,
-    onSelectStyle
+    onSelectStyle,
+    onCloseMaputnikPublishInfo
 }) => {
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(() => {
         if (typeof window === 'undefined') return true;
@@ -147,6 +160,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onApplyStyle={onApplyStyle}
                 onDeleteStyle={onDeleteStyle}
                 onExport={onExport}
+                onExportPackage={onExportPackage}
+                onExportMaputnik={onExportMaputnik}
+                onPublishMaputnik={onPublishMaputnik}
+                onClearGitHubToken={onClearGitHubToken}
                 onImport={onImport}
                 onClear={onClear}
                 logs={logs}
@@ -197,6 +214,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onRegenerateIcon={(cat, prompt) => onRegenerateIcon(cat, prompt)} // Wrapper to match signature if needed
                 status={status}
                 hasApiKey={hasApiKey}
+            />
+
+            <MaputnikPublishModal
+                info={maputnikPublishInfo}
+                onClose={onCloseMaputnikPublishInfo}
             />
         </div>
     );

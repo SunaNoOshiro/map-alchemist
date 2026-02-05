@@ -29,7 +29,15 @@ function App() {
 
   const {
     styles, setStyles, activeStyleId, setActiveStyleId,
-    handleExport, handleImport, handleClear, handleDeleteStyle
+    maputnikPublishInfo, clearMaputnikPublishInfo,
+    handleExport,
+    handleImport,
+    handleClear,
+    handleDeleteStyle,
+    handleExportPackage,
+    handleExportMaputnik,
+    handlePublishMaputnik,
+    handleClearGitHubToken
   } = useStyleManager(addLog);
 
   const {
@@ -67,12 +75,18 @@ function App() {
       hasApiKey={hasApiKey || !!aiConfig.apiKey}
       aiConfig={aiConfig}
       availableModels={availableModels}
+      maputnikPublishInfo={maputnikPublishInfo}
+      onCloseMaputnikPublishInfo={clearMaputnikPublishInfo}
       // Handlers
       setPrompt={setPrompt}
       onGenerate={() => handleGenerateStyle(prompt, hasApiKey || !!aiConfig.apiKey, handleSelectKey)}
       onApplyStyle={setActiveStyleId}
       onDeleteStyle={handleDeleteStyle}
       onExport={handleExport}
+      onExportPackage={handleExportPackage}
+      onExportMaputnik={handleExportMaputnik}
+      onPublishMaputnik={handlePublishMaputnik}
+      onClearGitHubToken={handleClearGitHubToken}
       onImport={handleImport}
       onClear={handleClear}
       onConnectApi={handleSelectKey}
