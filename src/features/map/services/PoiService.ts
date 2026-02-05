@@ -1,5 +1,5 @@
 import { IMapController } from '@core/interfaces/IMapController';
-import { OSM_MAPPING } from '@/constants';
+import { OSM_MAPPING, CATEGORY_COLORS, getCategoryColor } from '@/constants';
 import { IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 
@@ -15,6 +15,108 @@ const SUBCLASS_MAPPING: Record<string, { category: string; subcategory: string }
     },
     {} as Record<string, { category: string; subcategory: string }>
 );
+
+const DEFAULT_CATEGORY_GROUP_COLOR = getCategoryColor('__unknown_category__');
+
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+const normalizeHexColor = (color?: string): string | null => {
+    if (!color) return null;
+
+    const trimmed = color.trim();
+    if (!HEX_COLOR_PATTERN.test(trimmed)) return null;
+
+    if (trimmed.length === 4) {
+        const [, r, g, b] = trimmed;
+        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+    }
+
+    return trimmed.toLowerCase();
+};
+
+const toLinearSrgb = (channel: number): number => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+        ? normalized / 12.92
+        : Math.pow((normalized + 0.055) / 1.055, 2.4);
+};
+
+const getRelativeLuminance = (color: string): number => {
+    const normalized = normalizeHexColor(color);
+    if (!normalized) return 0;
+
+    const colorValue = parseInt(normalized.slice(1), 16);
+    const r = toLinearSrgb((colorValue >> 16) & 255);
+    const g = toLinearSrgb((colorValue >> 8) & 255);
+    const b = toLinearSrgb(colorValue & 255);
+
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+const getContrastRatio = (foreground: string, background: string): number => {
+    const foregroundLuminance = getRelativeLuminance(foreground);
+    const backgroundLuminance = getRelativeLuminance(background);
+    const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+    const darker = Math.min(foregroundLuminance, backgroundLuminance);
+
+    return (lighter + 0.05) / (darker + 0.05);
+};
+
+const getMostContrastingColor = (textColor: string, candidates: Array<string | undefined>): string => {
+    const normalizedText = normalizeHexColor(textColor);
+    const normalizedCandidates = candidates
+        .map(normalizeHexColor)
+        .filter((candidate): candidate is string => Boolean(candidate));
+
+    if (normalizedCandidates.length === 0) {
+        return '#ffffff';
+    }
+
+    if (!normalizedText) {
+        return normalizedCandidates[0];
+    }
+
+    return normalizedCandidates.reduce((bestCandidate, currentCandidate) =>
+        getContrastRatio(normalizedText, currentCandidate) > getContrastRatio(normalizedText, bestCandidate)
+            ? currentCandidate
+            : bestCandidate
+    );
+};
+
+const toDisplayCase = (value?: string): string | null => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    return trimmed
+        .replace(/[_-]+/g, ' ')
+        .split(/\s+/)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+};
+
+const resolveCategoryGroupColor = (subcategory?: string, category?: string): string | null => {
+    const candidates = [
+        subcategory,
+        category,
+        toDisplayCase(subcategory || ''),
+        toDisplayCase(category || '')
+    ].filter((candidate): candidate is string => Boolean(candidate));
+
+    for (const candidate of candidates) {
+        // Handles direct group names, e.g. "Entertainment".
+        if (CATEGORY_COLORS[candidate]) {
+            return CATEGORY_COLORS[candidate];
+        }
+
+        const groupColor = getCategoryColor(candidate);
+        if (groupColor !== DEFAULT_CATEGORY_GROUP_COLOR) {
+            return groupColor;
+        }
+    }
+
+    return null;
+};
 
 export class PoiService {
     /**
@@ -91,8 +193,14 @@ export class PoiService {
                     : (activeIcons[category]?.imageUrl) ? category
                         : subcategory; // Fallback to subcategory name even if no image yet
 
-                const labelColor = palette.text || popupStyle.textColor || '#202124';
-                const haloColor = palette.land || popupStyle.backgroundColor || '#ffffff';
+                const fallbackTextColor = palette.text || popupStyle.textColor || '#202124';
+                const categoryColor = resolveCategoryGroupColor(subcategory, category);
+                const labelColor = categoryColor || fallbackTextColor;
+                const haloColor = getMostContrastingColor(labelColor, [
+                    palette.land,
+                    popupStyle.backgroundColor,
+                    '#ffffff'
+                ]);
 
                 byId.set(fid, {
                     type: 'Feature',
