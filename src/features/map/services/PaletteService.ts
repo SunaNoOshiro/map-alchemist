@@ -38,6 +38,8 @@ export class PaletteService {
             currentStyleLayers
                 .filter(l => l.type === 'symbol')
                 .forEach(l => {
+                    // Keep data-driven POI label colors from feature properties.
+                    if (l.id === 'unclustered-point') return;
                     map.setPaintProperty(l.id, 'text-color', colors.text);
                 });
         }
