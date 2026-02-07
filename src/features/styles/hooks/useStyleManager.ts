@@ -7,6 +7,7 @@ import { fetchDefaultThemes } from '@core/services/defaultThemes';
 import { MapStyleExportService } from '@features/styles/services/MapStyleExportService';
 import { MaputnikExportService } from '@features/styles/services/MaputnikExportService';
 import { GitHubPagesPublisher } from '@features/styles/services/GitHubPagesPublisher';
+import { buildEmbedSnippet, buildRuntimeUrlFromStyleUrl } from '@features/styles/services/embedSnippet';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('StyleManagerHook');
@@ -20,6 +21,8 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
     const [maputnikPublishInfo, setMaputnikPublishInfo] = useState<{
         styleUrl: string;
         spriteBaseUrl: string;
+        runtimeUrl: string;
+        embedSnippet: string;
     } | null>(null);
     const [maputnikPublishError, setMaputnikPublishError] = useState<string | null>(null);
     const [maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled] = useState(true);
@@ -356,9 +359,21 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
             });
 
             addLog(`Published style: ${publishResult.styleUrl}`, 'success');
+            const runtimeUrl = buildRuntimeUrlFromStyleUrl(publishResult.styleUrl);
+            const embedSnippet = buildEmbedSnippet({
+                styleUrl: publishResult.styleUrl,
+                runtimeUrl,
+                features: {
+                    popup: true,
+                    poiColorLabels: true,
+                    demoPois: maputnikDemoPoisEnabled
+                }
+            });
             setMaputnikPublishInfo({
                 styleUrl: publishResult.styleUrl,
-                spriteBaseUrl: publishResult.spriteBaseUrl
+                spriteBaseUrl: publishResult.spriteBaseUrl,
+                runtimeUrl,
+                embedSnippet
             });
             setMaputnikPublishStage('done');
         } catch (error) {

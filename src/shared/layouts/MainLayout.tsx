@@ -20,7 +20,12 @@ interface MainLayoutProps {
     aiConfig: any;
     availableModels: Record<string, string>;
     maputnikPublishStage: 'idle' | 'pre' | 'publishing' | 'done' | 'error';
-    maputnikPublishInfo: { styleUrl: string; spriteBaseUrl: string } | null;
+    maputnikPublishInfo: {
+        styleUrl: string;
+        spriteBaseUrl: string;
+        runtimeUrl: string;
+        embedSnippet: string;
+    } | null;
     maputnikPublishError: string | null;
     maputnikDemoPoisEnabled: boolean;
     // Handlers

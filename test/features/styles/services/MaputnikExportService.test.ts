@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildSpriteLayout } from '@/features/styles/services/spriteUtils';
-import { applySpriteUrl, injectDemoPois, applyDemoPois } from '@/features/styles/services/MaputnikExportService';
+import {
+  applySpriteUrl,
+  injectDemoPois,
+  applyDemoPois,
+  applyMapAlchemistMetadata
+} from '@/features/styles/services/MaputnikExportService';
 
 describe('spriteUtils.buildSpriteLayout', () => {
   it('creates a deterministic grid layout with padding', () => {
@@ -108,5 +113,24 @@ describe('MaputnikExportService.applyDemoPois', () => {
     const features = (updated.sources as any).places.data.features;
 
     expect(features.length).toBe(0);
+  });
+});
+
+describe('MaputnikExportService.applyMapAlchemistMetadata', () => {
+  it('writes metadata.mapAlchemist payload for runtime integrations', () => {
+    const styleJson = { version: 8, sources: {}, layers: [] };
+    const updated = applyMapAlchemistMetadata(styleJson, {
+      palette: { text: '#111111' },
+      popupStyle: { backgroundColor: '#ffffff' },
+      placesSourceId: 'places',
+      poiLayerId: 'unclustered-point'
+    });
+
+    const metadata = (updated.metadata as any).mapAlchemist;
+    expect(metadata.version).toBe('1.0');
+    expect(metadata.placesSourceId).toBe('places');
+    expect(metadata.poiLayerId).toBe('unclustered-point');
+    expect(metadata.palette.text).toBe('#111111');
+    expect(metadata.popupStyle.backgroundColor).toBe('#ffffff');
   });
 });

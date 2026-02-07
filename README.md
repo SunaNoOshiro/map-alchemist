@@ -98,6 +98,36 @@ You can publish Maputnik assets directly to GitHub Pages with a per-user PAT.
 
 Note: Publishing writes commits to the configured deploy branch.
 
+## Customer Embed Runtime (drop-in)
+
+After a successful **Publish**, the modal now includes:
+
+1. `styleUrl`
+2. `runtime` script URL
+3. A copyable HTML snippet for direct website integration
+
+The runtime handles POI popup behavior that Maputnik itself does not execute.
+
+Minimal integration shape:
+
+```html
+<script src="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.js"></script>
+<script src="https://<owner>.github.io/<repo>/runtime/map-alchemist-runtime.js"></script>
+<script>
+  MapAlchemistRuntime.init({
+    container: 'map',
+    styleUrl: 'https://<owner>.github.io/<repo>/styles/<style>.json',
+    features: {
+      popup: true,
+      poiColorLabels: true,
+      demoPois: false
+    }
+  });
+</script>
+```
+
+The exported style includes `metadata.mapAlchemist` (popup style, palette, POI layer/source ids) so runtime defaults can be applied automatically.
+
 ## Preview deployments for pull requests
 
 Pull requests now publish a temporary GitHub Pages preview so you can manually

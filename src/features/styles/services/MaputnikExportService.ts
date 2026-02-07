@@ -13,6 +13,7 @@ const DEMO_CENTER: [number, number] = [30.5238, 50.4547];
 const GRID_SPACING_LON = 0.002;
 const GRID_SPACING_LAT = 0.0015;
 const POI_LAYER_ID = 'unclustered-point';
+const PLACES_SOURCE_ID = 'places';
 
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
@@ -90,6 +91,34 @@ export const applySpriteUrl = (styleJson: Record<string, unknown>, spriteBaseUrl
   return {
     ...styleJson,
     sprite: spriteBaseUrl
+  };
+};
+
+export const applyMapAlchemistMetadata = (
+  styleJson: Record<string, unknown>,
+  payload: {
+    palette?: Record<string, string>;
+    popupStyle?: Record<string, string>;
+    placesSourceId?: string;
+    poiLayerId?: string;
+  }
+) => {
+  const existingMetadata = ((styleJson as any).metadata as Record<string, unknown> | undefined) ?? {};
+  const existingMapAlchemist = (existingMetadata.mapAlchemist as Record<string, unknown> | undefined) ?? {};
+
+  return {
+    ...styleJson,
+    metadata: {
+      ...existingMetadata,
+      mapAlchemist: {
+        ...existingMapAlchemist,
+        version: '1.0',
+        placesSourceId: payload.placesSourceId || PLACES_SOURCE_ID,
+        poiLayerId: payload.poiLayerId || POI_LAYER_ID,
+        palette: payload.palette || {},
+        popupStyle: payload.popupStyle || {}
+      }
+    }
   };
 };
 
@@ -211,12 +240,18 @@ export const MaputnikExportService = {
     ]);
 
     const styleWithSprite = applySpriteUrl(exportPackage.styleJson as Record<string, unknown>, options.spriteBaseUrl);
-    const styleJson = applyDemoPois(
+    const styleWithDemoPois = applyDemoPois(
       styleWithSprite,
       iconIds,
       exportPackage.palette as Record<string, string>,
       options.includeDemoPois !== false
     );
+    const styleJson = applyMapAlchemistMetadata(styleWithDemoPois, {
+      palette: exportPackage.palette,
+      popupStyle: exportPackage.popupStyle as Record<string, string>,
+      placesSourceId: exportPackage.placesSourceId,
+      poiLayerId: exportPackage.poiLayerId
+    });
 
     logger.info(`Maputnik export built for style: ${preset.name}`);
 
