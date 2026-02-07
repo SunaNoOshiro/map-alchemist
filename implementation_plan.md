@@ -135,3 +135,40 @@ Prevent GitHub publish failures caused by oversized style JSON payloads while ke
 1. Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
 2. Run `npm run test:e2e:bdd`.
 3. Run `npm test`.
+
+## Follow-up Scope (Popup Icon Fidelity + Color Parity)
+### Goal
+Improve exported runtime popup icon quality and align demo POI label color behavior with in-app MapAlchemist color resolution.
+
+### Proposed Changes
+1. Update `public/runtime/map-alchemist-runtime.js`:
+   - load and prefer `@2x` sprite assets for popup icon rendering.
+   - render sprite icon with pixel-ratio-aware scaling to avoid blurry popup icons.
+   - keep no-white-shell popup behavior and add robust symbol-spacing normalization for string numeric values.
+2. Update `src/features/styles/services/MaputnikExportService.ts`:
+   - replace hash-based fallback label colors with in-app-equivalent category-group lookup behavior.
+   - fallback unknown demo labels to palette text color for parity.
+3. Update tests:
+   - extend `test/features/styles/services/MaputnikExportService.test.ts` with unknown-category fallback color assertion.
+
+### Verification Plan
+1. Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
+2. Run `npm run test:e2e:bdd`.
+3. Run `npm test`.
+
+## Follow-up Scope (Popup Arrow + Zoom Close Behavior)
+### Goal
+Make runtime popup pointer visually indicate the opened POI and ensure popup closes automatically on zoom changes.
+
+### Proposed Changes
+1. Update `public/runtime/map-alchemist-runtime.js`:
+   - add custom popup arrow element in popup HTML.
+   - force popup anchor to `bottom` for consistent pointer direction.
+   - track `activePopup` and close it on `zoomstart`.
+2. Add contract tests:
+   - `test/features/styles/services/runtimeScriptContract.test.ts` to verify runtime script keeps arrow and zoom-close behavior markers.
+
+### Verification Plan
+1. Run `npm test test/features/styles/services/runtimeScriptContract.test.ts`.
+2. Run `npm run test:e2e:bdd`.
+3. Run `npm test`.

@@ -70,12 +70,12 @@ describe('MaputnikExportService.injectDemoPois', () => {
       ]
     };
 
-    const updated = injectDemoPois(styleJson, ['Cafe', 'Museum', 'Library'], { text: '#111111', land: '#ffffff' });
+    const updated = injectDemoPois(styleJson, ['Cafe', 'Museum', 'Library', 'Unknown Demo Type'], { text: '#111111', land: '#ffffff' });
     const features = (updated.sources as any).places.data.features;
     const poiLayer = (updated.layers as any[]).find((layer) => layer.id === 'unclustered-point');
 
     expect(Array.isArray(features)).toBe(true);
-    expect(features.length).toBe(3);
+    expect(features.length).toBe(4);
     expect(features[0].properties.iconKey).toBe('Cafe');
     expect(features[0].properties.title).toBe('Cafe');
     expect(features[0].properties.category).toBe('Cafe');
@@ -84,6 +84,7 @@ describe('MaputnikExportService.injectDemoPois', () => {
     expect(features[0].properties.address).toContain('Demo Street');
     expect(features[0].properties.city).toBe('Map Alchemist City');
     expect(features[0].properties.textColor).toBe('#f97316');
+    expect(features[3].properties.textColor).toBe('#111111');
     expect(poiLayer.layout['icon-allow-overlap']).toBe(true);
     expect(poiLayer.layout['text-allow-overlap']).toBe(true);
     expect(poiLayer.layout['symbol-spacing']).toBe(1);

@@ -17,7 +17,6 @@ const POI_LAYER_ID = 'unclustered-point';
 const PLACES_SOURCE_ID = 'places';
 const MIN_SYMBOL_SPACING = 1;
 const UNKNOWN_CATEGORY_COLOR = '#6b7280';
-const DEMO_COLOR_POOL = Object.values(CATEGORY_COLORS);
 
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
@@ -99,29 +98,44 @@ const normalizeDemoLabel = (value: string): string => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-const getStableHash = (value: string): number => {
-  let hash = 0;
-  for (const char of value) {
-    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  }
-  return hash;
+const toDisplayCase = (value?: string): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  return trimmed
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 };
 
-const getFallbackDemoColor = (iconKey: string, fallbackColor: string): string => {
-  if (DEMO_COLOR_POOL.length === 0) {
-    return fallbackColor;
+const resolveCategoryGroupColor = (subcategory?: string, category?: string): string | null => {
+  const candidates = [
+    subcategory,
+    category,
+    toDisplayCase(subcategory || ''),
+    toDisplayCase(category || '')
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (CATEGORY_COLORS[candidate]) {
+      return CATEGORY_COLORS[candidate];
+    }
+
+    const groupColor = getCategoryColor(candidate);
+    if (groupColor !== UNKNOWN_CATEGORY_COLOR) {
+      return groupColor;
+    }
   }
-  const hash = getStableHash(iconKey.toLowerCase());
-  const color = DEMO_COLOR_POOL[hash % DEMO_COLOR_POOL.length];
-  return color || fallbackColor;
+
+  return null;
 };
 
 const resolveDemoTextColor = (iconKey: string, fallbackColor: string): string => {
-  const categoryColor = getCategoryColor(normalizeDemoLabel(iconKey));
-  if (!categoryColor || categoryColor.toLowerCase() === UNKNOWN_CATEGORY_COLOR) {
-    return getFallbackDemoColor(iconKey, fallbackColor);
-  }
-  return categoryColor;
+  const normalized = normalizeDemoLabel(iconKey);
+  const groupColor = resolveCategoryGroupColor(normalized, normalized);
+  return groupColor || fallbackColor;
 };
 
 export const sanitizeSymbolSpacing = (styleJson: Record<string, unknown>) => {

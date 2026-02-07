@@ -104,12 +104,28 @@
   async function loadSpriteAssets(spriteBaseUrl) {
     if (!spriteBaseUrl) return null;
     try {
-      var response = await fetch(spriteBaseUrl + '.json');
-      if (!response.ok) {
+      var index1xResponse = await fetch(spriteBaseUrl + '.json');
+      if (!index1xResponse.ok) {
         return null;
       }
-      var index = await response.json();
-      return { index: index, imageUrl: spriteBaseUrl + '.png' };
+      var index1x = await index1xResponse.json();
+
+      var index2x = null;
+      try {
+        var index2xResponse = await fetch(spriteBaseUrl + '@2x.json');
+        if (index2xResponse.ok) {
+          index2x = await index2xResponse.json();
+        }
+      } catch (_error) {
+        index2x = null;
+      }
+
+      return {
+        index1x: index1x,
+        index2x: index2x,
+        imageUrl1x: spriteBaseUrl + '.png',
+        imageUrl2x: spriteBaseUrl + '@2x.png'
+      };
     } catch (_error) {
       return null;
     }
@@ -145,12 +161,13 @@
       return { kind: 'image', url: directIconUrl };
     }
 
-    if (!spriteAssets || !spriteAssets.index || !spriteAssets.imageUrl) {
+    if (!spriteAssets) {
       return null;
     }
-
-    var entry = resolveSpriteEntry(properties, spriteAssets.index);
-    if (!entry) {
+    var entry2x = resolveSpriteEntry(properties, spriteAssets.index2x);
+    var entry1x = resolveSpriteEntry(properties, spriteAssets.index1x);
+    var entry = entry2x || entry1x;
+    if (!entry || typeof entry !== 'object') {
       return null;
     }
 
@@ -165,7 +182,7 @@
 
     return {
       kind: 'sprite',
-      imageUrl: spriteAssets.imageUrl,
+      imageUrl: entry2x ? spriteAssets.imageUrl2x : spriteAssets.imageUrl1x,
       entry: entry
     };
   }
@@ -186,15 +203,30 @@
     }
 
     var entry = iconRender.entry;
+    var pixelRatio = typeof entry.pixelRatio === 'number' && entry.pixelRatio > 0
+      ? entry.pixelRatio
+      : 1;
+    var logicalWidth = Math.max(1, entry.width / pixelRatio);
+    var logicalHeight = Math.max(1, entry.height / pixelRatio);
+    var maxLogicalSide = Math.max(logicalWidth, logicalHeight);
+    var logicalScale = maxLogicalSide > 48 ? (48 / maxLogicalSide) : 1;
+    var outputWidth = Math.max(1, Math.round(logicalWidth * logicalScale));
+    var outputHeight = Math.max(1, Math.round(logicalHeight * logicalScale));
+    var renderScale = logicalScale / pixelRatio;
+
     return '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
-        '<span aria-hidden="true" style="' +
-          'display:block;' +
-          'width:' + entry.width + 'px;' +
-          'height:' + entry.height + 'px;' +
-          'background-image:url(\'' + escapeHtml(iconRender.imageUrl) + '\');' +
-          'background-repeat:no-repeat;' +
-          'background-position:-' + entry.x + 'px -' + entry.y + 'px;' +
-        '"></span>' +
+        '<span aria-hidden="true" style="display:block;width:' + outputWidth + 'px;height:' + outputHeight + 'px;overflow:hidden;">' +
+          '<span style="' +
+            'display:block;' +
+            'width:' + entry.width + 'px;' +
+            'height:' + entry.height + 'px;' +
+            'background-image:url(\'' + escapeHtml(iconRender.imageUrl) + '\');' +
+            'background-repeat:no-repeat;' +
+            'background-position:-' + entry.x + 'px -' + entry.y + 'px;' +
+            'transform-origin:top left;' +
+            'transform:scale(' + renderScale + ');' +
+          '"></span>' +
+        '</span>' +
       '</div>';
   }
 
@@ -225,6 +257,7 @@
       description ? '      <div style="margin-top:4px;">' + description + '</div>' : '',
       (addressLine || localityLine || description) ? '    </div>' : '',
       '  </div>',
+      '  <div data-mapalchemist-popup-arrow="true" aria-hidden="true" style="position:absolute;left:50%;bottom:-9px;width:14px;height:14px;transform:translateX(-50%) rotate(45deg);background:' + popupStyle.backgroundColor + ';border-right:2px solid ' + popupStyle.borderColor + ';border-bottom:2px solid ' + popupStyle.borderColor + ';"></div>',
       '</div>'
     ].join('\n');
   }
@@ -248,7 +281,12 @@
       }
 
       var spacing = layer.layout['symbol-spacing'];
-      if (typeof spacing === 'number' && spacing < 1) {
+      var numericSpacing = typeof spacing === 'number'
+        ? spacing
+        : typeof spacing === 'string'
+          ? Number(spacing)
+          : Number.NaN;
+      if (Number.isFinite(numericSpacing) && numericSpacing < 1) {
         var nextLayout = Object.assign({}, layer.layout, { 'symbol-spacing': 1 });
         return Object.assign({}, layer, { layout: nextLayout });
       }
@@ -311,6 +349,14 @@
     var onLayerClick = null;
     var onMouseEnter = null;
     var onMouseLeave = null;
+    var onZoomStart = null;
+    var activePopup = null;
+
+    function closeActivePopup() {
+      if (!activePopup) return;
+      activePopup.remove();
+      activePopup = null;
+    }
 
     map.on('load', function () {
       if (features.poiColorLabels && map.getLayer(poiLayerId)) {
@@ -343,17 +389,26 @@
           var feature = event && event.features && event.features[0];
           if (!feature) return;
 
+          closeActivePopup();
+
           var props = feature.properties || {};
           var spriteAssets = await spriteAssetsPromise;
           var iconRender = resolvePopupIconRender(props, iconUrls, spriteAssets);
           var popup = new global.maplibregl.Popup({
             closeButton: false,
             closeOnClick: true,
+            anchor: 'bottom',
             className: RUNTIME_POPUP_CLASS
           })
             .setLngLat(event.lngLat)
             .setHTML(buildPopupHtml(props, popupStyle, iconRender));
           popup.addTo(map);
+          activePopup = popup;
+          popup.on('close', function () {
+            if (activePopup === popup) {
+              activePopup = null;
+            }
+          });
           setTimeout(function () {
             var popupRoot = popup && popup.getElement && popup.getElement();
             if (!popupRoot) return;
@@ -378,6 +433,11 @@
         map.on('mouseenter', poiLayerId, onMouseEnter);
         map.on('mouseleave', poiLayerId, onMouseLeave);
       }
+
+      onZoomStart = function () {
+        closeActivePopup();
+      };
+      map.on('zoomstart', onZoomStart);
     });
 
     return {
@@ -389,9 +449,11 @@
         }
       },
       destroy: function () {
+        closeActivePopup();
         if (onLayerClick) map.off('click', poiLayerId, onLayerClick);
         if (onMouseEnter) map.off('mouseenter', poiLayerId, onMouseEnter);
         if (onMouseLeave) map.off('mouseleave', poiLayerId, onMouseLeave);
+        if (onZoomStart) map.off('zoomstart', onZoomStart);
         map.remove();
       }
     };
