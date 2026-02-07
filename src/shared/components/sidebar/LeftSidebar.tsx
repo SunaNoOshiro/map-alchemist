@@ -27,6 +27,8 @@ interface LeftSidebarProps {
   onExportMaputnik: () => void;
   onPublishMaputnik: () => void;
   onClearGitHubToken: () => void;
+  maputnikDemoPoisEnabled: boolean;
+  onToggleMaputnikDemoPois: (enabled: boolean) => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
   logs: LogEntry[];
@@ -54,6 +56,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onExportMaputnik,
   onPublishMaputnik,
   onClearGitHubToken,
+  maputnikDemoPoisEnabled,
+  onToggleMaputnikDemoPois,
   onImport,
   onClear,
   logs,
@@ -165,6 +169,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                           onExportMaputnik={onExportMaputnik}
                           onPublishMaputnik={onPublishMaputnik}
                           onClearGitHubToken={onClearGitHubToken}
+                          maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
+                          onToggleMaputnikDemoPois={onToggleMaputnikDemoPois}
                           onImport={onImport}
                           onClear={onClear}
                         />

@@ -30,6 +30,7 @@ function App() {
   const {
     styles, setStyles, activeStyleId, setActiveStyleId,
     maputnikPublishInfo, clearMaputnikPublishInfo,
+    maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled,
     handleExport,
     handleImport,
     handleClear,
@@ -77,6 +78,8 @@ function App() {
       availableModels={availableModels}
       maputnikPublishInfo={maputnikPublishInfo}
       onCloseMaputnikPublishInfo={clearMaputnikPublishInfo}
+      maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
+      onToggleMaputnikDemoPois={setMaputnikDemoPoisEnabled}
       // Handlers
       setPrompt={setPrompt}
       onGenerate={() => handleGenerateStyle(prompt, hasApiKey || !!aiConfig.apiKey, handleSelectKey)}

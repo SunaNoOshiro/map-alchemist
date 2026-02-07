@@ -10,14 +10,16 @@ const ICON_SIZE_2X = 128;
 const PADDING_1X = 2;
 const PADDING_2X = 4;
 const DEMO_CENTER: [number, number] = [30.5238, 50.4547];
-const DEMO_OFFSETS: Array<[number, number]> = [
-  [0, 0],
-  [0.002, 0.001],
-  [-0.002, 0.001],
-  [0.001, -0.002],
-  [-0.001, -0.002],
-  [0.003, -0.001]
-];
+const GRID_SPACING_LON = 0.002;
+const GRID_SPACING_LAT = 0.0015;
+
+const getRecommendedZoom = (span: number) => {
+  if (span <= 0.01) return 15;
+  if (span <= 0.03) return 14;
+  if (span <= 0.06) return 13;
+  if (span <= 0.12) return 12;
+  return 11;
+};
 
 const loadImage = (url: string): Promise<HTMLImageElement | null> => {
   return new Promise((resolve) => {
@@ -85,28 +87,45 @@ export const injectDemoPois = (
 
   if (hasFeatures) return styleJson;
 
-  const existingCenter = Array.isArray(styleJson.center) && styleJson.center.length === 2
+  const existingCenter = Array.isArray((styleJson as any).center) && (styleJson as any).center.length === 2
     ? (styleJson.center as [number, number])
     : null;
   const center = existingCenter ?? DEMO_CENTER;
-  const zoomValue = typeof styleJson.zoom === 'number' ? styleJson.zoom : 14;
-  const zoom = Math.max(zoomValue, 13);
+
+  const total = iconKeys.length;
+  const columns = Math.ceil(Math.sqrt(total));
+  const rows = Math.ceil(total / columns);
+  const spanLon = Math.max(0, (columns - 1) * GRID_SPACING_LON);
+  const spanLat = Math.max(0, (rows - 1) * GRID_SPACING_LAT);
+  const maxSpan = Math.max(spanLon, spanLat);
+  const recommendedZoom = getRecommendedZoom(maxSpan);
+  const zoom = typeof styleJson.zoom === 'number' ? styleJson.zoom : recommendedZoom;
 
   const labelColor = palette?.text ?? '#111827';
   const haloColor = palette?.land ?? '#ffffff';
-  const features = iconKeys.slice(0, DEMO_OFFSETS.length).map((iconKey, index) => ({
-    type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [center[0] + DEMO_OFFSETS[index][0], center[1] + DEMO_OFFSETS[index][1]]
-    },
-    properties: {
-      iconKey,
-      title: iconKey,
-      textColor: labelColor,
-      haloColor
-    }
-  }));
+  const halfColumns = (columns - 1) / 2;
+  const halfRows = (rows - 1) / 2;
+
+  const features = iconKeys.map((iconKey, index) => {
+    const row = Math.floor(index / columns);
+    const col = index % columns;
+    const offsetLon = (col - halfColumns) * GRID_SPACING_LON;
+    const offsetLat = (row - halfRows) * GRID_SPACING_LAT;
+
+    return {
+      type: 'Feature',
+      geometry: {
+        type: 'Point',
+        coordinates: [center[0] + offsetLon, center[1] + offsetLat]
+      },
+      properties: {
+        iconKey,
+        title: iconKey,
+        textColor: labelColor,
+        haloColor
+      }
+    };
+  });
 
   return {
     ...styleJson,
@@ -125,10 +144,20 @@ export const injectDemoPois = (
   };
 };
 
+export const applyDemoPois = (
+  styleJson: Record<string, unknown>,
+  iconKeys: string[],
+  palette: Record<string, string> | undefined,
+  includeDemoPois: boolean
+) => {
+  if (!includeDemoPois) return styleJson;
+  return injectDemoPois(styleJson, iconKeys, palette);
+};
+
 export const MaputnikExportService = {
   async buildExport(
     preset: MapStylePreset,
-    options: { spriteBaseUrl: string; baseStyleJson?: Record<string, unknown> }
+    options: { spriteBaseUrl: string; baseStyleJson?: Record<string, unknown>; includeDemoPois?: boolean }
   ) {
     const exportPackage = await MapStyleExportService.buildExportPackage(preset, {
       baseStyleJson: options.baseStyleJson
@@ -160,7 +189,12 @@ export const MaputnikExportService = {
     ]);
 
     const styleWithSprite = applySpriteUrl(exportPackage.styleJson as Record<string, unknown>, options.spriteBaseUrl);
-    const styleJson = injectDemoPois(styleWithSprite, iconIds, exportPackage.palette as Record<string, string>);
+    const styleJson = applyDemoPois(
+      styleWithSprite,
+      iconIds,
+      exportPackage.palette as Record<string, string>,
+      options.includeDemoPois !== false
+    );
 
     logger.info(`Maputnik export built for style: ${preset.name}`);
 

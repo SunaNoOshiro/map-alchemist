@@ -15,6 +15,8 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({ info, onClo
 
   if (!info) return null;
 
+  const maputnikUrl = `https://maputnik.github.io/editor?style=${encodeURIComponent(info.styleUrl)}`;
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(info.styleUrl);
@@ -23,6 +25,11 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({ info, onClo
     } catch (error) {
       setCopied(false);
     }
+  };
+
+  const handleOpenMaputnik = () => {
+    handleCopy();
+    window.open(maputnikUrl, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -46,13 +53,22 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({ info, onClo
           <div>
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-wide text-white/50">Style URL</span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:border-white/30 hover:text-white"
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenMaputnik}
+                  className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 transition hover:border-emerald-300 hover:text-emerald-100"
+                >
+                  Open in Maputnik
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:border-white/30 hover:text-white"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
             </div>
             <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90">
               {info.styleUrl}
@@ -69,8 +85,8 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({ info, onClo
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
             <div className="font-semibold text-white">How to open in Maputnik</div>
             <ol className="mt-2 list-decimal space-y-1 pl-4">
-              <li>Open https://maputnik.github.io/</li>
-              <li>Click "Open"</li>
+              <li>Click "Open in Maputnik" above (opens a new tab)</li>
+              <li>If it doesn't auto-load, click "Open"</li>
               <li>Choose "Open URL"</li>
               <li>Paste the Style URL above</li>
             </ol>

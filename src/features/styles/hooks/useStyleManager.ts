@@ -20,6 +20,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         styleUrl: string;
         spriteBaseUrl: string;
     } | null>(null);
+    const [maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled] = useState(true);
 
     // Load Data
     useEffect(() => {
@@ -84,6 +85,14 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
     const GITHUB_TOKEN_KEY = 'mapAlchemistGithubToken';
     const GITHUB_REPO_KEY = 'mapAlchemistGithubRepo';
     const GITHUB_BRANCH_KEY = 'mapAlchemistGithubBranch';
+    const MAPUTNIK_DEMO_POIS_KEY = 'mapAlchemistMaputnikDemoPois';
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const stored = localStorage.getItem(MAPUTNIK_DEMO_POIS_KEY);
+        if (stored === null) return;
+        setMaputnikDemoPoisEnabled(stored !== 'false');
+    }, []);
 
     const handleExportPackage = async () => {
         if (!activeStyleId) {
@@ -168,7 +177,10 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         };
 
         try {
-            const result = await MaputnikExportService.buildExport(style, { spriteBaseUrl });
+            const result = await MaputnikExportService.buildExport(style, {
+                spriteBaseUrl,
+                includeDemoPois: maputnikDemoPoisEnabled
+            });
 
             const spriteBaseName = spriteBaseUrl.split('/').pop() || safeName;
             const styleBlob = new Blob([JSON.stringify(result.styleJson, null, 2)], { type: 'application/json' });
@@ -294,7 +306,10 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
 
             addLog(`Publishing to GitHub Pages (${repo}@${branch})...`, 'info');
 
-            const maputnikAssets = await MaputnikExportService.buildExport(style, { spriteBaseUrl });
+            const maputnikAssets = await MaputnikExportService.buildExport(style, {
+                spriteBaseUrl,
+                includeDemoPois: maputnikDemoPoisEnabled
+            });
 
             const publishResult = await GitHubPagesPublisher.publish({
                 repoInput: repo,
@@ -380,6 +395,13 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         defaultThemeIds,
         maputnikPublishInfo,
         clearMaputnikPublishInfo: () => setMaputnikPublishInfo(null),
+        maputnikDemoPoisEnabled,
+        setMaputnikDemoPoisEnabled: (value: boolean) => {
+            setMaputnikDemoPoisEnabled(value);
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(MAPUTNIK_DEMO_POIS_KEY, String(value));
+            }
+        },
         handleExport,
         handleImport,
         handleClear,

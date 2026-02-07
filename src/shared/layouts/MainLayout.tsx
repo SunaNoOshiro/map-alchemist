@@ -20,6 +20,7 @@ interface MainLayoutProps {
     aiConfig: any;
     availableModels: Record<string, string>;
     maputnikPublishInfo: { styleUrl: string; spriteBaseUrl: string } | null;
+    maputnikDemoPoisEnabled: boolean;
     // Handlers
     setPrompt: (p: string) => void;
     onGenerate: () => void;
@@ -37,6 +38,7 @@ interface MainLayoutProps {
     onRegenerateIcon: (category: string, prompt: string) => void;
     onSelectStyle: (id: string) => void;
     onCloseMaputnikPublishInfo: () => void;
+    onToggleMaputnikDemoPois: (enabled: boolean) => void;
 }
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
@@ -50,6 +52,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     aiConfig,
     availableModels,
     maputnikPublishInfo,
+    maputnikDemoPoisEnabled,
     setPrompt,
     onGenerate,
     onApplyStyle,
@@ -65,7 +68,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onUpdateAiConfig,
     onRegenerateIcon,
     onSelectStyle,
-    onCloseMaputnikPublishInfo
+    onCloseMaputnikPublishInfo,
+    onToggleMaputnikDemoPois
 }) => {
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(() => {
         if (typeof window === 'undefined') return true;
@@ -164,6 +168,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onExportMaputnik={onExportMaputnik}
                 onPublishMaputnik={onPublishMaputnik}
                 onClearGitHubToken={onClearGitHubToken}
+                maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
+                onToggleMaputnikDemoPois={onToggleMaputnikDemoPois}
                 onImport={onImport}
                 onClear={onClear}
                 logs={logs}
