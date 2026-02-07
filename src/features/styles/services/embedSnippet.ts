@@ -70,7 +70,7 @@ export const buildEmbedSnippet = (config: EmbedConfig): string => {
     '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
     '  <title>MapAlchemist Embed</title>',
     '  <link href="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.css" rel="stylesheet" />',
-    `  <style>#${container} { width: 100%; height: 100vh; }</style>`,
+    `  <style>html, body { margin: 0; padding: 0; height: 100%; } #${container} { width: 100%; height: 100%; }</style>`,
     '</head>',
     '<body>',
     `  <div id="${container}"></div>`,
@@ -83,4 +83,3 @@ export const buildEmbedSnippet = (config: EmbedConfig): string => {
     '</html>'
   ].join('\n');
 };
-

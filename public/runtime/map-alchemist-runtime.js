@@ -43,11 +43,15 @@
     var styleTag = document.createElement('style');
     styleTag.id = RUNTIME_STYLE_TAG_ID;
     styleTag.textContent = [
+      '.' + RUNTIME_POPUP_CLASS + '.maplibregl-popup {',
+      '  max-width: none !important;',
+      '}',
       '.' + RUNTIME_POPUP_CLASS + '.maplibregl-popup .maplibregl-popup-content {',
       '  background: transparent !important;',
       '  border: 0 !important;',
       '  box-shadow: none !important;',
       '  padding: 0 !important;',
+      '  overflow: visible !important;',
       '}',
       '.' + RUNTIME_POPUP_CLASS + '.maplibregl-popup .maplibregl-popup-tip {',
       '  display: none !important;',
@@ -74,16 +78,20 @@
     return [city, postcode, country].filter(Boolean).join(', ');
   }
 
-  function resolvePopupIconUrl(properties, iconUrls) {
-    if (!iconUrls || typeof iconUrls !== 'object') {
-      return '';
-    }
-    var candidates = [
+  function getPopupIconCandidates(properties) {
+    return [
       properties.iconKey,
       properties.subcategory,
       properties.category,
       properties.title
     ].filter(Boolean);
+  }
+
+  function resolvePopupIconUrl(properties, iconUrls) {
+    if (!iconUrls || typeof iconUrls !== 'object') {
+      return '';
+    }
+    var candidates = getPopupIconCandidates(properties);
     for (var i = 0; i < candidates.length; i += 1) {
       var key = candidates[i];
       if (typeof iconUrls[key] === 'string' && iconUrls[key]) {
@@ -93,22 +101,114 @@
     return '';
   }
 
-  function buildPopupHtml(properties, popupStyle, iconUrls) {
+  async function loadSpriteAssets(spriteBaseUrl) {
+    if (!spriteBaseUrl) return null;
+    try {
+      var response = await fetch(spriteBaseUrl + '.json');
+      if (!response.ok) {
+        return null;
+      }
+      var index = await response.json();
+      return { index: index, imageUrl: spriteBaseUrl + '.png' };
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function resolveSpriteEntry(properties, spriteIndex) {
+    if (!spriteIndex || typeof spriteIndex !== 'object') {
+      return null;
+    }
+    var candidates = getPopupIconCandidates(properties);
+    var lowerCandidates = candidates.map(function (value) {
+      return String(value).toLowerCase();
+    });
+    for (var i = 0; i < candidates.length; i += 1) {
+      var exact = candidates[i];
+      if (spriteIndex[exact]) {
+        return spriteIndex[exact];
+      }
+    }
+    var spriteKeys = Object.keys(spriteIndex);
+    for (var j = 0; j < spriteKeys.length; j += 1) {
+      var spriteKey = spriteKeys[j];
+      if (lowerCandidates.indexOf(spriteKey.toLowerCase()) !== -1) {
+        return spriteIndex[spriteKey];
+      }
+    }
+    return null;
+  }
+
+  function resolvePopupIconRender(properties, iconUrls, spriteAssets) {
+    var directIconUrl = resolvePopupIconUrl(properties, iconUrls);
+    if (directIconUrl) {
+      return { kind: 'image', url: directIconUrl };
+    }
+
+    if (!spriteAssets || !spriteAssets.index || !spriteAssets.imageUrl) {
+      return null;
+    }
+
+    var entry = resolveSpriteEntry(properties, spriteAssets.index);
+    if (!entry) {
+      return null;
+    }
+
+    if (
+      typeof entry.x !== 'number' ||
+      typeof entry.y !== 'number' ||
+      typeof entry.width !== 'number' ||
+      typeof entry.height !== 'number'
+    ) {
+      return null;
+    }
+
+    return {
+      kind: 'sprite',
+      imageUrl: spriteAssets.imageUrl,
+      entry: entry
+    };
+  }
+
+  function buildPopupIconBlock(iconRender, popupStyle, title) {
+    if (!iconRender) {
+      return '';
+    }
+
+    if (iconRender.kind === 'image') {
+      return '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
+          '<img src="' + escapeHtml(iconRender.url) + '" alt="' + escapeHtml(title) + '" style="max-width:48px;max-height:48px;object-fit:contain;" />' +
+        '</div>';
+    }
+
+    if (iconRender.kind !== 'sprite') {
+      return '';
+    }
+
+    var entry = iconRender.entry;
+    return '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
+        '<span aria-hidden="true" style="' +
+          'display:block;' +
+          'width:' + entry.width + 'px;' +
+          'height:' + entry.height + 'px;' +
+          'background-image:url(\'' + escapeHtml(iconRender.imageUrl) + '\');' +
+          'background-repeat:no-repeat;' +
+          'background-position:-' + entry.x + 'px -' + entry.y + 'px;' +
+        '"></span>' +
+      '</div>';
+  }
+
+  function buildPopupHtml(properties, popupStyle, iconRender) {
     var title = escapeHtml(properties.title || 'POI');
     var category = escapeHtml(properties.subcategory || properties.category || '');
-    var description = escapeHtml(properties.description || '');
+    var description = escapeHtml(properties.description || properties.kind || '');
     var addressLine = escapeHtml(normalizeAddress(properties));
     var localityLine = escapeHtml(normalizeLocality(properties));
-    var iconUrl = resolvePopupIconUrl(properties, iconUrls);
-    var iconBlock = iconUrl
-      ? '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
-          '<img src="' + escapeHtml(iconUrl) + '" alt="" style="max-width:48px;max-height:48px;object-fit:contain;" />' +
-        '</div>'
-      : '';
+    var iconBlock = buildPopupIconBlock(iconRender, popupStyle, title);
 
     return [
       '<div style="position:relative;font-family:' + popupStyle.fontFamily + ';min-width:260px;">',
-      '  <button type="button" data-mapalchemist-popup-close="true" aria-label="Close popup" style="position:absolute;top:-14px;right:-14px;width:28px;height:28px;border-radius:999px;border:2px solid ' + popupStyle.borderColor + ';background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';cursor:pointer;font-size:16px;line-height:1;">' +
+      '  <button id="popup-close-btn" type="button" data-mapalchemist-popup-close="true" aria-label="Close popup" style="position:absolute;top:-14px;right:-14px;width:28px;height:28px;border-radius:999px;border:2px solid ' + popupStyle.borderColor + ';background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';cursor:pointer;font-size:16px;line-height:1;">' +
           '&times;' +
       '  </button>',
       '  <div style="background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';border:2px solid ' + popupStyle.borderColor + ';border-radius:' + popupStyle.borderRadius + ';padding:12px 14px;box-shadow:0 8px 20px rgba(0,0,0,0.22);">',
@@ -192,6 +292,7 @@
     var iconUrls = metadata.iconUrls || {};
     var poiLayerId = metadata.poiLayerId || 'unclustered-point';
     var placesSourceId = metadata.placesSourceId || 'places';
+    var spriteAssetsPromise = loadSpriteAssets(style.sprite);
     var mapOptions = Object.assign(
       {
         center: Array.isArray(style.center) ? style.center : [30.5238, 50.4547],
@@ -238,18 +339,20 @@
 
       if (features.popup && map.getLayer(poiLayerId)) {
         ensureRuntimePopupStyles();
-        onLayerClick = function (event) {
+        onLayerClick = async function (event) {
           var feature = event && event.features && event.features[0];
           if (!feature) return;
 
           var props = feature.properties || {};
+          var spriteAssets = await spriteAssetsPromise;
+          var iconRender = resolvePopupIconRender(props, iconUrls, spriteAssets);
           var popup = new global.maplibregl.Popup({
             closeButton: false,
             closeOnClick: true,
             className: RUNTIME_POPUP_CLASS
           })
             .setLngLat(event.lngLat)
-            .setHTML(buildPopupHtml(props, popupStyle, iconUrls));
+            .setHTML(buildPopupHtml(props, popupStyle, iconRender));
           popup.addTo(map);
           setTimeout(function () {
             var popupRoot = popup && popup.getElement && popup.getElement();

@@ -77,11 +77,11 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
   return (
     <div
       data-testid="maputnik-publish-modal-overlay"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-2 sm:items-center sm:p-4"
     >
       <div
         data-testid="maputnik-publish-modal"
-        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 text-white shadow-2xl"
+        className="my-2 flex max-h-[min(94vh,920px)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 text-white shadow-2xl sm:my-0"
       >
         <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
           <div>

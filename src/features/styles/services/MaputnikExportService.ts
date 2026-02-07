@@ -2,7 +2,7 @@ import { MapStylePreset } from '@/types';
 import { MapStyleExportService } from './MapStyleExportService';
 import { SpriteLayout, SpriteLayoutEntry, buildSpriteLayout } from './spriteUtils';
 import { createLogger } from '@core/logger';
-import { getCategoryColor } from '@/constants';
+import { CATEGORY_COLORS, getCategoryColor } from '@/constants';
 
 const logger = createLogger('MaputnikExportService');
 
@@ -16,6 +16,8 @@ const GRID_SPACING_LAT = 0.0015;
 const POI_LAYER_ID = 'unclustered-point';
 const PLACES_SOURCE_ID = 'places';
 const MIN_SYMBOL_SPACING = 1;
+const UNKNOWN_CATEGORY_COLOR = '#6b7280';
+const DEMO_COLOR_POOL = Object.values(CATEGORY_COLORS);
 
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
@@ -97,12 +99,73 @@ const normalizeDemoLabel = (value: string): string => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-const resolveDemoTextColor = (iconKey: string, fallbackColor: string): string => {
-  const categoryColor = getCategoryColor(normalizeDemoLabel(iconKey));
-  if (!categoryColor || categoryColor.toLowerCase() === '#6b7280') {
+const getStableHash = (value: string): number => {
+  let hash = 0;
+  for (const char of value) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+};
+
+const getFallbackDemoColor = (iconKey: string, fallbackColor: string): string => {
+  if (DEMO_COLOR_POOL.length === 0) {
     return fallbackColor;
   }
+  const hash = getStableHash(iconKey.toLowerCase());
+  const color = DEMO_COLOR_POOL[hash % DEMO_COLOR_POOL.length];
+  return color || fallbackColor;
+};
+
+const resolveDemoTextColor = (iconKey: string, fallbackColor: string): string => {
+  const categoryColor = getCategoryColor(normalizeDemoLabel(iconKey));
+  if (!categoryColor || categoryColor.toLowerCase() === UNKNOWN_CATEGORY_COLOR) {
+    return getFallbackDemoColor(iconKey, fallbackColor);
+  }
   return categoryColor;
+};
+
+export const sanitizeSymbolSpacing = (styleJson: Record<string, unknown>) => {
+  const layers = Array.isArray((styleJson as any).layers) ? (styleJson as any).layers : [];
+  if (layers.length === 0) return styleJson;
+
+  let changed = false;
+  const updatedLayers = layers.map((layer: any) => {
+    if (!layer || typeof layer !== 'object' || !layer.layout || typeof layer.layout !== 'object') {
+      return layer;
+    }
+
+    const layout = layer.layout as Record<string, unknown>;
+    const spacing = layout['symbol-spacing'];
+
+    if (spacing === undefined || spacing === null) {
+      return layer;
+    }
+
+    const numericSpacing = typeof spacing === 'number'
+      ? spacing
+      : typeof spacing === 'string'
+        ? Number(spacing)
+        : Number.NaN;
+
+    if (!Number.isFinite(numericSpacing) || numericSpacing >= MIN_SYMBOL_SPACING) {
+      return layer;
+    }
+
+    changed = true;
+    return {
+      ...layer,
+      layout: {
+        ...layout,
+        'symbol-spacing': MIN_SYMBOL_SPACING
+      }
+    };
+  });
+
+  if (!changed) return styleJson;
+  return {
+    ...styleJson,
+    layers: updatedLayers
+  };
 };
 
 export const applySpriteUrl = (styleJson: Record<string, unknown>, spriteBaseUrl: string) => {
@@ -119,7 +182,6 @@ export const applyMapAlchemistMetadata = (
     popupStyle?: Record<string, string>;
     placesSourceId?: string;
     poiLayerId?: string;
-    iconUrls?: Record<string, string>;
   }
 ) => {
   const existingMetadata = ((styleJson as any).metadata as Record<string, unknown> | undefined) ?? {};
@@ -136,7 +198,7 @@ export const applyMapAlchemistMetadata = (
         poiLayerId: payload.poiLayerId || POI_LAYER_ID,
         palette: payload.palette || {},
         popupStyle: payload.popupStyle || {},
-        iconUrls: payload.iconUrls || {}
+        iconUrls: {}
       }
     }
   };
@@ -274,12 +336,12 @@ export const MaputnikExportService = {
       exportPackage.palette as Record<string, string>,
       options.includeDemoPois !== false
     );
-    const styleJson = applyMapAlchemistMetadata(styleWithDemoPois, {
+    const styleWithValidSpacing = sanitizeSymbolSpacing(styleWithDemoPois);
+    const styleJson = applyMapAlchemistMetadata(styleWithValidSpacing, {
       palette: exportPackage.palette,
       popupStyle: exportPackage.popupStyle as Record<string, string>,
       placesSourceId: exportPackage.placesSourceId,
-      poiLayerId: exportPackage.poiLayerId,
-      iconUrls: iconsByCategory
+      poiLayerId: exportPackage.poiLayerId
     });
 
     logger.info(`Maputnik export built for style: ${preset.name}`);

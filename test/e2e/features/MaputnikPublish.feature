@@ -16,5 +16,6 @@ Feature: Maputnik Publish Modal
     And the demo POIs toggle should be visible
     When I publish assets from the Maputnik modal
     Then publish results should include style URL runtime URL and embed snippet
+    And the embed snippet should enable popup and POI color labels by default
     And the publish modal content should be scrollable to the instructions block
     And no browser dialogs should appear during publish

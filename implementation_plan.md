@@ -117,3 +117,21 @@ Bring the embed runtime popup closer to in-app popup behavior and ensure exporte
 1. Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
 2. Run `npm run test:e2e:bdd`.
 3. Run `npm test`.
+
+## Hotfix Scope (GitHub 422 Blob Too Large)
+### Goal
+Prevent GitHub publish failures caused by oversized style JSON payloads while keeping popup images functional in embed runtime.
+
+### Proposed Changes
+1. Update `src/features/styles/services/MaputnikExportService.ts`:
+   - stop embedding per-icon image URLs in `metadata.mapAlchemist` when they are heavy payloads.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - resolve popup icon image from exported sprite sheet (`sprite.json` + `sprite.png`) instead of large metadata payloads.
+3. Update tests:
+   - adjust `test/features/styles/services/MaputnikExportService.test.ts` to validate the lean metadata contract.
+   - keep BDD/e2e green after runtime image source change.
+
+### Verification Plan
+1. Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
+2. Run `npm run test:e2e:bdd`.
+3. Run `npm test`.

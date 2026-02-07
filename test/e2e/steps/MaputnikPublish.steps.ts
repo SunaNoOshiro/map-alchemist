@@ -122,6 +122,12 @@ Then('publish results should include style URL runtime URL and embed snippet', a
   await expect(modal).toContainText(/runtime\/map-alchemist-runtime\.js/i);
 });
 
+Then('the embed snippet should enable popup and POI color labels by default', async ({ page }) => {
+  const snippet = page.locator('pre');
+  await expect(snippet).toContainText('"popup": true');
+  await expect(snippet).toContainText('"poiColorLabels": true');
+});
+
 Then('the publish modal content should be scrollable to the instructions block', async ({ page }) => {
   const content = page.getByTestId('maputnik-publish-modal-content');
   await expect(content).toBeVisible();

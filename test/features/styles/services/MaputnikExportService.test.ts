@@ -4,7 +4,8 @@ import {
   applySpriteUrl,
   injectDemoPois,
   applyDemoPois,
-  applyMapAlchemistMetadata
+  applyMapAlchemistMetadata,
+  sanitizeSymbolSpacing
 } from '@/features/styles/services/MaputnikExportService';
 
 describe('spriteUtils.buildSpriteLayout', () => {
@@ -131,8 +132,7 @@ describe('MaputnikExportService.applyMapAlchemistMetadata', () => {
       palette: { text: '#111111' },
       popupStyle: { backgroundColor: '#ffffff' },
       placesSourceId: 'places',
-      poiLayerId: 'unclustered-point',
-      iconUrls: { Cafe: 'https://cdn.example.com/cafe.png' }
+      poiLayerId: 'unclustered-point'
     });
 
     const metadata = (updated.metadata as any).mapAlchemist;
@@ -141,6 +141,31 @@ describe('MaputnikExportService.applyMapAlchemistMetadata', () => {
     expect(metadata.poiLayerId).toBe('unclustered-point');
     expect(metadata.palette.text).toBe('#111111');
     expect(metadata.popupStyle.backgroundColor).toBe('#ffffff');
-    expect(metadata.iconUrls.Cafe).toBe('https://cdn.example.com/cafe.png');
+    expect(metadata.iconUrls || {}).toEqual({});
+  });
+});
+
+describe('MaputnikExportService.sanitizeSymbolSpacing', () => {
+  it('normalizes non-positive symbol-spacing values to 1', () => {
+    const styleJson = {
+      version: 8,
+      sources: {},
+      layers: [
+        { id: 'a', type: 'symbol', layout: { 'symbol-spacing': 0 } },
+        { id: 'b', type: 'symbol', layout: { 'symbol-spacing': '0' } },
+        { id: 'c', type: 'symbol', layout: { 'symbol-spacing': -5 } },
+        { id: 'd', type: 'symbol', layout: { 'symbol-spacing': 3 } },
+        { id: 'e', type: 'symbol', layout: { 'symbol-spacing': ['interpolate', ['linear'], ['zoom'], 12, 0, 16, 20] } }
+      ]
+    };
+
+    const updated = sanitizeSymbolSpacing(styleJson);
+    const byId = Object.fromEntries((updated.layers as any[]).map((layer) => [layer.id, layer]));
+
+    expect(byId.a.layout['symbol-spacing']).toBe(1);
+    expect(byId.b.layout['symbol-spacing']).toBe(1);
+    expect(byId.c.layout['symbol-spacing']).toBe(1);
+    expect(byId.d.layout['symbol-spacing']).toBe(3);
+    expect(Array.isArray(byId.e.layout['symbol-spacing'])).toBe(true);
   });
 });
