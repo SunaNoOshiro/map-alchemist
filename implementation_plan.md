@@ -11,7 +11,7 @@ Make Maputnik previews effortless by:
 - Confirm token usage: **store token in localStorage** for one-click exports.
 - Confirm Maputnik modal UX: show URLs + instructions + “Open in Maputnik” button.
 - Confirm Maputnik demo data: inject demo POIs for **all** icon keys so everything is visible at once.
-- Confirm demo POI toggle: add a UI toggle to disable demo POIs for production exports.
+- Confirm demo POI toggle: selection must happen **before** publishing starts.
 
 ## Proposed Changes
 1. **Maputnik export demo data** (`src/features/styles/services/MaputnikExportService.ts`):
@@ -21,12 +21,13 @@ Make Maputnik previews effortless by:
    - If style has no `center`/`zoom`, set a reasonable center and a zoom derived from grid size.
    - Add an option to disable demo POI injection (default ON for previews).
 2. **Maputnik publish modal** (`src/shared/components/MaputnikPublishModal.tsx`):
-   - Add an “Open in Maputnik” button that opens a new tab with the style URL prefilled.
+   - Convert to a two-stage flow:
+     - **Pre-publish**: show the Demo POIs toggle and a “Publish now” button.
+     - **Post-publish**: show URLs + instructions + “Open in Maputnik”.
    - Keep copy-to-clipboard for the style URL as a fallback.
 3. **Demo POI toggle UI**:
-   - Add a checkbox/toggle in the Theme Library section for Maputnik exports.
-   - Persist preference in `localStorage` so the choice sticks.
-   - Pass the setting into `MaputnikExportService.buildExport`.
+   - Keep the toggle state in `localStorage`.
+   - Ensure the toggle value is applied **before** publishing starts.
 4. **Tests**
    - Extend `test/features/styles/services/MaputnikExportService.test.ts` to assert all demo features are injected.
    - Add a test to ensure demo injection is skipped when disabled.

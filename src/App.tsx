@@ -29,7 +29,7 @@ function App() {
 
   const {
     styles, setStyles, activeStyleId, setActiveStyleId,
-    maputnikPublishInfo, clearMaputnikPublishInfo,
+    maputnikPublishStage, maputnikPublishInfo, maputnikPublishError,
     maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled,
     handleExport,
     handleImport,
@@ -37,7 +37,9 @@ function App() {
     handleDeleteStyle,
     handleExportPackage,
     handleExportMaputnik,
-    handlePublishMaputnik,
+    handleOpenPublishMaputnik,
+    handleConfirmPublishMaputnik,
+    handleClosePublishMaputnik,
     handleClearGitHubToken
   } = useStyleManager(addLog);
 
@@ -76,8 +78,11 @@ function App() {
       hasApiKey={hasApiKey || !!aiConfig.apiKey}
       aiConfig={aiConfig}
       availableModels={availableModels}
+      maputnikPublishStage={maputnikPublishStage}
       maputnikPublishInfo={maputnikPublishInfo}
-      onCloseMaputnikPublishInfo={clearMaputnikPublishInfo}
+      maputnikPublishError={maputnikPublishError}
+      onConfirmMaputnikPublish={handleConfirmPublishMaputnik}
+      onCloseMaputnikPublish={handleClosePublishMaputnik}
       maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
       onToggleMaputnikDemoPois={setMaputnikDemoPoisEnabled}
       // Handlers
@@ -88,7 +93,7 @@ function App() {
       onExport={handleExport}
       onExportPackage={handleExportPackage}
       onExportMaputnik={handleExportMaputnik}
-      onPublishMaputnik={handlePublishMaputnik}
+      onPublishMaputnik={handleOpenPublishMaputnik}
       onClearGitHubToken={handleClearGitHubToken}
       onImport={handleImport}
       onClear={handleClear}

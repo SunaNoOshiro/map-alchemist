@@ -12,6 +12,7 @@ const PADDING_2X = 4;
 const DEMO_CENTER: [number, number] = [30.5238, 50.4547];
 const GRID_SPACING_LON = 0.002;
 const GRID_SPACING_LAT = 0.0015;
+const POI_LAYER_ID = 'unclustered-point';
 
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
@@ -19,6 +20,25 @@ const getRecommendedZoom = (span: number) => {
   if (span <= 0.06) return 13;
   if (span <= 0.12) return 12;
   return 11;
+};
+
+const relaxPoiLayer = (styleJson: Record<string, unknown>) => {
+  const layers = Array.isArray((styleJson as any).layers) ? (styleJson as any).layers : [];
+  if (layers.length === 0) return styleJson;
+
+  const updatedLayers = layers.map((layer: any) => {
+    if (layer?.id !== POI_LAYER_ID) return layer;
+    const layout = {
+      ...(layer.layout ?? {}),
+      'icon-allow-overlap': true,
+      'text-allow-overlap': true,
+      'symbol-spacing': 0
+    };
+
+    return { ...layer, layout };
+  });
+
+  return { ...styleJson, layers: updatedLayers };
 };
 
 const loadImage = (url: string): Promise<HTMLImageElement | null> => {
@@ -98,8 +118,8 @@ export const injectDemoPois = (
   const spanLon = Math.max(0, (columns - 1) * GRID_SPACING_LON);
   const spanLat = Math.max(0, (rows - 1) * GRID_SPACING_LAT);
   const maxSpan = Math.max(spanLon, spanLat);
-  const recommendedZoom = getRecommendedZoom(maxSpan);
-  const zoom = typeof styleJson.zoom === 'number' ? styleJson.zoom : recommendedZoom;
+  const recommendedZoom = Math.max(getRecommendedZoom(maxSpan), 13);
+  const zoom = recommendedZoom;
 
   const labelColor = palette?.text ?? '#111827';
   const haloColor = palette?.land ?? '#ffffff';
@@ -127,7 +147,7 @@ export const injectDemoPois = (
     };
   });
 
-  return {
+  const withDemo = {
     ...styleJson,
     center,
     zoom,
@@ -142,6 +162,8 @@ export const injectDemoPois = (
       }
     }
   };
+
+  return relaxPoiLayer(withDemo);
 };
 
 export const applyDemoPois = (

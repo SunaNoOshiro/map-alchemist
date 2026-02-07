@@ -16,10 +16,12 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
     const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
     const [defaultThemes, setDefaultThemes] = useState<MapStylePreset[]>([DEFAULT_STYLE_PRESET]);
     const [defaultThemeIds, setDefaultThemeIds] = useState<string[]>([DEFAULT_STYLE_PRESET.id]);
+    const [maputnikPublishStage, setMaputnikPublishStage] = useState<'idle' | 'pre' | 'publishing' | 'done' | 'error'>('idle');
     const [maputnikPublishInfo, setMaputnikPublishInfo] = useState<{
         styleUrl: string;
         spriteBaseUrl: string;
     } | null>(null);
+    const [maputnikPublishError, setMaputnikPublishError] = useState<string | null>(null);
     const [maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled] = useState(true);
 
     // Load Data
@@ -230,7 +232,29 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         return { repo: repoInput.trim(), branch: branchInput.trim() };
     };
 
-    const handlePublishMaputnik = async () => {
+    const handleOpenPublishMaputnik = () => {
+        if (!activeStyleId) {
+            addLog('No active style selected.', 'warning');
+            return;
+        }
+
+        if (typeof window === 'undefined') {
+            addLog('GitHub publish requires a browser environment.', 'error');
+            return;
+        }
+
+        setMaputnikPublishError(null);
+        setMaputnikPublishInfo(null);
+        setMaputnikPublishStage('pre');
+    };
+
+    const handleClosePublishMaputnik = () => {
+        setMaputnikPublishStage('idle');
+        setMaputnikPublishInfo(null);
+        setMaputnikPublishError(null);
+    };
+
+    const handleConfirmPublishMaputnik = async () => {
         if (!activeStyleId) {
             addLog('No active style selected.', 'warning');
             return;
@@ -246,6 +270,9 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
             addLog('GitHub publish requires a browser environment.', 'error');
             return;
         }
+
+        setMaputnikPublishStage('publishing');
+        setMaputnikPublishError(null);
 
         const safeName = style.name
             .toLowerCase()
@@ -263,6 +290,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
                 const result = promptForGitHubTarget({ repo, branch: 'main' });
                 if (!result) {
                     addLog('GitHub publish canceled.', 'warning');
+                    setMaputnikPublishStage('pre');
                     return;
                 }
                 repo = result.repo;
@@ -274,6 +302,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
             const result = promptForGitHubTarget({ repo, branch });
             if (!result) {
                 addLog('GitHub publish canceled.', 'warning');
+                setMaputnikPublishStage('pre');
                 return;
             }
             repo = result.repo;
@@ -285,6 +314,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
             const tokenInput = prompt('GitHub PAT (with contents: write)', '');
             if (!tokenInput) {
                 addLog('GitHub publish canceled.', 'warning');
+                setMaputnikPublishStage('pre');
                 return;
             }
             token = tokenInput.trim();
@@ -294,6 +324,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         const parsedRepo = GitHubPagesPublisher.parseGitHubRepo(repo);
         if (!parsedRepo) {
             addLog('Invalid GitHub repo. Use owner/repo.', 'error');
+            setMaputnikPublishStage('pre');
             return;
         }
 
@@ -329,9 +360,12 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
                 styleUrl: publishResult.styleUrl,
                 spriteBaseUrl: publishResult.spriteBaseUrl
             });
+            setMaputnikPublishStage('done');
         } catch (error) {
             logger.error('GitHub publish failed', error);
             addLog('GitHub publish failed. Check console for details.', 'error');
+            setMaputnikPublishError(error instanceof Error ? error.message : 'Unknown publish error.');
+            setMaputnikPublishStage('error');
         }
     };
 
@@ -393,8 +427,9 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         activeStyleId,
         setActiveStyleId,
         defaultThemeIds,
+        maputnikPublishStage,
         maputnikPublishInfo,
-        clearMaputnikPublishInfo: () => setMaputnikPublishInfo(null),
+        maputnikPublishError,
         maputnikDemoPoisEnabled,
         setMaputnikDemoPoisEnabled: (value: boolean) => {
             setMaputnikDemoPoisEnabled(value);
@@ -408,7 +443,9 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         handleDeleteStyle,
         handleExportPackage,
         handleExportMaputnik,
-        handlePublishMaputnik,
+        handleOpenPublishMaputnik,
+        handleConfirmPublishMaputnik,
+        handleClosePublishMaputnik,
         handleClearGitHubToken
     };
 };

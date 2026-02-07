@@ -19,7 +19,9 @@ interface MainLayoutProps {
     hasApiKey: boolean;
     aiConfig: any;
     availableModels: Record<string, string>;
+    maputnikPublishStage: 'idle' | 'pre' | 'publishing' | 'done' | 'error';
     maputnikPublishInfo: { styleUrl: string; spriteBaseUrl: string } | null;
+    maputnikPublishError: string | null;
     maputnikDemoPoisEnabled: boolean;
     // Handlers
     setPrompt: (p: string) => void;
@@ -37,7 +39,8 @@ interface MainLayoutProps {
     onUpdateAiConfig: (config: Partial<any>) => void;
     onRegenerateIcon: (category: string, prompt: string) => void;
     onSelectStyle: (id: string) => void;
-    onCloseMaputnikPublishInfo: () => void;
+    onConfirmMaputnikPublish: () => void;
+    onCloseMaputnikPublish: () => void;
     onToggleMaputnikDemoPois: (enabled: boolean) => void;
 }
 
@@ -51,7 +54,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     hasApiKey,
     aiConfig,
     availableModels,
+    maputnikPublishStage,
     maputnikPublishInfo,
+    maputnikPublishError,
     maputnikDemoPoisEnabled,
     setPrompt,
     onGenerate,
@@ -68,7 +73,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     onUpdateAiConfig,
     onRegenerateIcon,
     onSelectStyle,
-    onCloseMaputnikPublishInfo,
+    onConfirmMaputnikPublish,
+    onCloseMaputnikPublish,
     onToggleMaputnikDemoPois
 }) => {
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(() => {
@@ -168,8 +174,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onExportMaputnik={onExportMaputnik}
                 onPublishMaputnik={onPublishMaputnik}
                 onClearGitHubToken={onClearGitHubToken}
-                maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
-                onToggleMaputnikDemoPois={onToggleMaputnikDemoPois}
                 onImport={onImport}
                 onClear={onClear}
                 logs={logs}
@@ -223,8 +227,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             />
 
             <MaputnikPublishModal
+                stage={maputnikPublishStage}
                 info={maputnikPublishInfo}
-                onClose={onCloseMaputnikPublishInfo}
+                error={maputnikPublishError}
+                demoPoisEnabled={maputnikDemoPoisEnabled}
+                onToggleDemoPois={onToggleMaputnikDemoPois}
+                onPublish={onConfirmMaputnikPublish}
+                onClose={onCloseMaputnikPublish}
             />
         </div>
     );

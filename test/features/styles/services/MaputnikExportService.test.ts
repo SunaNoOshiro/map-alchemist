@@ -52,15 +52,27 @@ describe('MaputnikExportService.injectDemoPois', () => {
       sources: {
         places: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } }
       },
-      layers: []
+      layers: [
+        {
+          id: 'unclustered-point',
+          type: 'symbol',
+          layout: {
+            'icon-allow-overlap': false,
+            'text-allow-overlap': false
+          }
+        }
+      ]
     };
 
     const updated = injectDemoPois(styleJson, ['Cafe', 'Museum', 'Library'], { text: '#111111', land: '#ffffff' });
     const features = (updated.sources as any).places.data.features;
+    const poiLayer = (updated.layers as any[]).find((layer) => layer.id === 'unclustered-point');
 
     expect(Array.isArray(features)).toBe(true);
     expect(features.length).toBe(3);
     expect(features[0].properties.iconKey).toBe('Cafe');
+    expect(poiLayer.layout['icon-allow-overlap']).toBe(true);
+    expect(poiLayer.layout['text-allow-overlap']).toBe(true);
   });
 
   it('skips injection when places already has features', () => {

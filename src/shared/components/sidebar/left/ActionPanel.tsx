@@ -9,8 +9,6 @@ interface ActionPanelProps {
   onExportMaputnik: () => void;
   onPublishMaputnik: () => void;
   onClearGitHubToken: () => void;
-  maputnikDemoPoisEnabled: boolean;
-  onToggleMaputnikDemoPois: (enabled: boolean) => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
 }
@@ -21,8 +19,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
   onExportMaputnik,
   onPublishMaputnik,
   onClearGitHubToken,
-  maputnikDemoPoisEnabled,
-  onToggleMaputnikDemoPois,
   onImport,
   onClear
 }) => {
@@ -81,18 +77,6 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
               <Trash size={10} className="mb-0.5" style={{ color: '#ef4444' }} />
               <span className="text-[9px]" style={{ color: '#ef4444' }}>Clear</span>
           </button>
-      </div>
-      <div className="mt-2 flex items-center justify-between rounded-md border border-white/10 bg-gray-900/40 px-2 py-1 text-[10px] uppercase tracking-widest text-gray-400">
-        <span>Demo POIs</span>
-        <label className="flex items-center gap-2 text-[10px] text-gray-500">
-          <input
-            type="checkbox"
-            checked={maputnikDemoPoisEnabled}
-            onChange={(event) => onToggleMaputnikDemoPois(event.target.checked)}
-            className="h-3 w-3 accent-emerald-500"
-          />
-          <span>{maputnikDemoPoisEnabled ? 'On' : 'Off'}</span>
-        </label>
       </div>
       <div className="mt-1 flex justify-end">
         <button
