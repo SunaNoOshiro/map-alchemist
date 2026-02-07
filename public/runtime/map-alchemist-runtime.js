@@ -193,8 +193,8 @@
     }
 
     if (iconRender.kind === 'image') {
-      return '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
-          '<img src="' + escapeHtml(iconRender.url) + '" alt="' + escapeHtml(title) + '" style="max-width:48px;max-height:48px;object-fit:contain;" />' +
+      return '<div style="width:72px;height:72px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
+          '<img src="' + escapeHtml(iconRender.url) + '" alt="' + escapeHtml(title) + '" style="max-width:62px;max-height:62px;object-fit:contain;" />' +
         '</div>';
     }
 
@@ -209,12 +209,12 @@
     var logicalWidth = Math.max(1, entry.width / pixelRatio);
     var logicalHeight = Math.max(1, entry.height / pixelRatio);
     var maxLogicalSide = Math.max(logicalWidth, logicalHeight);
-    var logicalScale = maxLogicalSide > 48 ? (48 / maxLogicalSide) : 1;
+    var logicalScale = maxLogicalSide > 62 ? (62 / maxLogicalSide) : 1;
     var outputWidth = Math.max(1, Math.round(logicalWidth * logicalScale));
     var outputHeight = Math.max(1, Math.round(logicalHeight * logicalScale));
     var renderScale = logicalScale / pixelRatio;
 
-    return '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
+    return '<div style="width:72px;height:72px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
         '<span aria-hidden="true" style="display:block;width:' + outputWidth + 'px;height:' + outputHeight + 'px;overflow:hidden;">' +
           '<span style="' +
             'display:block;' +
@@ -257,7 +257,7 @@
       description ? '      <div style="margin-top:4px;">' + description + '</div>' : '',
       (addressLine || localityLine || description) ? '    </div>' : '',
       '  </div>',
-      '  <div data-mapalchemist-popup-arrow="true" aria-hidden="true" style="position:absolute;left:50%;bottom:-9px;width:14px;height:14px;transform:translateX(-50%) rotate(45deg);background:' + popupStyle.backgroundColor + ';border-right:2px solid ' + popupStyle.borderColor + ';border-bottom:2px solid ' + popupStyle.borderColor + ';"></div>',
+      '  <div data-mapalchemist-popup-arrow="true" aria-hidden="true" style="position:absolute;left:50%;bottom:-11px;width:18px;height:18px;transform:translateX(-50%) rotate(45deg);background:' + popupStyle.backgroundColor + ';border-right:3px solid ' + popupStyle.borderColor + ';border-bottom:3px solid ' + popupStyle.borderColor + ';box-shadow:2px 2px 6px rgba(0,0,0,0.18);"></div>',
       '</div>'
     ].join('\n');
   }

@@ -23,13 +23,13 @@ export class PopupGenerator {
         const border = popupStyle.borderColor || palette.road || '#dadce0';
 
         return `
-        <div data-testid="poi-popup" style="position:relative; font-family: ${popupStyle.fontFamily}; min-width: 240px;">
+        <div data-testid="poi-popup" style="position:relative; font-family: ${popupStyle.fontFamily}; min-width: 260px;">
             <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:-14px; right:-14px; background: ${bg}; border: 2px solid ${border}; color:${text}; width:28px; height:28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; line-height:1; box-shadow: 0 6px 12px rgba(0,0,0,0.2);">
                 ×
             </button>
             <div style="color: ${text}; background: ${bg}; border: 2px solid ${border}; border-radius: ${popupStyle.borderRadius}; padding: 14px 14px 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
-                <div style="display: flex; gap: 10px; align-items:center;">
-                    ${headerImg ? `<div style=\"width: 60px; height: 60px; background: rgba(0,0,0,0.05); border-radius: 10px; padding: 6px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;\"><img src=\"${headerImg}\" style=\"max-width:100%; max-height:100%; object-fit:contain;\" /></div>` : ''}
+                <div style="display: flex; gap: 12px; align-items:center;">
+                    ${headerImg ? `<div style=\"width: 72px; height: 72px; background: rgba(0,0,0,0.05); border-radius: 12px; padding: 5px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;\"><img src=\"${headerImg}\" style=\"max-width:62px; max-height:62px; object-fit:contain;\" /></div>` : ''}
                     <div style="flex:1; padding-right: 12px;">
                         <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
                         <div data-testid="poi-popup-category" style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub || cat || ''}</div>
@@ -40,6 +40,7 @@ export class PopupGenerator {
                 </div>
                 <button id="popup-edit-btn" data-testid="poi-popup-remix" style="margin-top:10px; width:100%; padding:6px 8px; background:${border}20; border:1px solid ${border}; border-radius:6px; cursor:pointer; font-size:11px; display:flex; align-items:center; justify-content:center; gap:6px; color:${text};">${wandIcon} Remix Icon</button>
             </div>
+            <div data-mapalchemist-popup-arrow="true" aria-hidden="true" style="position:absolute; left:50%; bottom:-11px; width:18px; height:18px; transform:translateX(-50%) rotate(45deg); background:${bg}; border-right:3px solid ${border}; border-bottom:3px solid ${border}; box-shadow:2px 2px 6px rgba(0,0,0,0.18);"></div>
         </div>
       `;
     }

@@ -210,3 +210,33 @@ Make `MaputnikPublishModal` visually match existing app panels/headers exactly f
 1. Run `npm run test:e2e:bdd`.
 2. Run `npm test`.
 3. Manual visual comparison against sidebar/header in the same screen.
+
+## Follow-up Scope (POI Popup Icon Size + Pointer Clarity)
+### Goal
+Increase POI popup icon size and make the popup pointer to POI visually clearer in both:
+1. in-app MapAlchemist map popup.
+2. exported runtime snippet popup.
+
+### User Review Required
+1. Confirm target size increase for popup icon:
+   - Proposed: from current small thumbnail to `56x56` effective visual size in popup header.
+2. Confirm pointer style:
+   - Proposed: darker, larger, high-contrast arrow/tip with explicit border so anchor point is easier to read on light and dark map themes.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - increase icon image container and image dimensions in POI popup markup.
+   - preserve existing layout behavior for title/category/details while scaling icon block.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - increase popup icon rendering size for snippet runtime popup.
+   - strengthen popup pointer visuals (size, contrast, border) and ensure it remains centered to POI anchor.
+3. Keep map data/export contracts unchanged:
+   - no changes to style metadata schema or POI source structure.
+
+### Verification Plan
+1. Run `npm run test:e2e:bdd`.
+2. Run `npm test`.
+3. Manual check:
+   - open POI popup in app and snippet runtime.
+   - verify icon appears noticeably larger.
+   - verify pointer remains visible/clear over both bright and dark map backgrounds.
