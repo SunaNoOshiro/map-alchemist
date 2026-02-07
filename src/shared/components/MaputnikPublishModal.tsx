@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { X } from 'lucide-react';
+import { getSectionColor } from '@/constants';
 
 type MaputnikPublishInfo = {
   styleUrl: string;
@@ -28,6 +30,8 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+  const accent = getSectionColor('theme-library');
+  const accentBorder = `${accent}55`;
 
   if (stage === 'idle') return null;
 
@@ -77,51 +81,54 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
   return (
     <div
       data-testid="maputnik-publish-modal-overlay"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-2 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:items-center sm:p-4"
     >
       <div
         data-testid="maputnik-publish-modal"
-        className="my-2 flex max-h-[min(94vh,920px)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 text-white shadow-2xl sm:my-0"
+        className="my-2 flex max-h-[min(94vh,920px)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 text-white shadow-2xl sm:my-0"
       >
-        <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
+        <div className="flex items-start justify-between border-b border-gray-700 bg-gray-900 px-4 py-2.5 sm:px-5">
           <div>
-            <h2 className="text-lg font-semibold">{title}</h2>
+            <h2 className="text-base font-bold text-white">{title}</h2>
             {showResults && (
-              <p className="text-sm text-white/70">Use this URL to preview your style.</p>
+              <p className="text-xs text-gray-500">Use this URL to preview your style.</p>
             )}
             {showPrePublish && (
-              <p className="text-sm text-white/70">Choose whether to include demo POIs before publishing.</p>
+              <p className="text-xs text-gray-500">Choose whether to include demo POIs before publishing.</p>
             )}
             {isPublishing && (
-              <p className="text-sm text-white/70">Hold tight, uploading style and sprites.</p>
+              <p className="text-xs text-gray-500">Hold tight, uploading style and sprites.</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isPublishing}
-            className="rounded-full border border-white/10 px-3 py-1 text-sm text-white/70 transition hover:border-white/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Close panel"
           >
-            Close
+            <X size={14} />
+            <span className="hidden sm:inline">Close</span>
           </button>
         </div>
 
-        <div data-testid="maputnik-publish-modal-content" className="space-y-4 overflow-y-auto px-6 py-5">
+        <div data-testid="maputnik-publish-modal-content" className="space-y-2 overflow-y-auto px-4 py-3 sm:px-5">
           {showPrePublish && (
-            <div className="rounded-xl border border-white/10 bg-gray-900/50 p-4 text-sm text-white/80">
+            <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-semibold text-white">Demo POIs (for Maputnik preview)</div>
-                  <p className="text-xs text-white/60">
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>Demo POIs (for Maputnik preview)</div>
+                  <p className="text-xs text-gray-500">
                     When enabled, the export includes demo POIs for every icon type.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-white/70">
+                <label className="flex items-center gap-2 text-xs text-gray-400">
                   <input
                     type="checkbox"
                     checked={demoPoisEnabled}
                     onChange={(event) => onToggleDemoPois(event.target.checked)}
-                    className="h-3 w-3 accent-emerald-500"
+                    className="h-3 w-3"
+                    style={{ accentColor: accent }}
                   />
                   <span>{demoPoisEnabled ? 'On' : 'Off'}</span>
                 </label>
@@ -130,7 +137,7 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           )}
 
           {stage === 'error' && (
-            <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            <div className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
               {error || 'Publish failed. Please try again.'}
             </div>
           )}
@@ -140,14 +147,15 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-white/10 px-3 py-2 text-xs text-white/70 transition hover:border-white/30 hover:text-white"
+                className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={onPublish}
-                className="rounded-md border border-emerald-400/50 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 transition hover:border-emerald-300 hover:text-emerald-100"
+                className="border rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800"
+                style={{ borderColor: accentBorder, color: accent }}
               >
                 Publish now
               </button>
@@ -155,7 +163,7 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           )}
 
           {isPublishing && (
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
+            <div className="rounded-md border border-gray-700 bg-gray-900/50 px-3 py-2 text-sm text-gray-400">
               Publishing… please keep this tab open.
             </div>
           )}
@@ -164,68 +172,69 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
             <>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-wide text-white/50">Style URL</span>
+                  <span className="text-[10px] uppercase tracking-wider text-gray-500">Style URL</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={handleOpenMaputnik}
-                      className="rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 transition hover:border-emerald-300 hover:text-emerald-100"
+                      className="border rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest bg-gray-800"
+                      style={{ borderColor: accentBorder, color: accent }}
                     >
                       Open in Maputnik
                     </button>
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:border-white/30 hover:text-white"
+                      className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest"
                     >
                       {copied ? 'Copied' : 'Copy'}
                     </button>
                   </div>
                 </div>
-                <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90">
+                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
                   {info.styleUrl}
                 </div>
               </div>
 
               <div>
-                <span className="text-xs uppercase tracking-wide text-white/50">Sprite Base</span>
-                <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90">
+                <span className="text-[10px] uppercase tracking-wider text-gray-500">Sprite Base</span>
+                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
                   {info.spriteBaseUrl}
                 </div>
               </div>
 
               <div>
-                <span className="text-xs uppercase tracking-wide text-white/50">Runtime Script URL</span>
-                <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/90">
+                <span className="text-[10px] uppercase tracking-wider text-gray-500">Runtime Script URL</span>
+                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
                   {info.runtimeUrl}
                 </div>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="font-semibold text-white">Customer Embed Snippet</div>
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>Customer Embed Snippet</div>
                   <button
                     type="button"
                     onClick={handleCopySnippet}
-                    className="rounded-md border border-white/10 px-2 py-1 text-xs text-white/70 transition hover:border-white/30 hover:text-white"
+                    className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest"
                   >
                     {copiedSnippet ? 'Copied' : 'Copy snippet'}
                   </button>
                 </div>
-                <pre className="max-h-56 overflow-auto rounded-lg border border-white/10 bg-black/40 p-3 text-[11px] leading-relaxed text-gray-200">
+                <pre className="max-h-56 overflow-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-200">
 {info.embedSnippet}
                 </pre>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-                <div className="font-semibold text-white">How to open in Maputnik</div>
+              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
+                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>How to open in Maputnik</div>
                 <ol className="mt-2 list-decimal space-y-1 pl-4">
                   <li>Click "Open in Maputnik" above (opens a new tab)</li>
                   <li>If it doesn't auto-load, click "Open"</li>
                   <li>Choose "Open URL"</li>
                   <li>Paste the Style URL above</li>
                 </ol>
-                <p className="mt-3 text-xs text-white/60">
+                <p className="mt-3 text-xs text-gray-500">
                   If icons don’t appear, wait for GitHub Pages to finish deploying the latest commit.
                 </p>
               </div>

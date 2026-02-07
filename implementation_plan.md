@@ -172,3 +172,41 @@ Make runtime popup pointer visually indicate the opened POI and ensure popup clo
 1. Run `npm test test/features/styles/services/runtimeScriptContract.test.ts`.
 2. Run `npm run test:e2e:bdd`.
 3. Run `npm test`.
+
+## Feature Scope (UI Popup Visual Unification)
+### Goal
+Unify only application UI popups (program modal windows) with existing panel/section visual language, without changing POI map popups.
+
+### Proposed Changes
+1. Update `src/shared/components/MaputnikPublishModal.tsx`:
+   - align modal surface, borders, spacing, and action controls to the same dark panel style used in sidebars.
+   - use section accent color for key actions while keeping readability.
+2. Keep map POI popup stack unchanged:
+   - do not modify `PopupGenerator`, `MapLibreAdapter` popup presentation, or runtime POI popup visuals.
+
+### Verification Plan
+1. Run `npm run test:e2e:bdd`.
+2. Run `npm test`.
+3. Manual check:
+   - open publish modal and compare against left/right panel styling for consistency.
+
+## Follow-up Scope (Exact Panel Token Match for Modal)
+### Goal
+Make `MaputnikPublishModal` visually match existing app panels/headers exactly for button style, font scale, and color tokens.
+
+### User Review Required
+1. Confirm target is strict parity with existing panel controls (including `Close` button style with icon).
+2. Confirm modal should keep centered-dialog layout while matching panel typography/colors.
+
+### Proposed Changes
+1. Update `src/shared/components/MaputnikPublishModal.tsx`:
+   - reuse the same close-button classes used in sidebars.
+   - normalize text sizes to panel scale (`text-[10px]`, `text-xs`, uppercase tracking where used in sections).
+   - align modal and inner block colors to panel tokens (`bg-gray-900`, `border-gray-700/800`, `text-gray-400/500`).
+   - reduce residual tinted/bluish appearance from modal internals.
+2. Keep POI popup and map runtime untouched.
+
+### Verification Plan
+1. Run `npm run test:e2e:bdd`.
+2. Run `npm test`.
+3. Manual visual comparison against sidebar/header in the same screen.
