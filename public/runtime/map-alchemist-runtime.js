@@ -14,6 +14,8 @@
     borderRadius: '8px',
     fontFamily: 'Noto Sans'
   };
+  var RUNTIME_POPUP_CLASS = 'mapalchemist-runtime-popup';
+  var RUNTIME_STYLE_TAG_ID = 'mapalchemist-runtime-style';
 
   function mergeFeatures(features) {
     return {
@@ -34,17 +36,94 @@
       .replace(/'/g, '&#39;');
   }
 
-  function buildPopupHtml(properties, popupStyle) {
+  function ensureRuntimePopupStyles() {
+    if (document.getElementById(RUNTIME_STYLE_TAG_ID)) {
+      return;
+    }
+    var styleTag = document.createElement('style');
+    styleTag.id = RUNTIME_STYLE_TAG_ID;
+    styleTag.textContent = [
+      '.' + RUNTIME_POPUP_CLASS + '.maplibregl-popup .maplibregl-popup-content {',
+      '  background: transparent !important;',
+      '  border: 0 !important;',
+      '  box-shadow: none !important;',
+      '  padding: 0 !important;',
+      '}',
+      '.' + RUNTIME_POPUP_CLASS + '.maplibregl-popup .maplibregl-popup-tip {',
+      '  display: none !important;',
+      '}'
+    ].join('\n');
+    document.head.appendChild(styleTag);
+  }
+
+  function normalizeAddress(properties) {
+    var explicitAddress = properties.address || properties.addressLine;
+    if (explicitAddress) return String(explicitAddress);
+    var street = properties['addr:street'];
+    var house = properties['addr:housenumber'];
+    if (street || house) {
+      return [street, house].filter(Boolean).join(' ');
+    }
+    return '';
+  }
+
+  function normalizeLocality(properties) {
+    var city = properties.city || properties['addr:city'];
+    var postcode = properties.postcode || properties['addr:postcode'];
+    var country = properties.country || properties['addr:country'];
+    return [city, postcode, country].filter(Boolean).join(', ');
+  }
+
+  function resolvePopupIconUrl(properties, iconUrls) {
+    if (!iconUrls || typeof iconUrls !== 'object') {
+      return '';
+    }
+    var candidates = [
+      properties.iconKey,
+      properties.subcategory,
+      properties.category,
+      properties.title
+    ].filter(Boolean);
+    for (var i = 0; i < candidates.length; i += 1) {
+      var key = candidates[i];
+      if (typeof iconUrls[key] === 'string' && iconUrls[key]) {
+        return iconUrls[key];
+      }
+    }
+    return '';
+  }
+
+  function buildPopupHtml(properties, popupStyle, iconUrls) {
     var title = escapeHtml(properties.title || 'POI');
-    var category = escapeHtml(properties.category || properties.subcategory || '');
+    var category = escapeHtml(properties.subcategory || properties.category || '');
     var description = escapeHtml(properties.description || '');
+    var addressLine = escapeHtml(normalizeAddress(properties));
+    var localityLine = escapeHtml(normalizeLocality(properties));
+    var iconUrl = resolvePopupIconUrl(properties, iconUrls);
+    var iconBlock = iconUrl
+      ? '<div style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(0,0,0,0.06);border:1px solid ' + popupStyle.borderColor + '40;">' +
+          '<img src="' + escapeHtml(iconUrl) + '" alt="" style="max-width:48px;max-height:48px;object-fit:contain;" />' +
+        '</div>'
+      : '';
 
     return [
-      '<div style="font-family:' + popupStyle.fontFamily + ';min-width:220px;">',
-      '  <div style="background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';border:2px solid ' + popupStyle.borderColor + ';border-radius:' + popupStyle.borderRadius + ';padding:12px 14px;">',
-      '    <div style="font-size:16px;font-weight:700;line-height:1.2;margin:0 0 4px;">' + title + '</div>',
-      category ? '    <div style="font-size:12px;opacity:0.8;margin-bottom:4px;">' + category + '</div>' : '',
-      description ? '    <div style="font-size:12px;line-height:1.4;">' + description + '</div>' : '',
+      '<div style="position:relative;font-family:' + popupStyle.fontFamily + ';min-width:260px;">',
+      '  <button type="button" data-mapalchemist-popup-close="true" aria-label="Close popup" style="position:absolute;top:-14px;right:-14px;width:28px;height:28px;border-radius:999px;border:2px solid ' + popupStyle.borderColor + ';background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';cursor:pointer;font-size:16px;line-height:1;">' +
+          '&times;' +
+      '  </button>',
+      '  <div style="background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';border:2px solid ' + popupStyle.borderColor + ';border-radius:' + popupStyle.borderRadius + ';padding:12px 14px;box-shadow:0 8px 20px rgba(0,0,0,0.22);">',
+      '    <div style="display:flex;gap:10px;align-items:center;">',
+      '      ' + iconBlock,
+      '      <div style="flex:1;min-width:0;">',
+      '        <div style="font-size:21px;font-weight:700;line-height:1.2;margin:0 0 4px;">' + title + '</div>',
+      category ? '        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;opacity:0.85;">' + category + '</div>' : '',
+      '      </div>',
+      '    </div>',
+      (addressLine || localityLine || description) ? '    <div style="margin-top:10px;padding-top:8px;border-top:1px solid ' + popupStyle.borderColor + '40;font-size:13px;line-height:1.35;">' : '',
+      addressLine ? '      <div>' + addressLine + '</div>' : '',
+      localityLine ? '      <div style="opacity:0.85;">' + localityLine + '</div>' : '',
+      description ? '      <div style="margin-top:4px;">' + description + '</div>' : '',
+      (addressLine || localityLine || description) ? '    </div>' : '',
       '  </div>',
       '</div>'
     ].join('\n');
@@ -110,6 +189,7 @@
     var features = mergeFeatures(options.features);
     var popupStyle = Object.assign({}, DEFAULT_POPUP_STYLE, metadata.popupStyle || {});
     var palette = metadata.palette || {};
+    var iconUrls = metadata.iconUrls || {};
     var poiLayerId = metadata.poiLayerId || 'unclustered-point';
     var placesSourceId = metadata.placesSourceId || 'places';
     var mapOptions = Object.assign(
@@ -157,15 +237,30 @@
       }
 
       if (features.popup && map.getLayer(poiLayerId)) {
+        ensureRuntimePopupStyles();
         onLayerClick = function (event) {
           var feature = event && event.features && event.features[0];
           if (!feature) return;
 
           var props = feature.properties || {};
-          var popup = new global.maplibregl.Popup({ closeButton: false, closeOnClick: true })
+          var popup = new global.maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: true,
+            className: RUNTIME_POPUP_CLASS
+          })
             .setLngLat(event.lngLat)
-            .setHTML(buildPopupHtml(props, popupStyle));
+            .setHTML(buildPopupHtml(props, popupStyle, iconUrls));
           popup.addTo(map);
+          setTimeout(function () {
+            var popupRoot = popup && popup.getElement && popup.getElement();
+            if (!popupRoot) return;
+            var closeButton = popupRoot.querySelector('[data-mapalchemist-popup-close="true"]');
+            if (closeButton) {
+              closeButton.addEventListener('click', function () {
+                popup.remove();
+              }, { once: true });
+            }
+          }, 0);
         };
 
         onMouseEnter = function () {

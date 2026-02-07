@@ -250,6 +250,33 @@ Then('the popup should contain an image', async ({ page }) => {
     await expect(popupImg).toBeVisible();
 });
 
+Then('the popup should contain a close button', async ({ page }) => {
+    const closeButton = page.locator('#popup-close-btn');
+    await expect(closeButton).toBeVisible();
+});
+
+Then('the popup should contain location details text', async ({ page }) => {
+    const popup = page.locator('.maplibregl-popup-content');
+    await expect(popup).toBeVisible();
+    const popupText = (await popup.textContent()) || '';
+    expect(popupText.trim().length).toBeGreaterThan(10);
+});
+
+Then('POI labels should read text color from feature properties', async ({ page }) => {
+    const textColorExpression = await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (!map) return null;
+        return map.getPaintProperty('unclustered-point', 'text-color');
+    });
+
+    expect(textColorExpression).not.toBeNull();
+    if (Array.isArray(textColorExpression)) {
+        expect(textColorExpression.join('|')).toContain('textColor');
+    } else {
+        expect(String(textColorExpression)).toContain('textColor');
+    }
+});
+
 Then('POI icons should scale correctly with zoom level', async ({ page }) => {
     await expect.poll(async () => {
         return await page.evaluate(() => {

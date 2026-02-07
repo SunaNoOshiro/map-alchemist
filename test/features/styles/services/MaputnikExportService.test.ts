@@ -76,6 +76,13 @@ describe('MaputnikExportService.injectDemoPois', () => {
     expect(Array.isArray(features)).toBe(true);
     expect(features.length).toBe(3);
     expect(features[0].properties.iconKey).toBe('Cafe');
+    expect(features[0].properties.title).toBe('Cafe');
+    expect(features[0].properties.category).toBe('Cafe');
+    expect(features[0].properties.subcategory).toBe('Cafe');
+    expect(features[0].properties.description).toContain('Demo POI for');
+    expect(features[0].properties.address).toContain('Demo Street');
+    expect(features[0].properties.city).toBe('Map Alchemist City');
+    expect(features[0].properties.textColor).toBe('#f97316');
     expect(poiLayer.layout['icon-allow-overlap']).toBe(true);
     expect(poiLayer.layout['text-allow-overlap']).toBe(true);
     expect(poiLayer.layout['symbol-spacing']).toBe(1);
@@ -124,7 +131,8 @@ describe('MaputnikExportService.applyMapAlchemistMetadata', () => {
       palette: { text: '#111111' },
       popupStyle: { backgroundColor: '#ffffff' },
       placesSourceId: 'places',
-      poiLayerId: 'unclustered-point'
+      poiLayerId: 'unclustered-point',
+      iconUrls: { Cafe: 'https://cdn.example.com/cafe.png' }
     });
 
     const metadata = (updated.metadata as any).mapAlchemist;
@@ -133,5 +141,6 @@ describe('MaputnikExportService.applyMapAlchemistMetadata', () => {
     expect(metadata.poiLayerId).toBe('unclustered-point');
     expect(metadata.palette.text).toBe('#111111');
     expect(metadata.popupStyle.backgroundColor).toBe('#ffffff');
+    expect(metadata.iconUrls.Cafe).toBe('https://cdn.example.com/cafe.png');
   });
 });

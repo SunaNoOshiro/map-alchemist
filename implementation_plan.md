@@ -97,3 +97,23 @@ Ensure the publish popup is fully usable on constrained viewport heights and add
 ### Verification Plan
 1. Run `npm run test:e2e:bdd`.
 2. Run `npm test`.
+
+## Follow-up Scope (Snippet Popup Parity)
+### Goal
+Bring the embed runtime popup closer to in-app popup behavior and ensure exported demo POIs preserve colored text labels.
+
+### Proposed Changes
+1. Update `public/runtime/map-alchemist-runtime.js`:
+   - render popup with custom close button, icon image, address/details section, and description.
+   - remove default MapLibre white popup shell styling.
+2. Update `src/features/styles/services/MaputnikExportService.ts`:
+   - include icon URL lookup map in `metadata.mapAlchemist.iconUrls` for runtime popup images.
+   - generate demo POIs with category-based `textColor` and richer properties for popup details.
+3. Update tests:
+   - extend `test/features/styles/services/MaputnikExportService.test.ts` with assertions for metadata icon URLs and demo POI color/details.
+   - keep existing BDD flow green (`npm run test:e2e:bdd`).
+
+### Verification Plan
+1. Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
+2. Run `npm run test:e2e:bdd`.
+3. Run `npm test`.

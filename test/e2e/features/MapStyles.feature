@@ -14,7 +14,10 @@ Feature: Map Style Interaction
 
     When I click on a visible POI on the map
     Then a popup should be visible
+    And the popup should contain a close button
     And the popup should contain an image
+    And the popup should contain location details text
+    And POI labels should read text color from feature properties
 
   Scenario: Verifying icon scaling and theme switching
     Then POI icons should scale correctly with zoom level

@@ -2,6 +2,7 @@ import { MapStylePreset } from '@/types';
 import { MapStyleExportService } from './MapStyleExportService';
 import { SpriteLayout, SpriteLayoutEntry, buildSpriteLayout } from './spriteUtils';
 import { createLogger } from '@core/logger';
+import { getCategoryColor } from '@/constants';
 
 const logger = createLogger('MaputnikExportService');
 
@@ -88,6 +89,22 @@ const drawSpriteSheet = async (
   return canvasToBlob(canvas);
 };
 
+const normalizeDemoLabel = (value: string): string => {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const resolveDemoTextColor = (iconKey: string, fallbackColor: string): string => {
+  const categoryColor = getCategoryColor(normalizeDemoLabel(iconKey));
+  if (!categoryColor || categoryColor.toLowerCase() === '#6b7280') {
+    return fallbackColor;
+  }
+  return categoryColor;
+};
+
 export const applySpriteUrl = (styleJson: Record<string, unknown>, spriteBaseUrl: string) => {
   return {
     ...styleJson,
@@ -102,6 +119,7 @@ export const applyMapAlchemistMetadata = (
     popupStyle?: Record<string, string>;
     placesSourceId?: string;
     poiLayerId?: string;
+    iconUrls?: Record<string, string>;
   }
 ) => {
   const existingMetadata = ((styleJson as any).metadata as Record<string, unknown> | undefined) ?? {};
@@ -117,7 +135,8 @@ export const applyMapAlchemistMetadata = (
         placesSourceId: payload.placesSourceId || PLACES_SOURCE_ID,
         poiLayerId: payload.poiLayerId || POI_LAYER_ID,
         palette: payload.palette || {},
-        popupStyle: payload.popupStyle || {}
+        popupStyle: payload.popupStyle || {},
+        iconUrls: payload.iconUrls || {}
       }
     }
   };
@@ -151,7 +170,7 @@ export const injectDemoPois = (
   const recommendedZoom = Math.max(getRecommendedZoom(maxSpan), 13);
   const zoom = recommendedZoom;
 
-  const labelColor = palette?.text ?? '#111827';
+  const fallbackLabelColor = palette?.text ?? '#111827';
   const haloColor = palette?.land ?? '#ffffff';
   const halfColumns = (columns - 1) / 2;
   const halfRows = (rows - 1) / 2;
@@ -161,6 +180,8 @@ export const injectDemoPois = (
     const col = index % columns;
     const offsetLon = (col - halfColumns) * GRID_SPACING_LON;
     const offsetLat = (row - halfRows) * GRID_SPACING_LAT;
+    const label = normalizeDemoLabel(iconKey);
+    const color = resolveDemoTextColor(iconKey, fallbackLabelColor);
 
     return {
       type: 'Feature',
@@ -170,9 +191,15 @@ export const injectDemoPois = (
       },
       properties: {
         iconKey,
-        title: iconKey,
-        textColor: labelColor,
-        haloColor
+        title: label,
+        category: label,
+        subcategory: label,
+        description: `Demo POI for ${label}`,
+        address: `${100 + index} Demo Street`,
+        city: 'Map Alchemist City',
+        textColor: color,
+        haloColor,
+        isDemo: true
       }
     };
   });
@@ -251,7 +278,8 @@ export const MaputnikExportService = {
       palette: exportPackage.palette,
       popupStyle: exportPackage.popupStyle as Record<string, string>,
       placesSourceId: exportPackage.placesSourceId,
-      poiLayerId: exportPackage.poiLayerId
+      poiLayerId: exportPackage.poiLayerId,
+      iconUrls: iconsByCategory
     });
 
     logger.info(`Maputnik export built for style: ${preset.name}`);
