@@ -14,6 +14,7 @@ const GRID_SPACING_LON = 0.002;
 const GRID_SPACING_LAT = 0.0015;
 const POI_LAYER_ID = 'unclustered-point';
 const PLACES_SOURCE_ID = 'places';
+const MIN_SYMBOL_SPACING = 1;
 
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
@@ -33,7 +34,7 @@ const relaxPoiLayer = (styleJson: Record<string, unknown>) => {
       ...(layer.layout ?? {}),
       'icon-allow-overlap': true,
       'text-allow-overlap': true,
-      'symbol-spacing': 0
+      'symbol-spacing': MIN_SYMBOL_SPACING
     };
 
     return { ...layer, layout };

@@ -75,8 +75,14 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
         : 'Publish failed';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-gray-900 text-white shadow-2xl">
+    <div
+      data-testid="maputnik-publish-modal-overlay"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 sm:items-center"
+    >
+      <div
+        data-testid="maputnik-publish-modal"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/10 bg-gray-900 text-white shadow-2xl"
+      >
         <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">{title}</h2>
@@ -100,7 +106,7 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           </button>
         </div>
 
-        <div className="space-y-4 px-6 py-5">
+        <div data-testid="maputnik-publish-modal-content" className="space-y-4 overflow-y-auto px-6 py-5">
           {showPrePublish && (
             <div className="rounded-xl border border-white/10 bg-gray-900/50 p-4 text-sm text-white/80">
               <div className="flex items-center justify-between">

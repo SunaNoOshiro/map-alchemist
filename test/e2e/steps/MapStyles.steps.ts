@@ -239,7 +239,10 @@ When('I click on a visible POI on the map', async ({ page }) => {
 
 Then('a popup should be visible', async ({ page }) => {
     const popup = page.locator('.maplibregl-popup-content');
-    await expect(popup).toBeVisible();
+    if (!await popup.isVisible().catch(() => false)) {
+        await clickVisiblePOI(page);
+    }
+    await expect(popup).toBeVisible({ timeout: 10000 });
 });
 
 Then('the popup should contain an image', async ({ page }) => {

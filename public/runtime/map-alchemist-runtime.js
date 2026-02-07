@@ -58,6 +58,28 @@
     return response.json();
   }
 
+  function normalizeStyleForMapLibre(style) {
+    if (!style || !Array.isArray(style.layers)) {
+      return style;
+    }
+
+    style.layers = style.layers.map(function (layer) {
+      if (!layer || !layer.layout) {
+        return layer;
+      }
+
+      var spacing = layer.layout['symbol-spacing'];
+      if (typeof spacing === 'number' && spacing < 1) {
+        var nextLayout = Object.assign({}, layer.layout, { 'symbol-spacing': 1 });
+        return Object.assign({}, layer, { layout: nextLayout });
+      }
+
+      return layer;
+    });
+
+    return style;
+  }
+
   function normalizeContainer(container) {
     if (typeof container === 'string') {
       return document.getElementById(container);
@@ -83,7 +105,7 @@
       throw new Error('MapAlchemistRuntime.init could not resolve map container.');
     }
 
-    var style = await loadStyle(options.styleUrl);
+    var style = normalizeStyleForMapLibre(await loadStyle(options.styleUrl));
     var metadata = (style.metadata && style.metadata.mapAlchemist) || {};
     var features = mergeFeatures(options.features);
     var popupStyle = Object.assign({}, DEFAULT_POPUP_STYLE, metadata.popupStyle || {});
@@ -182,4 +204,3 @@
     init: init
   };
 })(window);
-

@@ -78,6 +78,7 @@ describe('MaputnikExportService.injectDemoPois', () => {
     expect(features[0].properties.iconKey).toBe('Cafe');
     expect(poiLayer.layout['icon-allow-overlap']).toBe(true);
     expect(poiLayer.layout['text-allow-overlap']).toBe(true);
+    expect(poiLayer.layout['symbol-spacing']).toBe(1);
   });
 
   it('skips injection when places already has features', () => {

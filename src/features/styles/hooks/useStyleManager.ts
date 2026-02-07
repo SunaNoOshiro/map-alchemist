@@ -284,23 +284,6 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
 
         let { repo, branch, deployEnv } = resolveGitHubTarget();
 
-        if (deployEnv === 'preview' && repo && branch && branch !== 'main') {
-            const usePreview = confirm(
-                `Preview deploy detected. Publish to ${branch}?\\n` +
-                'Press Cancel to choose a different branch.'
-            );
-            if (!usePreview) {
-                const result = promptForGitHubTarget({ repo, branch: 'main' });
-                if (!result) {
-                    addLog('GitHub publish canceled.', 'warning');
-                    setMaputnikPublishStage('pre');
-                    return;
-                }
-                repo = result.repo;
-                branch = result.branch;
-            }
-        }
-
         if (!repo || !branch) {
             const result = promptForGitHubTarget({ repo, branch });
             if (!result) {
