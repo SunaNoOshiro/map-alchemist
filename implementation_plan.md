@@ -5,6 +5,7 @@ Make Maputnik previews effortless by:
 - publishing a working style URL with sprites, and
 - showing demo POIs for **all** icon types immediately after import,
 - plus a modal with one‑click “Open in Maputnik”.
+- Speed up deploys by temporarily disabling CI tests.
 
 ## User Review Required
 - Confirm default repo/branch/path values used in the prompts.
@@ -12,6 +13,7 @@ Make Maputnik previews effortless by:
 - Confirm Maputnik modal UX: show URLs + instructions + “Open in Maputnik” button.
 - Confirm Maputnik demo data: inject demo POIs for **all** icon keys so everything is visible at once.
 - Confirm demo POI toggle: selection must happen **before** publishing starts.
+- Confirm CI change: skip unit and E2E tests in GitHub Actions to speed up deploys (temporary).
 
 ## Proposed Changes
 1. **Maputnik export demo data** (`src/features/styles/services/MaputnikExportService.ts`):
@@ -31,6 +33,8 @@ Make Maputnik previews effortless by:
 4. **Tests**
    - Extend `test/features/styles/services/MaputnikExportService.test.ts` to assert all demo features are injected.
    - Add a test to ensure demo injection is skipped when disabled.
+5. **CI**
+   - Temporarily disable unit and E2E test steps in `.github/workflows/ci.yml` to speed up deploys.
 
 ## Verification Plan
 - Run `npm test test/features/styles/services/MaputnikExportService.test.ts`.
