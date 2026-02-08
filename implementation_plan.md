@@ -240,3 +240,225 @@ Increase POI popup icon size and make the popup pointer to POI visually clearer 
    - open POI popup in app and snippet runtime.
    - verify icon appears noticeably larger.
    - verify pointer remains visible/clear over both bright and dark map backgrounds.
+
+## Follow-up Scope (POI Popup Arrow Shape Refinement)
+### Goal
+Replace the current diamond-style POI popup pointer with a cleaner bordered triangle pointer that visually connects to the popup body and points to the POI more clearly.
+
+### User Review Required
+1. Confirm replacing current pointer shape with triangle pointer for both app popup and runtime snippet popup.
+2. Confirm no changes to popup content structure besides pointer rendering.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - replace single rotated-square arrow element with two-layer triangle pointer (outer border triangle + inner fill triangle).
+   - keep existing popup border color/background color tokens for visual consistency.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - apply same two-layer triangle pointer approach in exported popup HTML generator.
+   - keep pointer centered and attached to popup bottom edge.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` pointer assertions for new marker/pattern.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` pointer contract markers for runtime script.
+
+### Verification Plan
+1. Run `npm test`.
+2. Run `npm run test:e2e:bdd`.
+3. Manual visual check:
+   - open a POI popup in app and confirm pointer shape is triangular and clearly anchored.
+   - verify exported snippet popup pointer matches app popup shape.
+
+## Follow-up Scope (POI Popup Arrow Weight Reduction)
+### Goal
+Reduce visual heaviness of POI popup pointer so it looks lighter while preserving clear anchoring to the POI.
+
+### User Review Required
+1. Confirm only pointer weight should be reduced (no popup layout/content changes).
+2. Confirm the same lighter pointer style must apply to both app popup and runtime snippet popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - reduce triangle pointer border thickness and base size.
+   - reduce pointer shadow intensity.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - apply the same lighter triangle dimensions and border/shadow values.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` pointer assertions.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` pointer assertions.
+
+### Verification Plan
+1. Run `npm test`.
+2. Run `npm run test:e2e:bdd`.
+3. Manual check:
+   - compare popup pointer with current version and confirm reduced boldness.
+   - ensure pointer remains visually attached and readable on light/dark map themes.
+
+## Follow-up Scope (POI Popup Arrow Visual Cleanup)
+### Goal
+Make the POI popup pointer visually cleaner by replacing CSS border triangles with a small stroked SVG pointer that has smoother edges and lighter stroke.
+
+### User Review Required
+1. Confirm switching pointer implementation to inline SVG in both app popup and runtime snippet popup.
+2. Confirm target style is thinner outline with smoother anti-aliasing, not a large filled triangle.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - replace current triangle border/fill divs with a single inline SVG pointer.
+   - use lighter stroke (`~1.5px`) and small drop shadow.
+   - attach pointer to popup bottom via `top: calc(100% - 1px)` to remove visible seam.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - mirror the same SVG pointer markup and dimensions.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` assertions to target SVG marker.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` assertions to target SVG marker.
+
+### Verification Plan
+1. Run `npm test`.
+2. Run `npm run test:e2e:bdd`.
+3. Manual check:
+   - verify pointer is visibly thinner and smoother in bright and dark themes.
+   - verify pointer remains centered on the POI.
+
+## Follow-up Scope (POI Popup Notch Minimization)
+### Goal
+Make the POI pointer feel like a subtle notch instead of a strong triangle by reducing dimensions, stroke weight, and removing shadow.
+
+### User Review Required
+1. Confirm notch should be visibly smaller and lighter across all themes.
+2. Confirm this applies to both app popup and runtime snippet popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - pointer container: `24x14` -> `18x10`.
+   - pointer stroke: `1.5` -> `1.1`.
+   - remove pointer drop shadow.
+   - move pointer attachment from `top: calc(100% - 1px)` to `top: calc(100% - 2px)`.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - apply same pointer geometry/stroke/shadow updates.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` SVG pointer assertions.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` SVG pointer assertions.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual visual check on at least one light and one dark theme.
+
+## Follow-up Scope (POI Arrow Seam Removal)
+### Goal
+Remove the horizontal seam between popup body and pointer while keeping pointer border weight consistent with popup border.
+
+### User Review Required
+1. Confirm pointer should use the same border thickness as popup (`2px`).
+2. Confirm no visible horizontal line is allowed at popup-pointer junction.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - switch pointer SVG to separate fill + side-stroke paths (no top horizontal stroke).
+   - match pointer side stroke width to popup border (`2px`).
+   - add a small connector overlap to visually merge pointer with popup bottom edge.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - apply the same pointer SVG/path approach and overlap.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` for new SVG markers.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` for runtime markers.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual visual check:
+   - no horizontal seam between popup and arrow in light/dark themes.
+   - pointer border weight visually matches popup border.
+
+## Follow-up Scope (POI Arrow Junction Smoothing)
+### Goal
+Keep the current arrow shape, but remove visible junction artifacts where the arrow meets the popup bottom border.
+
+### User Review Required
+1. Confirm arrow geometry should remain unchanged; only the junction should be smoothed.
+2. Confirm the same smoothing behavior is required in app popup and runtime snippet popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - add a dedicated small junction mask element at popup bottom center to hide anti-aliased seam artifacts.
+   - simplify arrow SVG border to side strokes only (no top edge), with stable cap/join settings.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - mirror the same junction mask and side-stroke-only SVG structure.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` for new junction marker.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` for runtime junction marker.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual visual check:
+   - open popup on light and dark themes.
+   - confirm no visible irregular line at arrow-to-popup junction.
+
+## Follow-up Scope (POI Arrow Seam Eraser)
+### Goal
+Eliminate the remaining junction artifact by removing the external junction mask and using an SVG eraser stroke directly in the arrow graphic.
+
+### User Review Required
+1. Confirm keeping the current arrow shape while changing only the seam rendering method.
+2. Confirm this must apply in both app popup and runtime snippet popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - remove `data-mapalchemist-popup-arrow-junction` external mask div.
+   - keep arrow SVG and add an internal eraser line/path (`stroke: popup background`) at the top edge to cleanly hide the popup bottom border segment.
+   - keep side strokes at `2px` to match popup border.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - mirror the same SVG eraser approach and remove external junction mask.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` expects eraser marker.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` expects runtime eraser marker and no junction marker.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual visual check in bright and dark themes:
+   - no flat bump or seam at the arrow junction.
+   - border thickness remains consistent with popup border.
+
+## Follow-up Scope (POI Arrow Vertex Micro-Fix)
+### Goal
+Remove the tiny center artifact at the popup-arrow junction by tuning SVG line-join rendering and a 1px vertical overlap.
+
+### User Review Required
+1. Confirm only micro-rendering adjustments are needed; no changes to pointer size/shape.
+2. Confirm this should be applied in app popup and runtime snippet popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - set `shape-rendering="geometricPrecision"` on the arrow SVG.
+   - set `stroke-linejoin="bevel"` on left/right arrow strokes.
+   - nudge arrow container by `1px` for tighter overlap with popup border.
+2. Update `public/runtime/map-alchemist-runtime.js` with the same SVG attributes and offset.
+3. Update tests for new rendering markers.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual check:
+   - verify center junction artifact is gone/minimized on light and dark themes.
+
+## Follow-up Scope (Unified Popup Frame + Arrow Contour)
+### Goal
+Eliminate seam artifacts completely by drawing popup body border and arrow border as one continuous shape instead of separate elements.
+
+### User Review Required
+1. Confirm replacing split border rendering (body border + separate arrow border) with a single contour overlay is acceptable.
+2. Confirm same implementation is required for both in-app popup and exported runtime popup.
+
+### Proposed Changes
+1. Update `src/features/map/services/PopupGenerator.ts`:
+   - keep popup content container with fill/background only.
+   - add one absolute SVG overlay that draws the full rounded rectangle border + arrow contour in one path.
+   - keep close button and content layout unchanged.
+2. Update `public/runtime/map-alchemist-runtime.js`:
+   - apply the same unified overlay path strategy.
+3. Update tests:
+   - `test/features/map/services/PopupGenerator.test.ts` assert unified contour marker/path.
+   - `test/features/styles/services/runtimeScriptContract.test.ts` assert runtime unified contour marker/path.
+
+### Verification Plan
+1. Run `npm test`.
+2. Manual visual check on light/dark themes:
+   - no seam at arrow junction.
+   - popup border thickness remains consistent around body and arrow.
+   - close button and content positions remain unchanged.

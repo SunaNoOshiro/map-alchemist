@@ -38,7 +38,7 @@ describe('PopupGenerator', () => {
     expect(html).toContain('max-width:62px; max-height:62px;');
   });
 
-  it('renders a high-contrast popup arrow marker', () => {
+  it('renders a unified popup frame and arrow contour', () => {
     const html = PopupGenerator.generateHtml(
       {
         properties: {
@@ -53,9 +53,12 @@ describe('PopupGenerator', () => {
       false
     );
 
-    expect(html).toContain('data-mapalchemist-popup-arrow="true"');
-    expect(html).toContain('width:18px; height:18px;');
-    expect(html).toContain('border-right:3px solid');
-    expect(html).toContain('border-bottom:3px solid');
+    expect(html).toContain('data-mapalchemist-popup-frame-svg="true"');
+    expect(html).toContain('data-mapalchemist-popup-frame-fill="true"');
+    expect(html).toContain('data-mapalchemist-popup-frame-stroke="true"');
+    expect(html).toContain('data-mapalchemist-popup-content="true"');
+    expect(html).toContain('padding-bottom:12px;');
+    expect(html).toContain('stroke-linejoin="round"');
+    expect(html).not.toContain('data-mapalchemist-popup-arrow-junction="true"');
   });
 });

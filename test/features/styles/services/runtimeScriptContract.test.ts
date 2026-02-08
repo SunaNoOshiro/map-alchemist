@@ -5,13 +5,16 @@ import path from 'node:path';
 const runtimePath = path.join(process.cwd(), 'public', 'runtime', 'map-alchemist-runtime.js');
 
 describe('map-alchemist-runtime contract', () => {
-  it('contains custom popup arrow markup', () => {
+  it('contains unified popup frame contour markup', () => {
     const runtimeScript = fs.readFileSync(runtimePath, 'utf-8');
-    expect(runtimeScript).toContain('data-mapalchemist-popup-arrow="true"');
+    expect(runtimeScript).toContain('data-mapalchemist-popup-frame-svg="true"');
+    expect(runtimeScript).toContain('data-mapalchemist-popup-frame-fill="true"');
+    expect(runtimeScript).toContain('data-mapalchemist-popup-frame-stroke="true"');
+    expect(runtimeScript).toContain('data-mapalchemist-popup-content="true"');
+    expect(runtimeScript).toContain('function buildPopupFramePath(width, bodyHeight, radiusOverride)');
+    expect(runtimeScript).toContain('function syncPopupFrameGeometry(scope)');
+    expect(runtimeScript).toContain('POPUP_FRAME_ARROW_HEIGHT');
     expect(runtimeScript).toContain("anchor: 'bottom'");
-    expect(runtimeScript).toContain('width:18px;height:18px');
-    expect(runtimeScript).toContain('border-right:3px solid');
-    expect(runtimeScript).toContain('border-bottom:3px solid');
   });
 
   it('closes active popup when zoom changes', () => {

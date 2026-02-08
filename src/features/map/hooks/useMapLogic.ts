@@ -295,16 +295,22 @@ export const useMapLogic = ({
 
             // Re-bind the edit button (DOM hack, but needed for HTML popups)
             setTimeout(() => {
-                const btn = document.getElementById('popup-edit-btn');
+                const popupRoot = document.querySelector('.mapalchemist-app-popup [data-testid="poi-popup"]') as HTMLElement | null;
+                if (popupRoot) {
+                    PopupGenerator.syncFrameGeometry(popupRoot);
+                    requestAnimationFrame(() => PopupGenerator.syncFrameGeometry(popupRoot));
+                }
+
+                const btn = popupRoot?.querySelector('#popup-edit-btn') as HTMLButtonElement | null;
                 if (btn && state.onEditIcon) {
                     btn.setAttribute('data-edit-target', editTarget);
                     btn.onclick = () => state.onEditIcon?.(editTarget);
                 }
-                const closeBtn = document.getElementById('popup-close-btn');
+                const closeBtn = popupRoot?.querySelector('#popup-close-btn') as HTMLButtonElement | null;
                 if (closeBtn) {
                     closeBtn.onclick = () => controller.removePopup();
                 }
-            }, 50);
+            }, 0);
         };
 
         controller.on('click', onPointClick, 'unclustered-point');

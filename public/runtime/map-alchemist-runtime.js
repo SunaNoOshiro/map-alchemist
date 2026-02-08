@@ -16,6 +16,10 @@
   };
   var RUNTIME_POPUP_CLASS = 'mapalchemist-runtime-popup';
   var RUNTIME_STYLE_TAG_ID = 'mapalchemist-runtime-style';
+  var POPUP_FRAME_ARROW_HEIGHT = 12;
+  var POPUP_FRAME_ARROW_HALF_WIDTH = 10;
+  var POPUP_FRAME_STROKE_WIDTH = 2;
+  var POPUP_FRAME_RADIUS = 12;
 
   function mergeFeatures(features) {
     return {
@@ -230,6 +234,80 @@
       '</div>';
   }
 
+  function normalizePopupFrameRadius(value) {
+    var parsed = Number.parseFloat(String(value == null ? POPUP_FRAME_RADIUS : value));
+    if (!Number.isFinite(parsed)) return POPUP_FRAME_RADIUS;
+    return Math.max(6, Math.min(24, parsed));
+  }
+
+  function buildPopupFramePath(width, bodyHeight, radiusOverride) {
+    var strokeInset = POPUP_FRAME_STROKE_WIDTH / 2;
+    var left = strokeInset;
+    var top = strokeInset;
+    var right = Math.max(left + 40, width - strokeInset);
+    var bottom = Math.max(top + 40, bodyHeight - strokeInset);
+    var tipX = Math.round(width / 2);
+    var tipY = bodyHeight + POPUP_FRAME_ARROW_HEIGHT;
+    var requestedRadius = normalizePopupFrameRadius(radiusOverride);
+    var maxRadius = Math.min(requestedRadius, (right - left) / 2 - 1, (bottom - top) / 2 - 1);
+    var radius = Math.max(6, maxRadius);
+
+    var safeHalfArrow = Math.min(
+      POPUP_FRAME_ARROW_HALF_WIDTH,
+      Math.max(6, tipX - (left + radius + 8)),
+      Math.max(6, (right - radius - 8) - tipX)
+    );
+
+    var arrowLeftX = tipX - safeHalfArrow;
+    var arrowRightX = tipX + safeHalfArrow;
+
+    return [
+      'M ' + (left + radius) + ' ' + top,
+      'H ' + (right - radius),
+      'Q ' + right + ' ' + top + ' ' + right + ' ' + (top + radius),
+      'V ' + (bottom - radius),
+      'Q ' + right + ' ' + bottom + ' ' + (right - radius) + ' ' + bottom,
+      'H ' + arrowRightX,
+      'L ' + tipX + ' ' + tipY,
+      'L ' + arrowLeftX + ' ' + bottom,
+      'H ' + (left + radius),
+      'Q ' + left + ' ' + bottom + ' ' + left + ' ' + (bottom - radius),
+      'V ' + (top + radius),
+      'Q ' + left + ' ' + top + ' ' + (left + radius) + ' ' + top,
+      'Z'
+    ].join(' ');
+  }
+
+  function syncPopupFrameGeometry(scope) {
+    var root = scope;
+    if (!root) return;
+
+    if (
+      root.matches &&
+      root.matches('[data-testid="poi-popup"]')
+    ) {
+      var contentNode = root.querySelector('[data-mapalchemist-popup-content="true"]');
+      var svgNode = root.querySelector('[data-mapalchemist-popup-frame-svg="true"]');
+      var fillPathNode = root.querySelector('[data-mapalchemist-popup-frame-fill="true"]');
+      var strokePathNode = root.querySelector('[data-mapalchemist-popup-frame-stroke="true"]');
+      if (!contentNode || !svgNode || !fillPathNode || !strokePathNode) {
+        return;
+      }
+
+      var bodyWidth = Math.max(260, Math.ceil(contentNode.getBoundingClientRect().width));
+      var bodyHeight = Math.max(120, Math.ceil(contentNode.getBoundingClientRect().height));
+      var totalHeight = bodyHeight + POPUP_FRAME_ARROW_HEIGHT;
+      var frameRadius = normalizePopupFrameRadius(root.getAttribute('data-mapalchemist-popup-radius'));
+      var framePath = buildPopupFramePath(bodyWidth, bodyHeight, frameRadius);
+
+      svgNode.setAttribute('viewBox', '0 0 ' + bodyWidth + ' ' + totalHeight);
+      svgNode.setAttribute('width', String(bodyWidth));
+      svgNode.setAttribute('height', String(totalHeight));
+      fillPathNode.setAttribute('d', framePath);
+      strokePathNode.setAttribute('d', framePath);
+    }
+  }
+
   function buildPopupHtml(properties, popupStyle, iconRender) {
     var title = escapeHtml(properties.title || 'POI');
     var category = escapeHtml(properties.subcategory || properties.category || '');
@@ -237,13 +315,19 @@
     var addressLine = escapeHtml(normalizeAddress(properties));
     var localityLine = escapeHtml(normalizeLocality(properties));
     var iconBlock = buildPopupIconBlock(iconRender, popupStyle, title);
+    var frameRadius = normalizePopupFrameRadius(popupStyle.borderRadius);
+    var initialFramePath = buildPopupFramePath(260, 120, frameRadius);
 
     return [
-      '<div style="position:relative;font-family:' + popupStyle.fontFamily + ';min-width:260px;">',
-      '  <button id="popup-close-btn" type="button" data-mapalchemist-popup-close="true" aria-label="Close popup" style="position:absolute;top:-14px;right:-14px;width:28px;height:28px;border-radius:999px;border:2px solid ' + popupStyle.borderColor + ';background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';cursor:pointer;font-size:16px;line-height:1;">' +
+      '<div data-testid="poi-popup" data-mapalchemist-popup-radius="' + frameRadius + '" style="position:relative;font-family:' + popupStyle.fontFamily + ';min-width:260px;padding-bottom:' + POPUP_FRAME_ARROW_HEIGHT + 'px;">',
+      '  <svg data-mapalchemist-popup-frame-svg="true" aria-hidden="true" viewBox="0 0 260 132" width="260" height="132" style="position:absolute;left:0;top:0;display:block;pointer-events:none;z-index:0;overflow:visible;">',
+      '    <path data-mapalchemist-popup-frame-fill="true" d="' + initialFramePath + '" fill="' + popupStyle.backgroundColor + '"></path>',
+      '    <path data-mapalchemist-popup-frame-stroke="true" d="' + initialFramePath + '" fill="none" stroke="' + popupStyle.borderColor + '" stroke-width="' + POPUP_FRAME_STROKE_WIDTH + '" stroke-linejoin="round"></path>',
+      '  </svg>',
+      '  <button id="popup-close-btn" type="button" data-mapalchemist-popup-close="true" aria-label="Close popup" style="position:absolute;top:-14px;right:-14px;width:28px;height:28px;border-radius:999px;border:2px solid ' + popupStyle.borderColor + ';background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';cursor:pointer;font-size:16px;line-height:1;z-index:2;">' +
           '&times;' +
       '  </button>',
-      '  <div style="background:' + popupStyle.backgroundColor + ';color:' + popupStyle.textColor + ';border:2px solid ' + popupStyle.borderColor + ';border-radius:' + popupStyle.borderRadius + ';padding:12px 14px;box-shadow:0 8px 20px rgba(0,0,0,0.22);">',
+      '  <div data-mapalchemist-popup-content="true" style="position:relative;z-index:1;color:' + popupStyle.textColor + ';padding:12px 14px;">',
       '    <div style="display:flex;gap:10px;align-items:center;">',
       '      ' + iconBlock,
       '      <div style="flex:1;min-width:0;">',
@@ -257,7 +341,6 @@
       description ? '      <div style="margin-top:4px;">' + description + '</div>' : '',
       (addressLine || localityLine || description) ? '    </div>' : '',
       '  </div>',
-      '  <div data-mapalchemist-popup-arrow="true" aria-hidden="true" style="position:absolute;left:50%;bottom:-11px;width:18px;height:18px;transform:translateX(-50%) rotate(45deg);background:' + popupStyle.backgroundColor + ';border-right:3px solid ' + popupStyle.borderColor + ';border-bottom:3px solid ' + popupStyle.borderColor + ';box-shadow:2px 2px 6px rgba(0,0,0,0.18);"></div>',
       '</div>'
     ].join('\n');
   }
@@ -412,6 +495,15 @@
           setTimeout(function () {
             var popupRoot = popup && popup.getElement && popup.getElement();
             if (!popupRoot) return;
+            var popupBody = popupRoot.querySelector('[data-testid="poi-popup"]');
+            if (popupBody) {
+              syncPopupFrameGeometry(popupBody);
+              if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(function () {
+                  syncPopupFrameGeometry(popupBody);
+                });
+              }
+            }
             var closeButton = popupRoot.querySelector('[data-mapalchemist-popup-close="true"]');
             if (closeButton) {
               closeButton.addEventListener('click', function () {
