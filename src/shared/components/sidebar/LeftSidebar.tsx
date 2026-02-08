@@ -23,6 +23,10 @@ interface LeftSidebarProps {
   onApplyStyle: (id: string) => void;
   onDeleteStyle: (id: string) => void;
   onExport: () => void;
+  onExportPackage: () => void;
+  onExportMaputnik: () => void;
+  onPublishMaputnik: () => void;
+  onClearGitHubToken: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onClear: () => void;
   logs: LogEntry[];
@@ -46,6 +50,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   onApplyStyle,
   onDeleteStyle,
   onExport,
+  onExportPackage,
+  onExportMaputnik,
+  onPublishMaputnik,
+  onClearGitHubToken,
   onImport,
   onClear,
   logs,
@@ -153,6 +161,10 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                       <div className="mt-2">
                         <ActionPanel
                           onExport={onExport}
+                          onExportPackage={onExportPackage}
+                          onExportMaputnik={onExportMaputnik}
+                          onPublishMaputnik={onPublishMaputnik}
+                          onClearGitHubToken={onClearGitHubToken}
                           onImport={onImport}
                           onClear={onClear}
                         />
