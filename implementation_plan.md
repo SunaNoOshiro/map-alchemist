@@ -462,3 +462,67 @@ Eliminate seam artifacts completely by drawing popup body border and arrow borde
    - no seam at arrow junction.
    - popup border thickness remains consistent around body and arrow.
    - close button and content positions remain unchanged.
+
+## Follow-up Scope (Skip Duplicate GitHub Publish)
+### Goal
+Avoid creating a new publish commit when the generated style/sprite assets are identical to files already present in the target branch, while still showing the final publish details modal.
+
+### User Review Required
+1. Confirm "already published" means all five target files match exactly:
+   - `public/styles/<slug>.json`
+   - `public/sprites/<slug>.json`
+   - `public/sprites/<slug>.png`
+   - `public/sprites/<slug>@2x.json`
+   - `public/sprites/<slug>@2x.png`
+2. Confirm expected UX:
+   - no new commit on GitHub.
+   - same success modal with URLs/snippet is shown.
+
+### Proposed Changes
+1. Update `src/features/styles/services/GitHubPagesPublisher.ts`:
+   - compute Git blob SHA for outgoing files.
+   - load current branch tree and compare path->SHA for publish targets.
+   - skip commit flow when everything matches and return publish result with an `alreadyPublished` flag.
+2. Update `src/features/styles/hooks/useStyleManager.ts`:
+   - when `alreadyPublished` is true, log a "already published, skipped commit" message.
+   - keep opening the final success modal with links/snippet.
+3. Update tests:
+   - extend `test/features/styles/services/GitHubPagesPublisher.test.ts` for blob SHA helper and skip-on-duplicate detection.
+
+### Verification Plan
+1. Run `npm test test/features/styles/services/GitHubPagesPublisher.test.ts`.
+2. Run `npm test`.
+3. Run `npm run test:e2e:bdd`.
+
+## Follow-up Scope (Global UI Typography + Spacing Unification)
+### Goal
+Make MapAlchemist UI typography, paddings, and control sizing consistent across the whole app and across viewport sizes.
+
+### User Review Required
+1. Confirm this scope targets application UI surfaces (auth screen, sidebars, toolbar, modal, lists/buttons/inputs), not map style content rendered from theme data.
+2. Confirm we should remove responsive font-size switching like `sm:text-[10px]` vs `text-[11px]` and keep one stable tokenized size set.
+
+### Proposed Changes
+1. Introduce centralized UI tokens:
+   - add a small shared style token module for text sizes, line-height, paddings, control heights, and common panel/button/input classes.
+2. Apply the same typography/spacing tokens to key UI components:
+   - `src/shared/components/TopToolbar.tsx`
+   - `src/shared/components/sidebar/LeftSidebar.tsx`
+   - `src/shared/components/sidebar/RightSidebar.tsx`
+   - `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+   - `src/shared/components/sidebar/left/PromptPanel.tsx`
+   - `src/shared/components/sidebar/left/StyleLibrary.tsx`
+   - `src/shared/components/sidebar/left/ActionPanel.tsx`
+   - `src/shared/components/sidebar/left/LogConsole.tsx`
+   - `src/shared/components/sidebar/right/IconItem.tsx`
+   - `src/shared/components/MaputnikPublishModal.tsx`
+   - `src/features/auth/components/AuthScreen.tsx`
+3. Normalize app base typography:
+   - set one shared app font stack and base UI text style at root/body level.
+
+### Verification Plan
+1. Run `npm test`.
+2. Run `npm run test:e2e:bdd`.
+3. Manual visual check:
+   - auth screen, toolbar, left/right sidebars, publish modal.
+   - verify matching font family, label/button sizing, and paddings in desktop and mobile.

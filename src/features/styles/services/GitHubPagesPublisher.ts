@@ -10,6 +10,7 @@ export type GitHubRepo = {
 export type GitHubPublishResult = {
   spriteBaseUrl: string;
   styleUrl: string;
+  alreadyPublished: boolean;
 };
 
 export type GitHubPublishPaths = {
@@ -95,6 +96,34 @@ const toBase64 = async (data: Blob | string): Promise<string> => {
   return base64FromArrayBuffer(buffer);
 };
 
+const toBytes = async (data: Blob | string): Promise<Uint8Array> => {
+  if (typeof data === 'string') {
+    return new TextEncoder().encode(data);
+  }
+
+  const buffer = await data.arrayBuffer();
+  return new Uint8Array(buffer);
+};
+
+const toHex = (buffer: ArrayBuffer): string =>
+  Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+
+export const computeGitBlobSha = async (data: Blob | string): Promise<string> => {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Web Crypto API is unavailable. Cannot compute Git blob SHA.');
+  }
+
+  const bytes = await toBytes(data);
+  const header = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
+  const payload = new Uint8Array(header.length + bytes.length);
+  payload.set(header, 0);
+  payload.set(bytes, header.length);
+  const hash = await globalThis.crypto.subtle.digest('SHA-1', payload);
+  return toHex(hash);
+};
+
 const request = async (url: string, token: string, init?: RequestInit) => {
   const res = await fetch(url, {
     ...init,
@@ -127,6 +156,11 @@ type GitTreeEntry = {
   sha: string;
 };
 
+type ExistingTreeBlobEntry = {
+  path: string;
+  sha: string;
+};
+
 export const buildTreeEntries = (blobs: Array<{ path: string; sha: string }>): GitTreeEntry[] => {
   return blobs.map(({ path, sha }) => ({
     path,
@@ -156,6 +190,34 @@ const getCommitTreeSha = async (repo: GitHubRepo, commitSha: string, token: stri
     throw new Error('Unable to resolve base tree SHA.');
   }
   return sha;
+};
+
+const getTreeBlobs = async (
+  repo: GitHubRepo,
+  treeSha: string,
+  token: string,
+  targetPaths: string[]
+): Promise<ExistingTreeBlobEntry[]> => {
+  if (targetPaths.length === 0) return [];
+
+  const url = `${GITHUB_API_BASE}/repos/${repo.owner}/${repo.repo}/git/trees/${encodeURIComponent(treeSha)}?recursive=1`;
+  const res = await request(url, token);
+  const json = await res.json();
+  const wanted = new Set(targetPaths);
+
+  const tree = Array.isArray(json?.tree) ? json.tree : [];
+
+  return tree
+    .filter((entry) => entry?.type === 'blob' && wanted.has(entry.path) && typeof entry.sha === 'string')
+    .map((entry) => ({ path: entry.path as string, sha: entry.sha as string }));
+};
+
+export const areBlobShasIdentical = (
+  localBlobs: Array<{ path: string; sha: string }>,
+  remoteBlobs: ExistingTreeBlobEntry[]
+): boolean => {
+  const remoteByPath = new Map(remoteBlobs.map((entry) => [entry.path, entry.sha]));
+  return localBlobs.every((entry) => remoteByPath.get(entry.path) === entry.sha);
 };
 
 const createBlob = async (repo: GitHubRepo, token: string, content: Blob | string): Promise<string> => {
@@ -243,8 +305,29 @@ const commitFiles = async (params: {
   token: string;
   message: string;
   files: GitHubFilePayload[];
-}) => {
+}): Promise<{ alreadyPublished: boolean }> => {
   const { repo, branch, token, message, files } = params;
+  const firstParent = await getBranchHeadSha(repo, branch, token);
+  const firstBaseTreeSha = await getCommitTreeSha(repo, firstParent, token);
+
+  const localBlobShas = await Promise.all(
+    files.map(async (file) => ({
+      path: file.path,
+      sha: await computeGitBlobSha(file.content)
+    }))
+  );
+
+  const existingBlobs = await getTreeBlobs(
+    repo,
+    firstBaseTreeSha,
+    token,
+    localBlobShas.map((entry) => entry.path)
+  );
+
+  if (areBlobShasIdentical(localBlobShas, existingBlobs)) {
+    return { alreadyPublished: true };
+  }
+
   const blobs = await Promise.all(
     files.map(async (file) => ({
       path: file.path,
@@ -262,8 +345,6 @@ const commitFiles = async (params: {
     return commitSha;
   };
 
-  const firstParent = await getBranchHeadSha(repo, branch, token);
-
   try {
     await attemptCommit(firstParent);
   } catch (error) {
@@ -271,6 +352,8 @@ const commitFiles = async (params: {
     if (secondParent === firstParent) throw error;
     await attemptCommit(secondParent);
   }
+
+  return { alreadyPublished: false };
 };
 
 export const GitHubPagesPublisher = {
@@ -298,7 +381,7 @@ export const GitHubPagesPublisher = {
     const paths = buildPublishPaths(params.styleSlug);
     const message = `chore: publish maputnik assets for ${params.styleName}`;
 
-    await commitFiles({
+    const commitResult = await commitFiles({
       repo,
       branch: params.branch,
       token: params.token,
@@ -315,8 +398,12 @@ export const GitHubPagesPublisher = {
     const spriteBaseUrl = `${baseUrl}/${paths.spriteBasePath}`;
     const styleUrl = `${baseUrl}/${paths.stylePublicPath}`;
 
-    logger.info(`Published Maputnik assets to ${styleUrl}`);
+    if (commitResult.alreadyPublished) {
+      logger.info(`Maputnik assets are unchanged. Skipped commit for ${styleUrl}`);
+    } else {
+      logger.info(`Published Maputnik assets to ${styleUrl}`);
+    }
 
-    return { spriteBaseUrl, styleUrl };
+    return { spriteBaseUrl, styleUrl, alreadyPublished: commitResult.alreadyPublished };
   }
 };

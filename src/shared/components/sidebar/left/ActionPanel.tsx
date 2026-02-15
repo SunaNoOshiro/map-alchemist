@@ -2,6 +2,7 @@
 import React from 'react';
 import { Download, Upload, Trash, FileDown, Map, CloudUpload } from 'lucide-react';
 import { getSectionColor } from '@/constants';
+import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface ActionPanelProps {
   onExport: () => void;
@@ -29,63 +30,63 @@ const ActionPanel: React.FC<ActionPanelProps> = ({
       <div className="p-1.5 border-t grid grid-cols-6 gap-1 bg-gray-900/50" style={{ borderColor: `${sectionColor}50` }}>
           <button
               onClick={onExport}
-              className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors"
+              className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-white')}
               style={{ borderColor: `${sectionColor}30` }}
               title="Export Presets JSON"
           >
               <Download size={10} className="mb-0.5" style={{ color: sectionColor }} />
-              <span className="text-[9px]" style={{ color: sectionColor }}>Presets</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: sectionColor }}>Presets</span>
           </button>
           <button
               onClick={onExportPackage}
-              className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors"
+              className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-white')}
               style={{ borderColor: `${sectionColor}30` }}
               title="Export MapLibre Package"
           >
               <FileDown size={10} className="mb-0.5" style={{ color: sectionColor }} />
-              <span className="text-[9px]" style={{ color: sectionColor }}>Package</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: sectionColor }}>Package</span>
           </button>
           <button
               onClick={onExportMaputnik}
-              className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors"
+              className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-white')}
               style={{ borderColor: `${sectionColor}30` }}
               title="Export Maputnik (style + sprites)"
           >
               <Map size={10} className="mb-0.5" style={{ color: sectionColor }} />
-              <span className="text-[9px]" style={{ color: sectionColor }}>Maputnik</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: sectionColor }}>Maputnik</span>
           </button>
           <button
               onClick={onPublishMaputnik}
-              className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors"
+              className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-white')}
               style={{ borderColor: `${sectionColor}30` }}
               title="Publish to GitHub Pages (Maputnik)"
           >
               <CloudUpload size={10} className="mb-0.5" style={{ color: sectionColor }} />
-              <span className="text-[9px]" style={{ color: sectionColor }}>Publish</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: sectionColor }}>Publish</span>
           </button>
-          <label className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors cursor-pointer" style={{ borderColor: `${sectionColor}30` }} title="Import JSON">
+          <label className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-white cursor-pointer')} style={{ borderColor: `${sectionColor}30` }} title="Import JSON">
               <Upload size={10} className="mb-0.5" style={{ color: sectionColor }} />
-              <span className="text-[9px]" style={{ color: sectionColor }}>Import</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: sectionColor }}>Import</span>
               <input type="file" accept=".json" onChange={onImport} className="hidden" />
           </label>
           <button
               onClick={onClear}
-              className="flex flex-col items-center justify-center p-1.5 bg-gray-800 hover:bg-red-900/30 text-gray-400 hover:text-red-400 rounded transition-colors"
+              className={uiClass(UI_CONTROLS.iconTile, 'text-gray-400 hover:text-red-400 hover:bg-red-900/30')}
               style={{ borderColor: `${sectionColor}30` }}
-              title="Reset All"
+              title="Reset all generated data"
           >
               <Trash size={10} className="mb-0.5" style={{ color: '#ef4444' }} />
-              <span className="text-[9px]" style={{ color: '#ef4444' }}>Clear</span>
+              <span className={UI_TYPOGRAPHY.tiny} style={{ color: '#ef4444' }}>Reset</span>
           </button>
       </div>
       <div className="mt-1 flex justify-end">
         <button
           onClick={onClearGitHubToken}
-          className="text-[9px] uppercase tracking-widest text-gray-500 hover:text-gray-300 transition-colors"
-          title="Clear stored GitHub token"
+          className={uiClass(UI_TYPOGRAPHY.tiny, 'uppercase tracking-[0.08em] font-semibold text-gray-500 hover:text-gray-300 transition-colors')}
+          title="Remove saved GitHub token"
           type="button"
         >
-          Clear GitHub Token
+          Remove GitHub Token
         </button>
       </div>
     </div>

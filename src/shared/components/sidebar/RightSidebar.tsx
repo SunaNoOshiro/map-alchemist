@@ -5,6 +5,7 @@ import SidebarContainer from './SidebarContainer';
 import IconItem from './right/IconItem';
 import { CATEGORY_COLORS, CATEGORY_GROUPS } from '@/constants';
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -151,14 +152,14 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
       {/* Header */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between gap-2 flex-shrink-0 bg-gray-900">
         <div className="flex items-center gap-2">
-          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Icon Assets</h2>
-          <span className="text-[10px] text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">{totalIcons} Items</span>
+          <h2 className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-400')}>Icon Assets</h2>
+          <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full')}>{totalIcons} Items</span>
         </div>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest"
+            className={uiClass(UI_CONTROLS.subtleButton, 'px-2')}
             aria-label="Close panel"
           >
             <X size={14} />
@@ -171,7 +172,7 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
       <div
         ref={listRef}
         data-testid="icon-assets-list"
-        className="flex-1 overflow-y-auto p-3 pb-32 sm:p-2 sm:pb-32 space-y-3 sm:space-y-4 scrollbar-thin"
+        className="flex-1 overflow-y-auto px-3 pb-32 space-y-3 scrollbar-thin"
         onScroll={() => {
           if (remixFocusCategory && onClearRemixFocus && !isProgrammaticScroll.current) {
             onClearRemixFocus();
@@ -195,7 +196,7 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
                 onClick={() => toggleGroup(groupName)}
                 data-testid="icon-group-header"
                 data-group={groupName}
-                className="flex items-center gap-2 px-3 sm:px-2 py-2 sm:py-1.5 cursor-pointer select-none border-b bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm"
+                className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none border-b bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm"
                 style={{ borderColor: groupColor }}
               >
                 {isExpanded ? (
@@ -203,15 +204,15 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
                 ) : (
                   <ChevronRight size={12} style={{ color: groupColor }} />
                 )}
-                <span className="text-[11px] sm:text-[10px] font-bold uppercase tracking-widest" style={{ color: groupColor }}>
+                <span className={UI_TYPOGRAPHY.sectionLabel} style={{ color: groupColor }}>
                   {groupName}
                 </span>
-                <span className="ml-auto text-[9px] text-gray-600">{items.length}</span>
+                <span className={uiClass(UI_TYPOGRAPHY.tiny, 'ml-auto text-gray-600')}>{items.length}</span>
               </div>
 
               {/* Items */}
               {isExpanded && (
-                <div className="pl-1 space-y-1">
+                <div className="space-y-1">
                   {items.map((cat) => (
                     <div key={cat} ref={selectedCategory === cat ? selectedRef : null}>
                       <IconItem

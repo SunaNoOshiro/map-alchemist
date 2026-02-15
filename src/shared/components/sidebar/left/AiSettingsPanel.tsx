@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
+import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface AiSettingsPanelProps {
   aiConfig: AiConfig;
@@ -77,6 +78,26 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
     setIsProviderDropdownOpen(false);
   };
 
+  const handleProviderToggle = () => {
+    setIsProviderDropdownOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsModelDropdownOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const handleModelToggle = () => {
+    setIsModelDropdownOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsProviderDropdownOpen(false);
+      }
+      return next;
+    });
+  };
+
   const handleModelSelect = (model: string) => {
     onUpdateAiConfig({ model });
     setIsModelDropdownOpen(false);
@@ -100,20 +121,20 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   };
 
   return (
-    <div className="bg-gray-800/50 border rounded-lg p-3 space-y-3" style={{ borderColor: `${sectionColor}50` }}>
-      <div className="flex items-center gap-2 text-[10px] text-gray-500">
+    <div className={uiClass('bg-gray-800/50 border rounded-lg', UI_SPACING.panel, UI_SPACING.blockGap)} style={{ borderColor: `${sectionColor}50` }}>
+      <div className={uiClass('flex items-center gap-2 text-gray-500', UI_TYPOGRAPHY.tiny)}>
         <BrainCircuit className="w-3 h-3" style={{ color: `${sectionColor}90` }} />
-        <span className="uppercase tracking-widest">AI setup</span>
+        <span className="uppercase tracking-[0.08em] font-semibold">AI setup</span>
       </div>
       {/* Provider Selection */}
-      <div className="space-y-1">
-        <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
+      <div className={UI_SPACING.sectionGap}>
+        <label className={uiClass(UI_TYPOGRAPHY.fieldLabel, 'text-gray-300 flex items-center gap-1')}>
           AI Provider
         </label>
         <div className="relative" ref={providerDropdownRef}>
           <button
-            onClick={() => setIsProviderDropdownOpen(!isProviderDropdownOpen)}
-            className="w-full bg-gray-700 hover:bg-gray-600 border rounded px-2 py-1.5 text-left flex items-center justify-between transition-colors text-xs"
+            onClick={handleProviderToggle}
+            className={UI_CONTROLS.dropdownTrigger}
             style={{ borderColor: `${sectionColor}50`, color: '#d1d5db' }}
           >
             <span className="truncate">Google Gemini</span>
@@ -124,7 +145,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden" style={{ borderColor: `${sectionColor}50` }}>
               <div
                 onClick={() => handleProviderSelect('google-gemini')}
-                className="px-2 py-1.5 hover:bg-gray-600 cursor-pointer flex items-center gap-2 text-xs"
+                className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
               >
                 <span className="text-blue-400">●</span>
                 Google Gemini
@@ -135,14 +156,14 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       </div>
 
       {/* Model Selection */}
-      <div className="space-y-1">
-        <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
+      <div className={UI_SPACING.sectionGap}>
+        <label className={uiClass(UI_TYPOGRAPHY.fieldLabel, 'text-gray-300 flex items-center gap-1')}>
           AI Model
         </label>
         <div className="relative" ref={modelDropdownRef}>
           <button
-            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-            className="w-full bg-gray-700 hover:bg-gray-600 border rounded px-2 py-1.5 text-left flex items-center justify-between transition-colors text-xs"
+            onClick={handleModelToggle}
+            className={UI_CONTROLS.dropdownTrigger}
             style={{ borderColor: `${sectionColor}50`, color: '#d1d5db' }}
           >
             <span className="truncate">{availableModels[aiConfig.model] || aiConfig.model}</span>
@@ -155,7 +176,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
                 <div
                   key={modelId}
                   onClick={() => handleModelSelect(modelId)}
-                  className="px-2 py-1.5 hover:bg-gray-600 cursor-pointer flex items-center gap-2 text-xs"
+                  className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
                 >
                   {aiConfig.model === modelId && <span className="text-blue-400">●</span>}
                   {modelName}
@@ -167,28 +188,28 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       </div>
 
       {/* API Key Section */}
-      <div className="space-y-1">
+      <div className={UI_SPACING.sectionGap}>
         <div className="flex items-center justify-between">
-          <label className="text-xs text-gray-300 font-medium flex items-center gap-1">
+          <label className={uiClass(UI_TYPOGRAPHY.fieldLabel, 'text-gray-300 flex items-center gap-1')}>
             <Key className="w-3 h-3" style={{ color: sectionColor }} />
             API Key
           </label>
           {hasApiKey && !aiConfig.isCustomKey && (
-            <span className="text-[10px] bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full border" style={{ borderColor: '#16a34a50' }}>
+            <span className={uiClass(UI_TYPOGRAPHY.tiny, 'bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded-full border')} style={{ borderColor: '#16a34a50' }}>
               Connected via Studio
             </span>
           )}
         </div>
 
         {isEditingApiKey ? (
-          <div className="space-y-1">
+          <div className={UI_SPACING.sectionGap}>
             <div className="relative">
               <input
                 type={showApiKey ? "text" : "password"}
                 value={apiKeyInput}
                 onChange={handleApiKeyChange}
                 placeholder="Enter your API key"
-                className="w-full bg-gray-700 border rounded px-2 py-1.5 pr-8 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+                className={uiClass(UI_CONTROLS.input, 'pr-10')}
                 style={{
                   borderColor: `${sectionColor}50`,
                   outlineColor: sectionColor
@@ -196,7 +217,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
               />
               <button
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300 text-[10px]"
+                className={uiClass(UI_TYPOGRAPHY.tiny, 'absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300')}
               >
                 {showApiKey ? 'Hide' : 'Show'}
               </button>
@@ -204,7 +225,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             <div className="flex gap-1">
               <button
                 onClick={handleApiKeySubmit}
-                className="flex-1 text-white text-xs py-1 rounded flex items-center justify-center gap-1 transition-colors"
+                className={uiClass(UI_CONTROLS.button, 'flex-1 text-white')}
                 style={{
                   backgroundColor: sectionColor,
                   borderColor: `${sectionColor}50`
@@ -215,44 +236,57 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
               </button>
               <button
                 onClick={() => setIsEditingApiKey(false)}
-                className="flex-1 bg-gray-600 hover:bg-gray-500 text-white text-xs py-1 rounded transition-colors"
+                className={uiClass(UI_CONTROLS.button, 'flex-1 bg-gray-600 hover:bg-gray-500 text-white')}
               >
                 Cancel
               </button>
             </div>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className={UI_SPACING.sectionGap}>
             {aiConfig.isCustomKey ? (
-              <div className="bg-gray-700 border rounded px-2 py-1.5 text-xs flex items-center justify-between" style={{ borderColor: `${sectionColor}50` }}>
-                <span className="truncate">••••••••••••{aiConfig.apiKey.slice(-4)}</span>
-                <div className="flex gap-1 ml-1">
+              <div className={uiClass(UI_CONTROLS.panelInset, UI_TYPOGRAPHY.compact, 'px-3 py-2 flex items-center justify-between gap-2')} style={{ borderColor: `${sectionColor}50` }}>
+                <span className="truncate text-gray-200">••••••••••••{aiConfig.apiKey.slice(-4)}</span>
+                <div className="flex items-center gap-1 ml-1">
                   <button
                     onClick={() => setIsEditingApiKey(true)}
-                    className="text-[10px] text-blue-400 hover:text-blue-300"
+                    className={uiClass(
+                      UI_TYPOGRAPHY.tiny,
+                      'inline-flex h-6 items-center rounded border px-2 normal-case tracking-normal text-gray-300 transition-colors hover:text-white',
+                    )}
+                    style={{
+                      borderColor: `${sectionColor}50`,
+                      backgroundColor: `${sectionColor}16`,
+                    }}
+                    type="button"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => onUpdateAiConfig({ apiKey: '', isCustomKey: false })}
-                    className="text-[10px] text-red-400 hover:text-red-300"
+                    className={uiClass(
+                      UI_TYPOGRAPHY.tiny,
+                      'inline-flex h-6 items-center rounded border px-2 normal-case tracking-normal text-gray-300 transition-colors hover:text-red-300 hover:bg-red-500/10',
+                    )}
+                    style={{ borderColor: '#ef44444a' }}
+                    type="button"
                   >
                     Clear
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className={UI_SPACING.sectionGap}>
                 <button
                   onClick={handleConnectWithConfig}
-                  className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-xs py-1.5 rounded flex items-center justify-center gap-1 transition-all"
+                  className={uiClass(UI_CONTROLS.button, 'w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white border-transparent')}
                 >
                   <Settings className="w-3 h-3" />
                   Connect API Key
                 </button>
                 <button
                   onClick={() => setIsEditingApiKey(true)}
-                  className="w-full text-[10px] text-gray-400 hover:text-gray-300"
+                  className={uiClass(UI_TYPOGRAPHY.tiny, 'w-full text-gray-400 hover:text-gray-300')}
                 >
                   Or enter manually...
                 </button>
@@ -263,19 +297,19 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       </div>
 
       {/* Current Configuration */}
-      <div className="bg-gray-700/50 border rounded p-2 text-[10px]" style={{ borderColor: `${sectionColor}50` }}>
+      <div className={uiClass('bg-gray-700/50 border rounded p-2', UI_TYPOGRAPHY.tiny)} style={{ borderColor: `${sectionColor}50` }}>
         <div className="flex items-center gap-1">
           <span className="text-gray-400">Current:</span>
-          <span className="bg-gray-600 px-1.5 py-0.5 rounded text-gray-200">
+          <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
             {availableModels[aiConfig.model] || aiConfig.model}
           </span>
           {aiConfig.isCustomKey && (
-            <span className="bg-green-600 px-1.5 py-0.5 rounded text-green-100 text-[9px]">
+            <span className={uiClass('bg-green-600 px-1.5 py-0.5 rounded text-green-100', UI_TYPOGRAPHY.tiny)}>
               Custom Key
             </span>
           )}
           {hasApiKey && !aiConfig.isCustomKey && (
-            <span className="bg-blue-600 px-1.5 py-0.5 rounded text-blue-100 text-[9px]">
+            <span className={uiClass('bg-blue-600 px-1.5 py-0.5 rounded text-blue-100', UI_TYPOGRAPHY.tiny)}>
               Studio Connected
             </span>
           )}

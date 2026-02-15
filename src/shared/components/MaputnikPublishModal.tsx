@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { getSectionColor } from '@/constants';
+import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 type MaputnikPublishInfo = {
   styleUrl: string;
@@ -81,30 +82,30 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
   return (
     <div
       data-testid="maputnik-publish-modal-overlay"
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-3 sm:items-center"
     >
       <div
         data-testid="maputnik-publish-modal"
         className="my-2 flex max-h-[min(94vh,920px)] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-gray-700 bg-gray-900 text-white shadow-2xl sm:my-0"
       >
-        <div className="flex items-start justify-between border-b border-gray-700 bg-gray-900 px-4 py-2.5 sm:px-5">
+        <div className="flex items-start justify-between border-b border-gray-700 bg-gray-900 px-4 py-2.5">
           <div>
-            <h2 className="text-base font-bold text-white">{title}</h2>
+            <h2 className={uiClass(UI_TYPOGRAPHY.subheading, 'text-white')}>{title}</h2>
             {showResults && (
-              <p className="text-xs text-gray-500">Use this URL to preview your style.</p>
+              <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>Use this URL to preview your style.</p>
             )}
             {showPrePublish && (
-              <p className="text-xs text-gray-500">Choose whether to include demo POIs before publishing.</p>
+              <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>Choose whether to include demo POIs before publishing.</p>
             )}
             {isPublishing && (
-              <p className="text-xs text-gray-500">Hold tight, uploading style and sprites.</p>
+              <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>Hold tight, uploading style and sprites.</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={isPublishing}
-            className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-60"
+            className={uiClass(UI_CONTROLS.subtleButton, 'px-2')}
             aria-label="Close panel"
           >
             <X size={14} />
@@ -112,17 +113,17 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           </button>
         </div>
 
-        <div data-testid="maputnik-publish-modal-content" className="space-y-2 overflow-y-auto px-4 py-3 sm:px-5">
+        <div data-testid="maputnik-publish-modal-content" className="space-y-3 overflow-y-auto px-4 py-3">
           {showPrePublish && (
-            <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
+            <div className={uiClass(UI_CONTROLS.panel, 'p-3 text-gray-200')}>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>Demo POIs (for Maputnik preview)</div>
-                  <p className="text-xs text-gray-500">
+                  <div className={uiClass(UI_TYPOGRAPHY.sectionLabel)} style={{ color: accent }}>Demo POIs (for Maputnik preview)</div>
+                  <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>
                     When enabled, the export includes demo POIs for every icon type.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-gray-400">
+                <label className={uiClass(UI_TYPOGRAPHY.compact, 'flex items-center gap-2 text-gray-400')}>
                   <input
                     type="checkbox"
                     checked={demoPoisEnabled}
@@ -137,7 +138,7 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           )}
 
           {stage === 'error' && (
-            <div className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            <div className={uiClass(UI_TYPOGRAPHY.body, 'rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3 text-red-100')}>
               {error || 'Publish failed. Please try again.'}
             </div>
           )}
@@ -147,14 +148,14 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest"
+                className={UI_CONTROLS.subtleButton}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={onPublish}
-                className="border rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800"
+                className={UI_CONTROLS.button}
                 style={{ borderColor: accentBorder, color: accent }}
               >
                 Publish now
@@ -163,7 +164,7 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
           )}
 
           {isPublishing && (
-            <div className="rounded-md border border-gray-700 bg-gray-900/50 px-3 py-2 text-sm text-gray-400">
+            <div className={uiClass(UI_CONTROLS.panelInset, UI_TYPOGRAPHY.body, 'px-3 py-2 text-gray-400')}>
               Publishing… please keep this tab open.
             </div>
           )}
@@ -172,12 +173,12 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
             <>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-500">Style URL</span>
+                  <span className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-500')}>Style URL</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={handleOpenMaputnik}
-                      className="border rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest bg-gray-800"
+                      className={uiClass(UI_CONTROLS.button, 'px-2')}
                       style={{ borderColor: accentBorder, color: accent }}
                     >
                       Open in Maputnik
@@ -185,56 +186,56 @@ const MaputnikPublishModal: React.FC<MaputnikPublishModalProps> = ({
                     <button
                       type="button"
                       onClick={handleCopy}
-                      className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest"
+                      className={uiClass(UI_CONTROLS.subtleButton, 'px-2')}
                     >
                       {copied ? 'Copied' : 'Copy'}
                     </button>
                   </div>
                 </div>
-                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
+                <div className={uiClass(UI_CONTROLS.panelInset, UI_TYPOGRAPHY.compact, 'mt-1.5 px-3 py-2 text-gray-200 bg-gray-950')}>
                   {info.styleUrl}
                 </div>
               </div>
 
               <div>
-                <span className="text-[10px] uppercase tracking-wider text-gray-500">Sprite Base</span>
-                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
+                <span className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-500')}>Sprite Base</span>
+                <div className={uiClass(UI_CONTROLS.panelInset, UI_TYPOGRAPHY.compact, 'mt-1.5 px-3 py-2 text-gray-200 bg-gray-950')}>
                   {info.spriteBaseUrl}
                 </div>
               </div>
 
               <div>
-                <span className="text-[10px] uppercase tracking-wider text-gray-500">Runtime Script URL</span>
-                <div className="mt-1.5 rounded-md border border-gray-700 bg-gray-950 px-3 py-2 text-xs text-gray-200">
+                <span className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-500')}>Runtime Script URL</span>
+                <div className={uiClass(UI_CONTROLS.panelInset, UI_TYPOGRAPHY.compact, 'mt-1.5 px-3 py-2 text-gray-200 bg-gray-950')}>
                   {info.runtimeUrl}
                 </div>
               </div>
 
-              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
+              <div className={uiClass(UI_CONTROLS.panel, UI_TYPOGRAPHY.body, 'p-3 text-gray-200')}>
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>Customer Embed Snippet</div>
+                  <div className={uiClass(UI_TYPOGRAPHY.sectionLabel)} style={{ color: accent }}>Customer Embed Snippet</div>
                   <button
                     type="button"
                     onClick={handleCopySnippet}
-                    className="text-gray-400 hover:text-white border border-gray-700 rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-widest"
+                    className={uiClass(UI_CONTROLS.subtleButton, 'px-2')}
                   >
                     {copiedSnippet ? 'Copied' : 'Copy snippet'}
                   </button>
                 </div>
-                <pre className="max-h-56 overflow-auto rounded-md border border-gray-700 bg-gray-950 p-3 text-[11px] leading-relaxed text-gray-200">
+                <pre className={uiClass(UI_CONTROLS.panelInset, 'max-h-56 overflow-auto bg-gray-950 p-3 text-gray-200', UI_TYPOGRAPHY.meta)}>
 {info.embedSnippet}
                 </pre>
               </div>
 
-              <div className="rounded-lg border border-gray-700 bg-gray-900/50 p-3 text-sm text-gray-200">
-                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: accent }}>How to open in Maputnik</div>
-                <ol className="mt-2 list-decimal space-y-1 pl-4">
+              <div className={uiClass(UI_CONTROLS.panel, UI_TYPOGRAPHY.body, 'p-3 text-gray-200')}>
+                <div className={uiClass(UI_TYPOGRAPHY.sectionLabel)} style={{ color: accent }}>How to open in Maputnik</div>
+                <ol className={uiClass(UI_TYPOGRAPHY.compact, 'mt-2 list-decimal space-y-1 pl-4')}>
                   <li>Click "Open in Maputnik" above (opens a new tab)</li>
                   <li>If it doesn't auto-load, click "Open"</li>
                   <li>Choose "Open URL"</li>
                   <li>Paste the Style URL above</li>
                 </ol>
-                <p className="mt-3 text-xs text-gray-500">
+                <p className={uiClass(UI_TYPOGRAPHY.compact, 'mt-3 text-gray-500')}>
                   If icons don’t appear, wait for GitHub Pages to finish deploying the latest commit.
                 </p>
               </div>

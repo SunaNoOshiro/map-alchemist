@@ -26,6 +26,7 @@ const loadSafeStyle = async (styleUrl: string) => {
 interface UseMapLogicProps {
     containerRef: React.RefObject<HTMLElement>;
     mapStyleJson: any;
+    styleId?: string | null;
     palette?: Record<string, string>;
     activeIcons: Record<string, IconDefinition>;
     popupStyle: PopupStyle;
@@ -34,9 +35,28 @@ interface UseMapLogicProps {
     onMapLoad?: (map: any) => void;
 }
 
+// Exported for unit tests: identifies which custom icons must be removed/loaded
+// when active style icon set changes.
+export const buildIconSyncPlan = (
+    loadedUrls: Record<string, string>,
+    icons: Record<string, IconDefinition>
+): { desiredIconUrls: Record<string, string>; staleKeys: string[] } => {
+    const desiredIconUrls: Record<string, string> = {};
+    Object.entries(icons).forEach(([category, iconDef]) => {
+        if (iconDef?.imageUrl) {
+            desiredIconUrls[category] = iconDef.imageUrl;
+        }
+    });
+
+    const staleKeys = Object.keys(loadedUrls).filter((category) => !desiredIconUrls[category]);
+
+    return { desiredIconUrls, staleKeys };
+};
+
 export const useMapLogic = ({
     containerRef,
     mapStyleJson,
+    styleId,
     palette: paletteProp,
     activeIcons,
     popupStyle,
@@ -48,6 +68,7 @@ export const useMapLogic = ({
     const [loaded, setLoaded] = useState(false);
     const [baseStyle, setBaseStyle] = useState<any>(null);
     const loadedIconUrls = useRef<Record<string, string>>({});
+    const activeStyleRef = useRef<string | null | undefined>(styleId);
 
     // 1. Initialize Map
     useEffect(() => {
@@ -186,6 +207,19 @@ export const useMapLogic = ({
 
     }, [loaded, palette, popupStyle]); // Re-run when palette changes
 
+    // Close stale popup UI when switching between themes/styles.
+    useEffect(() => {
+        if (!loaded || !mapController.current) {
+            activeStyleRef.current = styleId;
+            return;
+        }
+
+        if (activeStyleRef.current !== styleId) {
+            mapController.current.removePopup();
+            activeStyleRef.current = styleId;
+        }
+    }, [loaded, styleId]);
+
     // 4. Icon Management
     useEffect(() => {
         if (!loaded || !mapController.current) return;
@@ -193,13 +227,17 @@ export const useMapLogic = ({
 
         logger.debug('Icon loading effect triggered. Active icons:', Object.keys(activeIcons));
 
-        Object.entries(activeIcons).forEach(([cat, iconDef]) => {
-            const url = iconDef.imageUrl;
-            if (!url) {
-                if (controller.hasImage(cat)) controller.removeImage(cat);
-                return;
-            }
+        const { desiredIconUrls, staleKeys } = buildIconSyncPlan(loadedIconUrls.current, activeIcons);
 
+        staleKeys.forEach((category) => {
+            if (controller.hasImage(category)) {
+                controller.removeImage(category);
+            }
+            delete loadedIconUrls.current[category];
+            logger.debug(`Removed stale custom icon "${category}" after style change`);
+        });
+
+        Object.entries(desiredIconUrls).forEach(([cat, url]) => {
             // Simple cache check
             if (loadedIconUrls.current[cat] === url && controller.hasImage(cat)) {
                 logger.trace(`Icon "${cat}" already loaded, skipping`);

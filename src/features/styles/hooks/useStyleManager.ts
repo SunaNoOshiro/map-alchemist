@@ -341,7 +341,11 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
                 sprite2xPng: maputnikAssets.sprite2xPng
             });
 
-            addLog(`Published style: ${publishResult.styleUrl}`, 'success');
+            if (publishResult.alreadyPublished) {
+                addLog(`Already published. Skipped commit: ${publishResult.styleUrl}`, 'info');
+            } else {
+                addLog(`Published style: ${publishResult.styleUrl}`, 'success');
+            }
             const runtimeUrl = buildRuntimeUrlFromStyleUrl(publishResult.styleUrl);
             const embedSnippet = buildEmbedSnippet({
                 styleUrl: publishResult.styleUrl,

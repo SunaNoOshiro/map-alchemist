@@ -11,19 +11,30 @@ const baseConfig: AiConfig = {
 };
 
 describe('AiSettingsPanel', () => {
+  const defaultProps = {
+    aiConfig: baseConfig,
+    availableModels: {
+      'gemini-2.5-flash': 'Gemini Flash',
+      'gemini-pro': 'Gemini Pro',
+    },
+    onUpdateAiConfig: () => undefined,
+    onConnectApi: () => undefined,
+    hasApiKey: false,
+  };
+
+  it('closes provider dropdown when opening model dropdown', () => {
+    render(<AiSettingsPanel {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /^google gemini$/i }));
+    expect(screen.getAllByText('Google Gemini').length).toBeGreaterThan(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /gemini flash/i }));
+    expect(screen.queryByText('Gemini Pro')).toBeInTheDocument();
+    expect(screen.getAllByText('Google Gemini')).toHaveLength(1);
+  });
+
   it('closes the model dropdown when clicking outside', () => {
-    render(
-      <AiSettingsPanel
-        aiConfig={baseConfig}
-        availableModels={{
-          'gemini-2.5-flash': 'Gemini Flash',
-          'gemini-pro': 'Gemini Pro',
-        }}
-        onUpdateAiConfig={() => undefined}
-        onConnectApi={() => undefined}
-        hasApiKey={false}
-      />
-    );
+    render(<AiSettingsPanel {...defaultProps} />);
 
     fireEvent.click(screen.getByRole('button', { name: /gemini flash/i }));
     expect(screen.getByText('Gemini Pro')).toBeInTheDocument();

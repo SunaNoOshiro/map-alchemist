@@ -31,6 +31,10 @@ const mockGitHubApiForPublish = async (page: Page) => {
       return fulfillJson({ tree: { sha: `tree-for-${commitSha}` } });
     }
 
+    if (method === 'GET' && url.includes('/git/trees/')) {
+      return fulfillJson({ tree: [] });
+    }
+
     if (method === 'POST' && url.endsWith('/git/blobs')) {
       blobCounter += 1;
       return fulfillJson({ sha: `blob-${blobCounter}` }, 201);

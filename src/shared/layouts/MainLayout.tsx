@@ -161,7 +161,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     };
 
     return (
-        <div className="flex h-full w-full bg-gray-900 text-white font-sans overflow-hidden relative">
+        <div className="flex h-full w-full bg-gray-900 text-white overflow-hidden relative">
             <LeftSidebar
                 isOpen={isLeftSidebarOpen}
                 onClose={() => setIsLeftSidebarOpen(false)}
@@ -205,6 +205,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                     <MapView
                         apiKey={""}
                         mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
+                        styleId={activeStyleId}
                         palette={activeStyle?.palette}
                         activeIcons={activeIcons}
                         popupStyle={normalizePopupStyle(
