@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { Check, Trash2 } from 'lucide-react';
 import { MapStylePreset } from '@/types';
 import { getSectionColor } from '@/constants';
+import { UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface StyleLibraryProps {
   styles: MapStylePreset[];
@@ -17,44 +17,63 @@ const StyleLibrary: React.FC<StyleLibraryProps> = ({ styles, activeStyleId, onAp
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] text-gray-500">Saved styles</span>
-        <span className="text-[10px] text-gray-600">{styles.length} Saved</span>
+        <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-500')}>Saved styles</span>
+        <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-600')}>{styles.length} Saved</span>
       </div>
 
       <div className="space-y-1 max-h-64 overflow-y-auto scrollbar-thin">
-        {styles.map((style) => (
-          <div
-            key={style.id}
-            onClick={() => onApplyStyle(style.id)}
-            className={`group p-1.5 rounded border transition-all cursor-pointer`}
-            style={{
-              backgroundColor: activeStyleId === style.id ? '#27272a' : 'rgba(31, 41, 55, 0.3)',
-              borderColor: activeStyleId === style.id ? `${sectionColor}50` : `${sectionColor}30`,
-              boxShadow: activeStyleId === style.id ? '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)' : 'none'
-            }}
-          >
-            <div className="flex justify-between items-start">
-              <div className="flex-1 min-w-0">
-                <h3 className={`font-medium text-xs leading-tight`} style={{ color: activeStyleId === style.id ? sectionColor : '#d1d5db' }}>
-                  {style.name}
-                </h3>
-                <span className="text-[9px] text-gray-500 truncate max-w-[120px] block mt-0.5">
-                  {new Date(style.createdAt).toLocaleDateString()}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 ml-1">
-                {activeStyleId === style.id && <Check size={10} className="flex-shrink-0" style={{ color: sectionColor }} />}
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
-                  className="p-0.5 hover:bg-red-900/50 text-gray-500 hover:text-red-400 rounded transition-colors opacity-0 group-hover:opacity-100"
-                  title="Delete Style"
-                >
-                  <Trash2 size={8} />
-                </button>
+        {styles.map((style) => {
+          const isActive = activeStyleId === style.id;
+
+          return (
+            <div
+              key={style.id}
+              onClick={() => onApplyStyle(style.id)}
+              className={uiClass(
+                'group relative rounded-md border p-2.5 transition-colors cursor-pointer',
+                isActive ? 'bg-gray-800/80' : 'bg-gray-900/40 hover:bg-gray-800/60'
+              )}
+              style={{
+                borderColor: isActive ? `${sectionColor}55` : `${sectionColor}25`,
+                boxShadow: isActive ? `inset 0 0 0 1px ${sectionColor}22` : 'none',
+              }}
+            >
+              {isActive && (
+                <span
+                  className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full"
+                  style={{ backgroundColor: sectionColor }}
+                  aria-hidden="true"
+                />
+              )}
+              <div className="flex items-start justify-between gap-2 pl-1">
+                <div className="flex-1 min-w-0">
+                  <h3 className={uiClass('font-semibold leading-tight text-gray-200', UI_TYPOGRAPHY.compact)}>
+                    {style.name}
+                  </h3>
+                  <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-500 truncate max-w-[120px] block mt-0.5')}>
+                    {new Date(style.createdAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 ml-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDeleteStyle(style.id); }}
+                    className={uiClass(
+                      UI_TYPOGRAPHY.tiny,
+                      'inline-flex h-6 items-center rounded border px-2 transition-colors',
+                      isActive
+                        ? 'border-gray-600 text-gray-300 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300'
+                        : 'border-transparent text-gray-500 opacity-0 group-hover:opacity-100 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300'
+                    )}
+                    title="Delete Style"
+                    type="button"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

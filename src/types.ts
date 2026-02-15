@@ -26,6 +26,23 @@ export interface MapStylePreset {
   isBundledDefault?: boolean;
 }
 
+export interface MapStyleExportPackage {
+  formatVersion: string;
+  generatedAt: string;
+  styleId: string;
+  styleName: string;
+  prompt?: string;
+  iconTheme?: string;
+  palette: Record<string, string>;
+  popupStyle: PopupStyle;
+  styleJson: Record<string, unknown>;
+  iconsByCategory: Record<string, IconDefinition>;
+  baseStyleUrl: string;
+  placesSourceId: string;
+  poiLayerId: string;
+  notes: string[];
+}
+
 export interface LogEntry {
   id: string;
   timestamp: string;

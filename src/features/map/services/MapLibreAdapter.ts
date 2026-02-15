@@ -4,6 +4,8 @@ import { DEFAULT_STYLE_URL } from '@/constants';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('MapLibreAdapter');
+const APP_POPUP_CLASS = 'mapalchemist-app-popup';
+const APP_POPUP_STYLE_TAG_ID = 'mapalchemist-app-popup-style';
 
 // --- WORKER CONFIG ---
 try {
@@ -33,6 +35,31 @@ const absolutizeUrl = (url: string, base?: string) => {
     } catch (e) {
         return url;
     }
+};
+
+const ensureAppPopupStyles = () => {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById(APP_POPUP_STYLE_TAG_ID)) return;
+
+    const styleTag = document.createElement('style');
+    styleTag.id = APP_POPUP_STYLE_TAG_ID;
+    styleTag.textContent = [
+        `.${APP_POPUP_CLASS}.maplibregl-popup {`,
+        '  max-width: none !important;',
+        '}',
+        `.${APP_POPUP_CLASS}.maplibregl-popup .maplibregl-popup-content {`,
+        '  background: transparent !important;',
+        '  border: 0 !important;',
+        '  box-shadow: none !important;',
+        '  padding: 0 !important;',
+        '  overflow: visible !important;',
+        '}',
+        `.${APP_POPUP_CLASS}.maplibregl-popup .maplibregl-popup-tip {`,
+        '  display: none !important;',
+        '}'
+    ].join('\n');
+
+    document.head.appendChild(styleTag);
 };
 
 export class MapLibreAdapter implements IMapController {
@@ -128,7 +155,14 @@ export class MapLibreAdapter implements IMapController {
     showPopup(coordinates: [number, number], htmlContent: string, options?: any): void {
         if (!this.map) return;
         this.removePopup();
-        this.popup = new maplibregl.Popup({ ...options, closeButton: false, closeOnClick: true })
+        ensureAppPopupStyles();
+        this.popup = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: true,
+            anchor: 'bottom',
+            className: APP_POPUP_CLASS,
+            ...(options || {})
+        })
             .setLngLat(coordinates)
             .setHTML(htmlContent)
             .addTo(this.map);

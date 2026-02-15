@@ -5,6 +5,7 @@ import { useMapLogic } from '../hooks/useMapLogic';
 interface MapViewProps {
     apiKey: string;
     mapStyleJson: any;
+    styleId?: string | null;
     palette?: Record<string, string>;
     activeIcons: Record<string, IconDefinition>;
     popupStyle: PopupStyle;

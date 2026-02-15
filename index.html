@@ -8,6 +8,21 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
+    :root {
+      --mapalchemist-ui-font-family: "Avenir Next", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --mapalchemist-ui-font-size: 13px;
+      --mapalchemist-ui-line-height: 1.4;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--mapalchemist-ui-font-family);
+      font-size: var(--mapalchemist-ui-font-size);
+      line-height: var(--mapalchemist-ui-line-height);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
     /* Custom scrollbar for log panel */
     .scrollbar-thin::-webkit-scrollbar {
       width: 6px;

@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Palette, Settings2, Sparkles } from 'lucide-react';
 import { AppStatus, MapStylePreset } from '@/types';
+import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface TopToolbarProps {
   styles: MapStylePreset[];
@@ -27,6 +28,11 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
   const [isStyleMenuOpen, setIsStyleMenuOpen] = useState(false);
   const activeStyle = styles.find((style) => style.id === activeStyleId);
   const styleMenuRef = useRef<HTMLDivElement>(null);
+  const sidebarToggleClass = uiClass(UI_CONTROLS.button, 'bg-gray-800');
+  const styleTriggerClass = uiClass(
+    UI_CONTROLS.dropdownTrigger,
+    'bg-gray-800 border-gray-700 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50'
+  );
 
   useEffect(() => {
     if (!isStyleMenuOpen) {
@@ -65,13 +71,13 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
   }, [isStyleMenuOpen]);
 
   return (
-    <div className="min-h-[4rem] bg-gray-900 border-b border-gray-700 flex flex-col gap-2 px-4 py-2 sm:h-16 sm:flex-row sm:items-center sm:justify-center sm:gap-2 sm:px-6 relative z-20 shadow-md flex-shrink-0">
+    <div className="min-h-[4rem] bg-gray-900 border-b border-gray-700 flex flex-col gap-2 px-4 py-2 sm:flex-row sm:items-center sm:justify-center sm:gap-2 relative z-20 shadow-md flex-shrink-0">
       <div className="order-2 flex w-full items-center gap-2 sm:hidden">
         {!isLeftSidebarOpen && (
           <button
             type="button"
             onClick={onToggleLeftSidebar}
-            className="flex-1 border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-2"
+            className={uiClass(sidebarToggleClass, 'flex-1')}
             aria-label="Open setup panel"
           >
             <Settings2 size={14} className="text-blue-300" />
@@ -83,7 +89,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
             type="button"
             onClick={onToggleRightSidebar}
             data-testid="open-icons-sidebar"
-            className="flex-1 border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center justify-center gap-2"
+            className={uiClass(sidebarToggleClass, 'flex-1')}
             aria-label="Open icon generation panel"
           >
             <Sparkles size={14} className="text-purple-300" />
@@ -97,7 +103,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           <button
             type="button"
             onClick={onToggleLeftSidebar}
-            className="border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center gap-2"
+            className={sidebarToggleClass}
             aria-label="Open setup panel"
           >
             <Settings2 size={14} className="text-blue-300" />
@@ -110,14 +116,14 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
       <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-center order-1 sm:order-2 sm:flex-none sm:w-72">
         <div className="flex items-center gap-2">
           <Palette size={14} className="text-blue-400" />
-          <label className="text-[10px] text-blue-400 uppercase font-bold tracking-widest">Active Map Theme</label>
+          <label className={uiClass(UI_TYPOGRAPHY.actionCaps, 'text-blue-400')}>Active Map Theme</label>
         </div>
         <div className="relative w-full sm:w-64" ref={styleMenuRef}>
           <button
             type="button"
             onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
             disabled={status !== AppStatus.IDLE}
-            className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded px-2 py-1.5 text-left flex items-center justify-between transition-colors text-xs text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={styleTriggerClass}
           >
             <span className="truncate">{activeStyle?.name || 'Select a style'}</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
@@ -135,11 +141,11 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
                       onSelectStyle(style.id);
                       setIsStyleMenuOpen(false);
                     }}
-                    className={`w-full px-3 py-2 text-left text-xs transition-colors flex items-center gap-2 ${
+                    className={uiClass('w-full px-3 py-2 text-left transition-colors flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact,
                       isActive
                         ? 'bg-gray-700 text-white'
                         : 'text-gray-200 hover:bg-gray-700'
-                    }`}
+                    )}
                   >
                     {isActive && <span className="text-blue-400">●</span>}
                     <span className="truncate">{style.name}</span>
@@ -157,7 +163,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
             type="button"
             onClick={onToggleRightSidebar}
             data-testid="open-icons-sidebar"
-            className="border border-gray-700 rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest bg-gray-800 text-gray-200 hover:text-white transition-colors flex items-center gap-2"
+            className={sidebarToggleClass}
             aria-label="Open icon generation panel"
           >
             <Sparkles size={14} className="text-purple-300" />
@@ -169,7 +175,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
       {/* Right: Status */}
       <div className="w-full sm:w-32 flex justify-start sm:justify-end order-4">
         {status !== AppStatus.IDLE && (
-          <div className="flex items-center gap-2 text-xs text-blue-400 animate-pulse bg-blue-900/20 px-3 py-1 rounded-full border border-blue-900/50 whitespace-nowrap">
+          <div className={uiClass('flex items-center gap-2 animate-pulse bg-blue-900/20 px-3 py-1 rounded-full border border-blue-900/50 whitespace-nowrap text-blue-400', UI_TYPOGRAPHY.compact)}>
             <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
             {status === AppStatus.GENERATING_STYLE && 'Building...'}
             {status === AppStatus.GENERATING_ICON && 'Designing...'}

@@ -1,0 +1,394 @@
+{
+  "Airport": {
+    "x": 2,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Amusement Park": {
+    "x": 70,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Aquarium": {
+    "x": 138,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Art Gallery": {
+    "x": 206,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "ATM": {
+    "x": 274,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Bakery": {
+    "x": 342,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Bank": {
+    "x": 410,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Bar": {
+    "x": 478,
+    "y": 2,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Bowling Alley": {
+    "x": 2,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Bus Station": {
+    "x": 70,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Cafe": {
+    "x": 138,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Car Rental": {
+    "x": 206,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Car Repair": {
+    "x": 274,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Car Wash": {
+    "x": 342,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Casino": {
+    "x": 410,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Cemetery": {
+    "x": 478,
+    "y": 70,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "City Hall": {
+    "x": 2,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Clothing Store": {
+    "x": 70,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Convenience Store": {
+    "x": 138,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Courthouse": {
+    "x": 206,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Dental Clinic": {
+    "x": 274,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Embassy": {
+    "x": 342,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "EV Charging": {
+    "x": 410,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Fire Station": {
+    "x": 478,
+    "y": 138,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Funeral Home": {
+    "x": 2,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Gas Station": {
+    "x": 70,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Government": {
+    "x": 138,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Gym": {
+    "x": 206,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Hospital": {
+    "x": 274,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Library": {
+    "x": 342,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Light Rail Station": {
+    "x": 410,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Lodging": {
+    "x": 478,
+    "y": 206,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Medical": {
+    "x": 2,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Movie Theater": {
+    "x": 70,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Museum": {
+    "x": 138,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Natural Feature": {
+    "x": 206,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Night Club": {
+    "x": 274,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Park": {
+    "x": 342,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Parking": {
+    "x": 410,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Pharmacy": {
+    "x": 478,
+    "y": 274,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Place of Worship": {
+    "x": 2,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Police": {
+    "x": 70,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Post Office": {
+    "x": 138,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Restaurant": {
+    "x": 206,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "School": {
+    "x": 274,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Shopping Mall": {
+    "x": 342,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Sports Complex": {
+    "x": 410,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Stadium": {
+    "x": 478,
+    "y": 342,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Store": {
+    "x": 2,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Subway Station": {
+    "x": 70,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Supermarket": {
+    "x": 138,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Tourist Attraction": {
+    "x": 206,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Train Station": {
+    "x": 274,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "University": {
+    "x": 342,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Veterinary Care": {
+    "x": 410,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  },
+  "Zoo": {
+    "x": 478,
+    "y": 410,
+    "width": 64,
+    "height": 64,
+    "pixelRatio": 1
+  }
+}

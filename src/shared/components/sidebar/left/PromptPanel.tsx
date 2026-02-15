@@ -3,6 +3,7 @@ import React from 'react';
 import { Play, ShieldCheck } from 'lucide-react';
 import { AppStatus } from '@/types';
 import { getSectionColor } from '@/constants';
+import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface PromptPanelProps {
   prompt: string;
@@ -28,14 +29,14 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
 
   if (!hasApiKey) {
     return (
-      <div className="p-3 space-y-3 bg-gray-900/50 border rounded-lg" style={{ borderColor: `${sectionColor}50` }}>
-        <label className="block text-xs font-medium text-gray-300 uppercase tracking-wider">New Style Prompt</label>
-        <div className="h-20 bg-gray-800/50 border rounded-md p-3 text-sm text-gray-500 flex items-center justify-center text-center italic" style={{ borderColor: `${sectionColor}30` }}>
+      <div className={uiClass('bg-gray-900/50 border rounded-lg', UI_SPACING.panel, UI_SPACING.blockGap)} style={{ borderColor: `${sectionColor}50` }}>
+        <label className={uiClass('block text-gray-300 uppercase tracking-[0.08em]', UI_TYPOGRAPHY.fieldLabel)}>New Style Prompt</label>
+        <div className={uiClass('h-24 bg-gray-800/50 border rounded-md p-3 text-gray-500 flex items-center justify-center text-center italic', UI_TYPOGRAPHY.body)} style={{ borderColor: `${sectionColor}30` }}>
           Guest Mode (Read Only)
         </div>
         <button
           onClick={onConnectApi}
-          className="w-full py-2 px-4 rounded-md font-medium text-sm transition-all flex items-center justify-center gap-2"
+          className={uiClass(UI_CONTROLS.button, 'w-full')}
           style={{
             backgroundColor: `${sectionColor}20`,
             borderColor: `${sectionColor}50`,
@@ -49,13 +50,13 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
   }
 
   return (
-    <div className="p-3 space-y-3 bg-gray-900/50 border rounded-lg" style={{ borderColor: `${sectionColor}50` }}>
-      <label className="block text-xs font-medium text-gray-300 uppercase tracking-wider">New Style Prompt</label>
+    <div className={uiClass('bg-gray-900/50 border rounded-lg', UI_SPACING.panel, UI_SPACING.blockGap)} style={{ borderColor: `${sectionColor}50` }}>
+      <label className={uiClass('block text-gray-300 uppercase tracking-[0.08em]', UI_TYPOGRAPHY.fieldLabel)}>New Style Prompt</label>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="e.g., Cyberpunk neon night, cozy watercolor fantasy, matrix code..."
-        className="w-full h-20 bg-gray-800 border rounded px-2 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none resize-none transition-colors"
+        className={uiClass(UI_CONTROLS.textarea, 'h-24')}
         style={{
           borderColor: `${sectionColor}50`,
           outlineColor: sectionColor
@@ -64,7 +65,7 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
       <button
         onClick={onGenerate}
         disabled={status !== AppStatus.IDLE || !prompt.trim()}
-        className={`w-full py-1.5 px-3 rounded font-medium text-xs transition-all flex items-center justify-center gap-2`}
+        className={uiClass(UI_CONTROLS.button, 'w-full')}
         style={{
           backgroundColor: isGenerating ? `${sectionColor}30` : sectionColor,
           borderColor: `${sectionColor}50`,

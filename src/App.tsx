@@ -29,7 +29,18 @@ function App() {
 
   const {
     styles, setStyles, activeStyleId, setActiveStyleId,
-    handleExport, handleImport, handleClear, handleDeleteStyle
+    maputnikPublishStage, maputnikPublishInfo, maputnikPublishError,
+    maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled,
+    handleExport,
+    handleImport,
+    handleClear,
+    handleDeleteStyle,
+    handleExportPackage,
+    handleExportMaputnik,
+    handleOpenPublishMaputnik,
+    handleConfirmPublishMaputnik,
+    handleClosePublishMaputnik,
+    handleClearGitHubToken
   } = useStyleManager(addLog);
 
   const {
@@ -67,12 +78,23 @@ function App() {
       hasApiKey={hasApiKey || !!aiConfig.apiKey}
       aiConfig={aiConfig}
       availableModels={availableModels}
+      maputnikPublishStage={maputnikPublishStage}
+      maputnikPublishInfo={maputnikPublishInfo}
+      maputnikPublishError={maputnikPublishError}
+      onConfirmMaputnikPublish={handleConfirmPublishMaputnik}
+      onCloseMaputnikPublish={handleClosePublishMaputnik}
+      maputnikDemoPoisEnabled={maputnikDemoPoisEnabled}
+      onToggleMaputnikDemoPois={setMaputnikDemoPoisEnabled}
       // Handlers
       setPrompt={setPrompt}
       onGenerate={() => handleGenerateStyle(prompt, hasApiKey || !!aiConfig.apiKey, handleSelectKey)}
       onApplyStyle={setActiveStyleId}
       onDeleteStyle={handleDeleteStyle}
       onExport={handleExport}
+      onExportPackage={handleExportPackage}
+      onExportMaputnik={handleExportMaputnik}
+      onPublishMaputnik={handleOpenPublishMaputnik}
+      onClearGitHubToken={handleClearGitHubToken}
       onImport={handleImport}
       onClear={handleClear}
       onConnectApi={handleSelectKey}

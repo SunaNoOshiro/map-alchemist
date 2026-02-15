@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Wand2, Image as ImageIcon, X, Lock } from 'lucide-react';
 import { IconDefinition } from '@/types';
 import { getCategoryColor } from '@/constants';
+import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
 
 interface IconItemProps {
     category: string;
@@ -59,15 +60,12 @@ const IconItem: React.FC<IconItemProps> = ({
         return (
             <div
                 data-testid={testId}
-                className="bg-gray-800 border rounded-lg p-2 mb-2 shadow-lg transition-all relative max-h-[520px] overflow-hidden"
+                className="bg-gray-800 border rounded-lg p-3 mb-2 shadow-lg transition-all relative max-h-[520px] overflow-hidden"
                 style={{ borderColor: `${sectionColor}50` }} // 50% opacity
                 onClick={(e) => e.stopPropagation()}
             >
                 <div className="flex justify-between items-start mb-2 pr-6">
-                    <span className="text-sm font-bold" style={{ color: sectionColor }}>{category}</span>
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wider bg-gray-900 px-2 py-0.5 rounded">
-                        Active
-                    </span>
+                    <span className={uiClass(UI_TYPOGRAPHY.subheading)} style={{ color: sectionColor }}>{category}</span>
                 </div>
 
                 {/* Close Button */}
@@ -80,7 +78,7 @@ const IconItem: React.FC<IconItemProps> = ({
                 </button>
 
                 {/* Large Preview with Checkerboard BG */}
-                <div className="w-full h-24 sm:h-32 bg-gray-900 rounded-md border flex items-center justify-center overflow-hidden mb-2 relative group"
+                <div className="w-full h-32 bg-gray-900 rounded-md border flex items-center justify-center overflow-hidden mb-2 relative group"
                     style={{
                         backgroundImage: `linear-gradient(45deg, #1f2937 25%, transparent 25%), linear-gradient(-45deg, #1f2937 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1f2937 75%), linear-gradient(-45deg, transparent 75%, #1f2937 75%)`,
                         backgroundSize: '20px 20px',
@@ -106,9 +104,9 @@ const IconItem: React.FC<IconItemProps> = ({
 
                 {/* Prompt Editing */}
                 <div className="space-y-1">
-                    <label className="text-[10px] text-gray-500 font-semibold uppercase">Art Direction Prompt</label>
+                    <label className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-500 font-semibold uppercase')}>Art Direction Prompt</label>
                     {isReadOnly ? (
-                        <div className="text-xs text-gray-400 italic bg-gray-900/50 p-2 rounded border max-h-16 overflow-y-auto" style={{ borderColor: `${sectionColor}50` }}>
+                        <div className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-400 italic bg-gray-900/50 p-2 rounded border max-h-16 overflow-y-auto')} style={{ borderColor: `${sectionColor}50` }}>
                             {localPrompt || "No specific prompt set."}
                         </div>
                     ) : (
@@ -116,7 +114,7 @@ const IconItem: React.FC<IconItemProps> = ({
                             ref={textareaRef}
                             value={localPrompt}
                             onChange={(e) => setLocalPrompt(e.target.value)}
-                            className="w-full bg-gray-900 border rounded p-2 text-xs text-gray-200 focus:outline-none resize-none min-h-[44px] max-h-20"
+                            className={uiClass(UI_CONTROLS.textarea, 'bg-gray-900 min-h-[52px] max-h-24')}
                             style={{
                                 borderColor: `${sectionColor}50`,
                                 outlineColor: sectionColor
@@ -130,7 +128,7 @@ const IconItem: React.FC<IconItemProps> = ({
                 <button
                     onClick={handleRegenerate}
                     disabled={isLoading || isReadOnly}
-                    className={`w-full mt-2 py-2 rounded-md text-xs font-medium flex items-center justify-center gap-2 transition-all`}
+                    className={uiClass(UI_CONTROLS.button, 'w-full mt-2 normal-case tracking-normal text-xs')}
                     style={{
                         backgroundColor: isReadOnly ? '#27272a' : sectionColor,
                         borderColor: `${sectionColor}50`,
@@ -151,7 +149,7 @@ const IconItem: React.FC<IconItemProps> = ({
     return (
         <div
             data-testid={testId}
-            className="group flex items-center gap-3 p-2 rounded transition-all cursor-pointer border border-transparent hover:bg-gray-800/50"
+            className="group flex items-center gap-3 p-2 rounded-md transition-all cursor-pointer border border-transparent hover:bg-gray-800/50"
             style={{ borderColor: `${sectionColor}50` }}
             onClick={() => onSelect(category)}
         >
@@ -175,7 +173,7 @@ const IconItem: React.FC<IconItemProps> = ({
 
             {/* Label */}
             <div className="flex-1 min-w-0">
-                <span className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors">
+                <span className={uiClass(UI_TYPOGRAPHY.compact, 'font-medium text-gray-300 group-hover:text-white transition-colors')}>
                     {category}
                 </span>
             </div>
