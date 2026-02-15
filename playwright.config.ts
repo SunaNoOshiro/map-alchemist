@@ -4,6 +4,9 @@ import { defineBddConfig } from 'playwright-bdd';
 const testDir = defineBddConfig({
     features: 'test/e2e/features/*.feature',
     steps: 'test/e2e/steps/*.steps.ts',
+    importTestFrom: {
+        file: 'test/e2e/bddTest.ts',
+    },
 });
 
 const basePath = process.env.VITE_BASE_PATH || '/';
