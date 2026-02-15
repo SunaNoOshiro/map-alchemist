@@ -99,7 +99,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
       </div>
 
       {/* Scrollable Content with Sections */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-3 scrollbar-thin">
         {SECTIONS.map((section) => {
           const isExpanded = expandedSections[section.id];
           const Icon = section.icon === 'BrainCircuit' ? BrainCircuit :
@@ -123,7 +123,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
 
               {/* Section Content */}
               {isExpanded && (
-                <div className="pl-1 space-y-1">
+                <div className="space-y-1">
                   {section.id === 'ai-config' && (
                     <div className="p-2">
                       <AiSettingsPanel
