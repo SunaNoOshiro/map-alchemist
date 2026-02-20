@@ -68,6 +68,7 @@ const normalizeCategoryToken = (value?: string) =>
 const CATEGORY_BY_TOKEN = new Map(
     MAP_CATEGORIES.map((category) => [normalizeCategoryToken(category), category] as const)
 );
+const POI_MOVEEND_REFRESH_DEBOUNCE_MS = 180;
 
 const wrapNumericInputExpression = (input: any) => {
     if (!Array.isArray(input) || input.length === 0) return input;
@@ -679,6 +680,7 @@ export const useMapLogic = ({
     useEffect(() => {
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
+        let moveendRefreshTimer: number | null = null;
 
         // Map click handler (removed undefined handleMapClick)
 
@@ -696,8 +698,15 @@ export const useMapLogic = ({
 
         // Set up moveend listener for POI refresh
         const moveendHandler = () => {
-            if (!mapController.current) return;
-            PoiService.refreshData(mapController.current, activeIcons, palette, popupStyle);
+            if (moveendRefreshTimer !== null) {
+                window.clearTimeout(moveendRefreshTimer);
+            }
+
+            moveendRefreshTimer = window.setTimeout(() => {
+                moveendRefreshTimer = null;
+                if (!mapController.current) return;
+                PoiService.refreshData(mapController.current, activeIcons, palette, popupStyle);
+            }, POI_MOVEEND_REFRESH_DEBOUNCE_MS);
         };
 
         controller.on('moveend', moveendHandler);
@@ -709,6 +718,10 @@ export const useMapLogic = ({
             if (mapController.current) {
                 // mapController.current.off('click', handleClick); // Removed undefined handleClick
                 mapController.current.off('moveend', moveendHandler);
+                if (moveendRefreshTimer !== null) {
+                    window.clearTimeout(moveendRefreshTimer);
+                    moveendRefreshTimer = null;
+                }
 
                 // Clean up cursor event listeners
                 const rawMap = mapController.current.getRawMap?.();

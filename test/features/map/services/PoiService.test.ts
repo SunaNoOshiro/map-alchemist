@@ -128,4 +128,33 @@ describe('PoiService.refreshData label colors', () => {
         expect(payload.features[0].properties.title).toBe('Valid POI');
         expect(payload.features[0].geometry.coordinates).toEqual([139.767, 35.681]);
     });
+
+    it('skips places source update when the computed POI payload is unchanged', () => {
+        const palette = { text: '#123456', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([createPoiFeature({ subclass: 'cafe' })]);
+
+        PoiService.refreshData(map, {}, palette, DEFAULT_POPUP_STYLE);
+        PoiService.refreshData(map, {}, palette, DEFAULT_POPUP_STYLE);
+
+        expect(setGeoJsonSourceData).toHaveBeenCalledTimes(1);
+    });
+
+    it('updates places source again when refresh inputs change rendered POI properties', () => {
+        const basePalette = { text: '#334155', land: '#0f172a' };
+        const changedPalette = { text: '#ef4444', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({
+                subclass: 'unknown_poi_kind'
+            })
+        ]);
+
+        PoiService.refreshData(map, {}, basePalette, DEFAULT_POPUP_STYLE);
+        PoiService.refreshData(map, {}, changedPalette, DEFAULT_POPUP_STYLE);
+
+        expect(setGeoJsonSourceData).toHaveBeenCalledTimes(2);
+        const [, firstPayload] = setGeoJsonSourceData.mock.calls[0] as [string, { features: Array<{ properties: Record<string, string> }> }];
+        const [, secondPayload] = setGeoJsonSourceData.mock.calls[1] as [string, { features: Array<{ properties: Record<string, string> }> }];
+        expect(firstPayload.features[0].properties.textColor).toBe(basePalette.text);
+        expect(secondPayload.features[0].properties.textColor).toBe(changedPalette.text);
+    });
 });

@@ -8,6 +8,7 @@ import { extractPoiSymbolSources } from './styleCatalog';
 const logger = createLogger('PoiService');
 
 const DEFAULT_CATEGORY_GROUP_COLOR = getCategoryColor('__unknown_category__');
+const POI_REFRESH_SIGNATURE_BY_MAP = new WeakMap<IMapController, string>();
 
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -142,6 +143,40 @@ const extractPointCoordinates = (feature: any): [number, number] | null => {
     return null;
 };
 
+const fnv1aUpdate = (hash: number, value: string): number => {
+    let next = hash;
+    for (let index = 0; index < value.length; index += 1) {
+        next ^= value.charCodeAt(index);
+        next = Math.imul(next, 16777619);
+    }
+    return next >>> 0;
+};
+
+const buildPoiRefreshSignature = (features: any[], sourceCount: number): string => {
+    let hash = 2166136261;
+    hash = fnv1aUpdate(hash, String(sourceCount));
+    hash = fnv1aUpdate(hash, String(features.length));
+
+    features.forEach((feature) => {
+        const properties = feature?.properties || {};
+        const coordinates = feature?.geometry?.coordinates;
+        const lng = Array.isArray(coordinates) && typeof coordinates[0] === 'number'
+            ? coordinates[0].toFixed(5)
+            : '0';
+        const lat = Array.isArray(coordinates) && typeof coordinates[1] === 'number'
+            ? coordinates[1].toFixed(5)
+            : '0';
+
+        hash = fnv1aUpdate(hash, String(properties.id || ''));
+        hash = fnv1aUpdate(hash, String(properties.iconKey || ''));
+        hash = fnv1aUpdate(hash, String(properties.textColor || ''));
+        hash = fnv1aUpdate(hash, String(properties.haloColor || ''));
+        hash = fnv1aUpdate(hash, `${lng},${lat}`);
+    });
+
+    return `${sourceCount}:${features.length}:${hash >>> 0}`;
+};
+
 export class PoiService {
     /**
      * Hides base map POI layers since our custom layer handles all POI rendering
@@ -234,8 +269,17 @@ export class PoiService {
             });
         });
 
-        const features = Array.from(byId.values());
-        logger.info(`Found ${features.length} POI features from ${poiSources.length} sources`);
+        const features = Array
+            .from(byId.values())
+            .sort((left, right) => String(left?.properties?.id || '').localeCompare(String(right?.properties?.id || '')));
+        logger.debug(`Found ${features.length} POI features from ${poiSources.length} sources`);
+
+        const refreshSignature = buildPoiRefreshSignature(features, poiSources.length);
+        const previousSignature = POI_REFRESH_SIGNATURE_BY_MAP.get(map);
+        if (previousSignature === refreshSignature) {
+            logger.debug(`Skipped POI source update (unchanged payload, ${features.length} features)`);
+            return;
+        }
 
         // Update the places source with new data
         // Note: Source and layer are created during map initialization in useMapLogic
@@ -243,6 +287,7 @@ export class PoiService {
             type: 'FeatureCollection',
             features: features
         });
-        logger.info(`Updated places source with ${features.length} features`);
+        POI_REFRESH_SIGNATURE_BY_MAP.set(map, refreshSignature);
+        logger.debug(`Updated places source with ${features.length} features`);
     }
 }

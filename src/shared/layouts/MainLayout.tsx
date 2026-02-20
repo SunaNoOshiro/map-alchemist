@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import LeftSidebar from '@shared/components/sidebar/LeftSidebar';
 import RightSidebar from '@shared/components/sidebar/RightSidebar';
 import TopToolbar from '@shared/components/TopToolbar';
 import MapView from '@features/map/components/MapView';
 import MaputnikPublishModal from '@shared/components/MaputnikPublishModal';
-import { MapStylePreset, LogEntry, AppStatus } from '@/types';
+import { MapStylePreset, LogEntry, AppStatus, IconDefinition } from '@/types';
 import { normalizePopupStyle } from '@core/services/defaultThemes';
 import { DEFAULT_STYLE_PRESET } from '@/constants';
+
+const EMPTY_ICONS: Record<string, IconDefinition> = {};
 
 interface MainLayoutProps {
     // State
@@ -18,7 +20,8 @@ interface MainLayoutProps {
     prompt: string;
     hasApiKey: boolean;
     aiConfig: any;
-    availableModels: Record<string, string>;
+    availableTextModels: Record<string, string>;
+    availableImageModels: Record<string, string>;
     maputnikPublishStage: 'idle' | 'pre' | 'publishing' | 'done' | 'error';
     maputnikPublishInfo: {
         styleUrl: string;
@@ -58,7 +61,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     prompt,
     hasApiKey,
     aiConfig,
-    availableModels,
+    availableTextModels,
+    availableImageModels,
     maputnikPublishStage,
     maputnikPublishInfo,
     maputnikPublishError,
@@ -115,8 +119,19 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         }
     }, [isMobile]);
 
-    const activeStyle = styles.find(s => s.id === activeStyleId) || null;
-    const activeIcons = activeStyle ? activeStyle.iconsByCategory : {};
+    const activeStyle = useMemo(
+        () => styles.find(s => s.id === activeStyleId) || null,
+        [styles, activeStyleId]
+    );
+    const activeIcons = useMemo(
+        () => activeStyle?.iconsByCategory || EMPTY_ICONS,
+        [activeStyle]
+    );
+    const legacyPopupStyle = (activeStyle as any)?.mapStyleJson?.popupStyle;
+    const normalizedPopupStyle = useMemo(
+        () => normalizePopupStyle(activeStyle?.popupStyle || legacyPopupStyle),
+        [activeStyle?.popupStyle, legacyPopupStyle]
+    );
 
     const handleEditFromPopup = useCallback((category: string) => {
         if (isMobile) setIsLeftSidebarOpen(false);
@@ -185,7 +200,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 hasApiKey={hasApiKey}
                 onConnectApi={onConnectApi}
                 aiConfig={aiConfig}
-                availableModels={availableModels}
+                availableTextModels={availableTextModels}
+                availableImageModels={availableImageModels}
                 onUpdateAiConfig={onUpdateAiConfig}
             />
 
@@ -208,9 +224,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                         styleId={activeStyleId}
                         palette={activeStyle?.palette}
                         activeIcons={activeIcons}
-                        popupStyle={normalizePopupStyle(
-                            activeStyle?.popupStyle || (activeStyle as any)?.mapStyleJson?.popupStyle
-                        )}
+                        popupStyle={normalizedPopupStyle}
                         isDefaultTheme={activeStyleId ? DEFAULT_STYLE_PRESET.id === activeStyleId : false} // Simplified default check for layout
                         onEditIcon={handleEditFromPopup}
                         isThemeSelected={!!activeStyleId}

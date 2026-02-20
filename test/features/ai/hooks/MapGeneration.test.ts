@@ -43,7 +43,8 @@ describeFeature(feature, ({ Scenario }) => {
                 activeStyleId: null,
                 aiConfig: {
                     provider: 'google-gemini',
-                    model: 'gemini-2.5-flash',
+                    textModel: 'gemini-2.5-flash',
+                    imageModel: 'gemini-2.5-flash-image',
                     apiKey: 'test-api-key',
                     isCustomKey: true,
                     iconGenerationMode: 'auto'

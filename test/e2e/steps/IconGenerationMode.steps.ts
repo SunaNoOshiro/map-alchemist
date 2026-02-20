@@ -183,7 +183,8 @@ Given('I open the app with icon generation mode {string}', async ({ page }, mode
   await page.addInitScript(({ selectedMode }) => {
     const config = {
       provider: 'google-gemini',
-      model: 'gemini-2.5-flash',
+      textModel: 'gemini-2.5-flash',
+      imageModel: 'gemini-2.5-flash-image',
       apiKey: 'bdd-test-api-key',
       isCustomKey: true,
       iconGenerationMode: selectedMode,

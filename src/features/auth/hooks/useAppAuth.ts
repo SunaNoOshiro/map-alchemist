@@ -1,17 +1,22 @@
 import { useState, useEffect } from 'react';
-import { LogEntry, AiConfig, AiProvider } from '@/types';
-import { DEFAULT_AI_CONFIG, getAvailableModels } from '@/constants/aiConstants';
+import { LogEntry, AiConfig } from '@/types';
+import {
+    DEFAULT_AI_CONFIG,
+    getAvailableImageModels,
+    getAvailableTextModels,
+    sanitizeAiConfig
+} from '@/constants/aiConstants';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('AuthHook');
 const AI_CONFIG_STORAGE_KEY = 'mapAlchemistAiConfig';
-const VALID_ICON_GENERATION_MODES = new Set<AiConfig['iconGenerationMode']>(['auto', 'atlas', 'per-icon']);
 
 export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [hasApiKey, setHasApiKey] = useState<boolean>(false);
     const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
     const [aiConfig, setAiConfig] = useState<AiConfig>(DEFAULT_AI_CONFIG);
-    const [availableModels, setAvailableModels] = useState<Record<string, string>>({});
+    const [availableTextModels, setAvailableTextModels] = useState<Record<string, string>>({});
+    const [availableImageModels, setAvailableImageModels] = useState<Record<string, string>>({});
 
     // Load AI config from storage on init
     useEffect(() => {
@@ -20,18 +25,7 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
                 const savedConfig = localStorage.getItem(AI_CONFIG_STORAGE_KEY);
                 if (savedConfig) {
                     const parsed = JSON.parse(savedConfig);
-                    setAiConfig(prev => ({
-                        ...prev,
-                        ...parsed,
-                        // Ensure we have valid defaults
-                        provider: parsed.provider || DEFAULT_AI_CONFIG.provider,
-                        model: parsed.model || DEFAULT_AI_CONFIG.model,
-                        apiKey: parsed.apiKey || '',
-                        isCustomKey: parsed.isCustomKey || false,
-                        iconGenerationMode: VALID_ICON_GENERATION_MODES.has(parsed.iconGenerationMode)
-                            ? parsed.iconGenerationMode
-                            : DEFAULT_AI_CONFIG.iconGenerationMode
-                    }));
+                    setAiConfig(sanitizeAiConfig(parsed));
                 }
             } catch (e) {
                 logger.error("Failed to load AI config", e);
@@ -53,7 +47,10 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
 
     // Update available models when provider changes
     useEffect(() => {
-        setAvailableModels(getAvailableModels(aiConfig.provider));
+        const textModels = getAvailableTextModels(aiConfig.provider);
+        const imageModels = getAvailableImageModels(aiConfig.provider);
+        setAvailableTextModels(textModels);
+        setAvailableImageModels(imageModels);
     }, [aiConfig.provider]);
 
     const handleSelectKey = async () => {
@@ -76,13 +73,17 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
     };
 
     const updateAiConfig = (newConfig: Partial<AiConfig>) => {
-        const updatedConfig = { ...aiConfig, ...newConfig };
+        const mergedConfig: AiConfig = {
+            ...aiConfig,
+            ...newConfig,
+        };
 
         // If API key is provided and different from default, mark as custom
         if (newConfig.apiKey && newConfig.apiKey !== DEFAULT_AI_CONFIG.apiKey) {
-            updatedConfig.isCustomKey = true;
+            mergedConfig.isCustomKey = true;
         }
 
+        const updatedConfig = sanitizeAiConfig(mergedConfig);
         setAiConfig(updatedConfig);
 
         // Save to localStorage
@@ -106,7 +107,8 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
         setIsGuestMode,
         handleSelectKey,
         aiConfig,
-        availableModels,
+        availableTextModels,
+        availableImageModels,
         updateAiConfig,
         validateApiKey
     };

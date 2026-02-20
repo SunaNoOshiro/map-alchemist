@@ -1,5 +1,48 @@
 # Implementation Plan
 
+## Hotfix Plan: POI Refresh Churn & Console Spam (2026-02-20)
+
+### Goal
+Reduce runtime map churn and console noise caused by repeated POI refreshes that rebuild and push identical GeoJSON payloads.
+
+### User Review Required
+1. Execution scope:
+   - Apply all four optimizations in one pass: dedupe updates, stabilize props, throttle moveend refresh, and lower log verbosity.
+
+### Proposed Changes
+1. Dedupe `places` source updates for identical POI snapshots.
+   - File: `src/features/map/services/PoiService.ts`
+   - Build deterministic feature signature and skip `setGeoJsonSourceData` when unchanged for the same map instance.
+   - Keep refresh logic intact for real data/color/icon changes.
+
+2. Stabilize `popupStyle` (and empty icon fallback object) references.
+   - File: `src/shared/layouts/MainLayout.tsx`
+   - Memoize normalized popup style before passing to `MapView`.
+   - Avoid creating a fresh empty icon object on each render.
+
+3. Throttle/debounce move-end driven POI refreshes.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Debounce `moveend` refresh calls to prevent burst updates during rapid map interactions.
+
+4. Lower high-frequency POI logs to debug level.
+   - File: `src/features/map/services/PoiService.ts`
+   - Convert frequent `info` messages to `debug` and add explicit debug message for skipped unchanged updates.
+
+5. Add regression tests for dedupe behavior.
+   - File: `test/features/map/services/PoiService.test.ts`
+   - Verify repeated identical refreshes do not re-write source data.
+   - Verify changes that affect rendered POI properties still trigger source updates.
+
+### Verification Plan
+1. Targeted tests:
+   - `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. Full unit suite:
+   - `npm test -- --run`
+3. Manual sanity:
+   - Pan/zoom map in browser with DevTools open.
+   - Confirm POI logs are no longer flooding at `info` level.
+   - Confirm POI icons/labels still update when theme/icons change.
+
 ## Hotfix Plan: Deployed Basemap Rendering Regression (2026-02-20)
 
 ### Goal
@@ -88,6 +131,49 @@ Fix real-API runs where generation completes with only two AI calls but produced
      - custom icons appear in right panel and on map,
      - logs show usable icon counts,
      - request count remains low (multi-atlas, not per-icon flood).
+
+## Feature Plan: Split Text/Image Model Configuration (2026-02-20)
+
+### Goal
+Use explicit Gemini model selection per workload:
+1. Text model for theme/style JSON generation.
+2. Image model for icon/atlas generation.
+3. Remove legacy single-model config path and keep only explicit text/image model fields.
+
+### User Review Required
+1. UX scope:
+   - Add separate dropdowns in both onboarding (`AuthScreen`) and sidebar AI settings.
+
+### Proposed Changes
+1. Extend AI config schema.
+   - Files: `src/types.ts`, `src/constants/aiConstants.ts`, `src/features/auth/hooks/useAppAuth.ts`
+   - Add `textModel` and `imageModel`.
+   - Remove legacy `model` field from runtime config.
+   - Enforce strict config sanitization: no migration/fallback from legacy single-model key.
+
+2. Route models correctly in service layer.
+   - Files: `src/features/ai/services/AiFactory.ts`, `src/features/ai/services/GeminiService.ts`
+   - Pass text model for map/theme generation calls.
+   - Pass image model for icon and atlas generation calls.
+
+3. Update UI with two model selectors.
+   - Files: `src/features/auth/components/AuthScreen.tsx`, `src/shared/components/sidebar/left/AiSettingsPanel.tsx`, and prop plumbing through layout/app files.
+   - Add `Text Model` and `Image Model` dropdowns.
+
+4. Update tests and BDD fixtures.
+   - Files in `test/**` where `AiConfig` is constructed.
+   - Ensure fixtures include both models and UI tests still validate dropdown-close behavior.
+
+### Verification Plan
+1. Targeted tests:
+   - `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/features/auth/components/AuthScreen.test.tsx test/features/ai/hooks/MapGeneration.test.ts test/features/ai/hooks/useMapGeneration.invalidKey.test.ts test/constants/aiConstants.test.ts`
+2. AI service tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts`
+3. Full unit suite:
+   - `npm test -- --run`
+4. Manual check:
+   - Set different text/image models in UI.
+   - Generate theme and confirm logs indicate normal completion and custom icons appear.
 
 ## Goal
 Replace the current heuristic palette flow with a deterministic style compiler that:

@@ -38,7 +38,7 @@ describe('GeminiService invalid key handling', () => {
   it('fails fast on invalid API key and does not continue to icon generation', async () => {
     generateContentMock.mockRejectedValueOnce(invalidApiKeyError);
 
-    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'auto');
+    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
 
     await expect(
       service.generateMapTheme('pirates map of treasures', ['Restaurant', 'Cafe', 'Bar'])
@@ -50,7 +50,7 @@ describe('GeminiService invalid key handling', () => {
   it('throws a user-facing error for single icon generation with invalid API key', async () => {
     generateContentMock.mockRejectedValueOnce(invalidApiKeyError);
 
-    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'auto');
+    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
 
     await expect(
       service.generateIconImage('Bakery', 'cartoon style')
@@ -96,7 +96,7 @@ describe('GeminiService invalid key handling', () => {
         })
       });
 
-    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'per-icon');
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
     const preset = await service.generateMapTheme('Cyber city pulse', []);
 
     expect(preset.mapStyleJson.version).toBe(8);
@@ -146,7 +146,7 @@ describe('GeminiService invalid key handling', () => {
     });
 
     const categories = Array.from({ length: 90 }, (_, index) => `Category ${index + 1}`);
-    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'per-icon');
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
     const generateIconImageSpy = vi
       .spyOn(service, 'generateIconImage')
       .mockResolvedValue('data:image/png;base64,abc');

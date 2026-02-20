@@ -385,12 +385,19 @@ const applyPerIconBudget = (
 
 export class GeminiService implements IAiService {
     private apiKey: string;
-    private model: string;
+    private textModel: string;
+    private imageModel: string;
     private iconGenerationMode: IconGenerationMode;
 
-    constructor(apiKey: string, model: string, iconGenerationMode: IconGenerationMode = 'auto') {
+    constructor(
+        apiKey: string,
+        textModel: string,
+        imageModel: string,
+        iconGenerationMode: IconGenerationMode = 'auto'
+    ) {
         this.apiKey = apiKey;
-        this.model = model;
+        this.textModel = textModel;
+        this.imageModel = imageModel;
         this.iconGenerationMode = iconGenerationMode;
     }
 
@@ -409,7 +416,7 @@ export class GeminiService implements IAiService {
         const prompt = buildAtlasPrompt(normalizedCategories, styleDescription, size);
 
         const response = await client.models.generateContent({
-            model: this.model,
+            model: this.imageModel,
             contents: prompt
         });
 
@@ -453,7 +460,7 @@ export class GeminiService implements IAiService {
 
         try {
             const response = await client.models.generateContent({
-                model: this.model,
+                model: this.imageModel,
                 contents: prompt,
             });
 
@@ -482,7 +489,7 @@ export class GeminiService implements IAiService {
 
     async generateMapTheme(prompt: string, categories: string[], onProgress?: (message: string) => void): Promise<MapStylePreset> {
         onProgress?.("Designing visual language & palette...");
-        const visualsPromise = generateMapVisuals(prompt, this.apiKey, this.model);
+        const visualsPromise = generateMapVisuals(prompt, this.apiKey, this.textModel);
         const visuals = await visualsPromise;
 
         const iconTheme = visuals.iconTheme;

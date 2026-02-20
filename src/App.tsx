@@ -24,7 +24,7 @@ function App() {
   // State & Logic Hooks
   const {
     hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey,
-    aiConfig, availableModels, updateAiConfig, validateApiKey
+    aiConfig, availableTextModels, availableImageModels, updateAiConfig, validateApiKey
   } = useAppAuth(addLog);
 
   const {
@@ -59,7 +59,8 @@ function App() {
         onConnect={handleSelectKey}
         onGuestAccess={() => setIsGuestMode(true)}
         aiConfig={aiConfig}
-        availableModels={availableModels}
+        availableTextModels={availableTextModels}
+        availableImageModels={availableImageModels}
         onUpdateAiConfig={updateAiConfig}
       />
     );
@@ -77,7 +78,8 @@ function App() {
       prompt={prompt}
       hasApiKey={hasApiKey || !!aiConfig.apiKey}
       aiConfig={aiConfig}
-      availableModels={availableModels}
+      availableTextModels={availableTextModels}
+      availableImageModels={availableImageModels}
       maputnikPublishStage={maputnikPublishStage}
       maputnikPublishInfo={maputnikPublishInfo}
       maputnikPublishError={maputnikPublishError}

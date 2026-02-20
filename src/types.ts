@@ -96,7 +96,8 @@ export type AiProvider = 'google-gemini';
 
 export interface AiConfig {
   provider: AiProvider;
-  model: string;
+  textModel: string;
+  imageModel: string;
   apiKey: string;
   isCustomKey: boolean;
   iconGenerationMode: IconGenerationMode;
