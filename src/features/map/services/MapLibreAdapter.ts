@@ -6,9 +6,32 @@ import { createLogger } from '@core/logger';
 const logger = createLogger('MapLibreAdapter');
 const APP_POPUP_CLASS = 'mapalchemist-app-popup';
 const APP_POPUP_STYLE_TAG_ID = 'mapalchemist-app-popup-style';
+const MAPLIBRE_NUMERIC_NULL_WARNING = 'Expected value to be of type number, but found null instead.';
+
+const installConsoleWarnFilter = () => {
+    if (typeof window === 'undefined' || typeof console === 'undefined') return;
+    const patchedFlag = '__mapAlchemistWarnFilterInstalled';
+    if ((window as any)[patchedFlag]) return;
+
+    const originalWarn = console.warn.bind(console);
+    console.warn = (...args: unknown[]) => {
+        const firstArg = typeof args[0] === 'string' ? args[0] : '';
+        // Some third-party base styles emit this warning frequently for nullable
+        // feature properties. It is noisy and not actionable in app runtime.
+        if (firstArg.includes(MAPLIBRE_NUMERIC_NULL_WARNING)) return;
+        originalWarn(...args as any[]);
+    };
+
+    (window as any)[patchedFlag] = true;
+};
 
 // --- WORKER CONFIG ---
 try {
+    // Keep MapLibre warnings out of user-facing console.
+    // External base styles can emit noisy non-actionable warnings (e.g. nullable numeric features).
+    if (typeof (maplibregl as any).setLogLevel === 'function') {
+        (maplibregl as any).setLogLevel('error');
+    }
     // @ts-ignore
     maplibregl.workerUrl = "https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl-csp-worker.js";
 } catch (e) {
@@ -67,6 +90,8 @@ export class MapLibreAdapter implements IMapController {
     private popup: maplibregl.Popup | null = null;
 
     initialize(container: HTMLElement, style?: any, onLoad?: () => void): void {
+        installConsoleWarnFilter();
+
         this.map = new maplibregl.Map({
             container,
             style: style || { version: 8, sources: {}, layers: [] },

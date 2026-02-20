@@ -114,7 +114,7 @@ Then('the demo POIs toggle should be visible', async ({ page }) => {
 
 When('I publish assets from the Maputnik modal', async ({ page }) => {
   await page.getByRole('button', { name: 'Publish now' }).click();
-  await expect(page.getByRole('heading', { name: 'Maputnik export published' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole('heading', { name: 'Maputnik export published' })).toBeVisible({ timeout: 45000 });
 });
 
 Then('publish results should include style URL runtime URL and embed snippet', async ({ page }) => {

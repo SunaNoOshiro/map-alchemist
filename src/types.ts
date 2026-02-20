@@ -83,6 +83,7 @@ export interface PlaceMarker {
 }
 
 export type ImageSize = '1K' | '2K' | '4K';
+export type IconGenerationMode = 'auto' | 'atlas' | 'per-icon';
 
 export enum AppStatus {
   IDLE = 'IDLE',
@@ -98,4 +99,5 @@ export interface AiConfig {
   model: string;
   apiKey: string;
   isCustomKey: boolean;
+  iconGenerationMode: IconGenerationMode;
 }

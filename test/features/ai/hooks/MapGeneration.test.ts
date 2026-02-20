@@ -45,7 +45,8 @@ describeFeature(feature, ({ Scenario }) => {
                     provider: 'google-gemini',
                     model: 'gemini-2.5-flash',
                     apiKey: 'test-api-key',
-                    isCustomKey: true
+                    isCustomKey: true,
+                    iconGenerationMode: 'auto'
                 }
             }));
 

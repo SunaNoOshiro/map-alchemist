@@ -10,13 +10,239 @@ import { MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('MapLogicHook');
+const NUMERIC_LAYOUT_PROPERTIES = new Set([
+    'icon-rotate',
+    'icon-size',
+    'icon-padding',
+    'symbol-sort-key',
+    'symbol-spacing',
+    'text-rotate',
+    'text-size',
+    'text-max-width',
+    'text-line-height',
+    'text-letter-spacing',
+    'text-max-angle',
+    'text-radial-offset',
+    'text-padding'
+]);
+const NUMERIC_PAINT_PROPERTIES = new Set([
+    'background-opacity',
+    'circle-radius',
+    'circle-blur',
+    'circle-opacity',
+    'circle-stroke-width',
+    'circle-stroke-opacity',
+    'fill-opacity',
+    'fill-extrusion-height',
+    'fill-extrusion-base',
+    'fill-extrusion-opacity',
+    'fill-sort-key',
+    'heatmap-radius',
+    'heatmap-weight',
+    'heatmap-intensity',
+    'heatmap-opacity',
+    'hillshade-exaggeration',
+    'hillshade-illumination-direction',
+    'icon-opacity',
+    'line-width',
+    'line-gap-width',
+    'line-offset',
+    'line-opacity',
+    'line-blur',
+    'line-sort-key',
+    'raster-opacity',
+    'raster-hue-rotate',
+    'raster-saturation',
+    'raster-brightness-min',
+    'raster-brightness-max',
+    'raster-contrast',
+    'raster-fade-duration',
+    'text-opacity',
+    'text-halo-width',
+    'text-halo-blur'
+]);
+const NUMERIC_FILTER_COMPARISON_OPERATORS = new Set(['<', '<=', '>', '>=']);
+const normalizeCategoryToken = (value?: string) =>
+    String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const CATEGORY_BY_TOKEN = new Map(
+    MAP_CATEGORIES.map((category) => [normalizeCategoryToken(category), category] as const)
+);
+
+const wrapNumericInputExpression = (input: any) => {
+    if (!Array.isArray(input) || input.length === 0) return input;
+    const operator = input[0];
+    if (operator === 'coalesce' || operator === 'to-number') return input;
+    if (operator === 'get' || operator === 'feature-state') {
+        return ['coalesce', ['to-number', input], 0];
+    }
+    return input;
+};
+
+const sanitizeExpressionTree = (value: any): any => {
+    if (!Array.isArray(value) || value.length === 0) return value;
+
+    const operator = value[0];
+    if (operator === 'interpolate') {
+        const next = [...value];
+        if (next.length > 2) {
+            next[2] = wrapNumericInputExpression(sanitizeExpressionTree(next[2]));
+        }
+        for (let index = 3; index < next.length; index += 1) {
+            next[index] = sanitizeExpressionTree(next[index]);
+        }
+        return next;
+    }
+
+    if (operator === 'step') {
+        const next = [...value];
+        if (next.length > 1) {
+            next[1] = wrapNumericInputExpression(sanitizeExpressionTree(next[1]));
+        }
+        for (let index = 2; index < next.length; index += 1) {
+            next[index] = sanitizeExpressionTree(next[index]);
+        }
+        return next;
+    }
+
+    return value.map((item, index) => (index === 0 ? item : sanitizeExpressionTree(item)));
+};
+
+const getNumericPropertyFallback = (propertyName: string): number => {
+    if (propertyName === 'symbol-spacing') return 250;
+    return 0;
+};
+
+const normalizeNumericProperty = (value: any, propertyName: string): any => {
+    const fallback = getNumericPropertyFallback(propertyName);
+    if (value === null || value === undefined) return fallback;
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    if (!Array.isArray(value)) {
+        return fallback;
+    }
+
+    if (value.length === 0 || typeof value[0] !== 'string') {
+        return fallback;
+    }
+
+    const sanitizedExpression = sanitizeExpressionTree(value);
+    if (!Array.isArray(sanitizedExpression) || sanitizedExpression.length === 0) {
+        return fallback;
+    }
+
+    const operator = sanitizedExpression[0];
+    // Direct numeric fetches are the most common source of runtime null warnings.
+    if (operator === 'get' || operator === 'feature-state') {
+        return ['coalesce', ['to-number', sanitizedExpression], fallback];
+    }
+
+    // Preserve already-normalized expressions and keep other expression forms intact.
+    if (
+        operator === 'coalesce' &&
+        Array.isArray(sanitizedExpression[1]) &&
+        sanitizedExpression[1][0] === 'to-number'
+    ) {
+        return sanitizedExpression;
+    }
+
+    return sanitizedExpression;
+};
+
+const sanitizeLayerProperties = (
+    properties: Record<string, any> | undefined,
+    numericProperties: Set<string>
+) => {
+    if (!properties || typeof properties !== 'object') return properties;
+    const normalized: Record<string, any> = { ...properties };
+    Object.keys(normalized).forEach((key) => {
+        if (numericProperties.has(key)) {
+            normalized[key] = normalizeNumericProperty(normalized[key], key);
+        } else {
+            normalized[key] = sanitizeExpressionTree(normalized[key]);
+        }
+    });
+    return normalized;
+};
+
+const isToNumberCoalesceExpression = (value: any): boolean =>
+    Array.isArray(value) &&
+    value[0] === 'coalesce' &&
+    Array.isArray(value[1]) &&
+    value[1][0] === 'to-number';
+
+const normalizeFilterNumericOperand = (value: any): any => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : value;
+    }
+
+    if (!Array.isArray(value) || value.length === 0) return value;
+    if (isToNumberCoalesceExpression(value)) return value;
+
+    if (value[0] === 'get' || value[0] === 'feature-state' || value[0] === 'to-number') {
+        return ['coalesce', ['to-number', value], 0];
+    }
+
+    return value;
+};
+
+const sanitizeLayerFilter = (filter: any): any => {
+    if (!Array.isArray(filter) || filter.length === 0) return filter;
+
+    const operator = filter[0];
+    if (NUMERIC_FILTER_COMPARISON_OPERATORS.has(operator) && filter.length >= 3) {
+        const left = normalizeFilterNumericOperand(sanitizeLayerFilter(filter[1]));
+        const right = normalizeFilterNumericOperand(sanitizeLayerFilter(filter[2]));
+        const next = [operator, left, right];
+        for (let index = 3; index < filter.length; index += 1) {
+            next.push(sanitizeLayerFilter(filter[index]));
+        }
+        return next;
+    }
+
+    return filter.map((item, index) => (index === 0 ? item : sanitizeLayerFilter(item)));
+};
+
+// Exported for tests and for pre-loading style hardening against remote styles
+// that use numeric expressions over nullable feature properties.
+export const sanitizeMapStyleNumericExpressions = (styleJson: any): any => {
+    if (!styleJson || typeof styleJson !== 'object' || !Array.isArray(styleJson.layers)) {
+        return styleJson;
+    }
+
+    return {
+        ...styleJson,
+        layers: styleJson.layers.map((layer: any) => {
+            const normalizedLayout = sanitizeLayerProperties(layer.layout, NUMERIC_LAYOUT_PROPERTIES);
+            const normalizedPaint = sanitizeLayerProperties(layer.paint, NUMERIC_PAINT_PROPERTIES);
+            const normalizedFilter = sanitizeLayerFilter(layer.filter);
+
+            return {
+                ...layer,
+                ...(normalizedLayout ? { layout: normalizedLayout } : {}),
+                ...(normalizedPaint ? { paint: normalizedPaint } : {}),
+                ...(normalizedFilter !== undefined ? { filter: normalizedFilter } : {})
+            };
+        })
+    };
+};
 
 // Helper for safe style loading (moved from MapView)
 const loadSafeStyle = async (styleUrl: string) => {
     try {
         const res = await fetch(styleUrl);
         if (!res.ok) throw new Error("Failed to fetch style");
-        return await res.json();
+        const styleJson = await res.json();
+        return sanitizeMapStyleNumericExpressions(styleJson);
     } catch (e) {
         logger.error("Style Load Failed", e);
         return { version: 8, sources: {}, layers: [] };
@@ -308,18 +534,32 @@ export const useMapLogic = ({
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
 
-        const resolveEditCategory = (subcategory?: string, category?: string) => {
-            if (subcategory && MAP_CATEGORIES.includes(subcategory)) return subcategory;
-            if (category && MAP_CATEGORIES.includes(category)) return category;
-            return subcategory || category || '';
+        const resolveEditCategory = (...candidates: Array<string | undefined>) => {
+            for (const candidate of candidates) {
+                const normalized = normalizeCategoryToken(candidate);
+                if (!normalized) continue;
+                const mapped = CATEGORY_BY_TOKEN.get(normalized);
+                if (mapped) return mapped;
+            }
+            return '';
         };
 
         const onPointClick = (e: MapEvent) => {
             if (!e.features || e.features.length === 0) return;
-            const feature = e.features[0];
+            const feature = e.features.find((candidate) =>
+                Boolean(resolveEditCategory(
+                    candidate.properties?.iconKey,
+                    candidate.properties?.subcategory,
+                    candidate.properties?.category
+                ))
+            ) || e.features[0];
             const coords = (feature.geometry as any).coordinates.slice();
             const state = latestState.current;
-            const editTarget = resolveEditCategory(feature.properties?.subcategory, feature.properties?.category);
+            const editTarget = resolveEditCategory(
+                feature.properties?.iconKey,
+                feature.properties?.subcategory,
+                feature.properties?.category
+            );
 
             const html = PopupGenerator.generateHtml(
                 feature,
@@ -331,24 +571,46 @@ export const useMapLogic = ({
 
             controller.showPopup(coords, html);
 
-            // Re-bind the edit button (DOM hack, but needed for HTML popups)
-            setTimeout(() => {
-                const popupRoot = document.querySelector('.mapalchemist-app-popup [data-testid="poi-popup"]') as HTMLElement | null;
-                if (popupRoot) {
-                    PopupGenerator.syncFrameGeometry(popupRoot);
-                    requestAnimationFrame(() => PopupGenerator.syncFrameGeometry(popupRoot));
+            const bindPopupActions = (attempt = 0) => {
+                const popupRoot = document.querySelector(
+                    '.maplibregl-popup .maplibregl-popup-content [data-testid="poi-popup"]'
+                ) as HTMLElement | null;
+
+                if (!popupRoot) {
+                    if (attempt < 10) {
+                        window.setTimeout(() => bindPopupActions(attempt + 1), 30);
+                    }
+                    return;
                 }
 
-                const btn = popupRoot?.querySelector('#popup-edit-btn') as HTMLButtonElement | null;
+                PopupGenerator.syncFrameGeometry(popupRoot);
+                requestAnimationFrame(() => PopupGenerator.syncFrameGeometry(popupRoot));
+
+                const btn = popupRoot.querySelector('#popup-edit-btn') as HTMLButtonElement | null;
+                if (!btn && attempt < 10) {
+                    window.setTimeout(() => bindPopupActions(attempt + 1), 30);
+                    return;
+                }
+
                 if (btn && state.onEditIcon) {
                     btn.setAttribute('data-edit-target', editTarget);
-                    btn.onclick = () => state.onEditIcon?.(editTarget);
+                    btn.disabled = !editTarget;
+                    btn.style.opacity = editTarget ? '1' : '0.55';
+                    btn.style.cursor = editTarget ? 'pointer' : 'not-allowed';
+                    btn.onclick = () => {
+                        if (!editTarget) return;
+                        state.onEditIcon?.(editTarget);
+                    };
                 }
-                const closeBtn = popupRoot?.querySelector('#popup-close-btn') as HTMLButtonElement | null;
+
+                const closeBtn = popupRoot.querySelector('#popup-close-btn') as HTMLButtonElement | null;
                 if (closeBtn) {
                     closeBtn.onclick = () => controller.removePopup();
                 }
-            }, 0);
+            };
+
+            // Re-bind popup actions after DOM insertion
+            window.setTimeout(() => bindPopupActions(), 0);
         };
 
         controller.on('click', onPointClick, 'unclustered-point');

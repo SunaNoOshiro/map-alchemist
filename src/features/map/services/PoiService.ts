@@ -118,6 +118,39 @@ const resolveCategoryGroupColor = (subcategory?: string, category?: string): str
     return null;
 };
 
+const isValidLngLat = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
+const extractPointCoordinates = (feature: any): [number, number] | null => {
+    const geometry = feature?.geometry;
+    if (!geometry) return null;
+
+    const normalizeCoordinates = (candidate: unknown): [number, number] | null => {
+        if (!Array.isArray(candidate) || candidate.length < 2) return null;
+        const rawLng = candidate[0];
+        const rawLat = candidate[1];
+        if (!isValidLngLat(rawLng) || !isValidLngLat(rawLat)) return null;
+        const lng = rawLng;
+        const lat = rawLat;
+
+        if (Math.abs(lng) > 180 || Math.abs(lat) > 90) return null;
+        return [lng, lat];
+    };
+
+    if (geometry.type === 'Point') {
+        return normalizeCoordinates(geometry.coordinates);
+    }
+
+    if (geometry.type === 'MultiPoint' && Array.isArray(geometry.coordinates)) {
+        for (const point of geometry.coordinates) {
+            const normalized = normalizeCoordinates(point);
+            if (normalized) return normalized;
+        }
+    }
+
+    return null;
+};
+
 export class PoiService {
     /**
      * Hides base map POI layers since our custom layer handles all POI rendering
@@ -183,8 +216,8 @@ export class PoiService {
                 const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass || 'poi'}-${name}-${feature.id}`;
                 if (byId.has(fid)) return;
 
-                const coords = (feature.geometry as any)?.coordinates;
-                if (!coords || !coords.length) return;
+                const coords = extractPointCoordinates(feature);
+                if (!coords) return;
 
                 const category = match?.category || subclass || 'poi';
                 const subcategory = match?.subcategory || subclass || category;

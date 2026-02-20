@@ -3,6 +3,7 @@ import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
 import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import { ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
 
 interface AiSettingsPanelProps {
   aiConfig: AiConfig;
@@ -21,15 +22,17 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
 }) => {
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
   const sectionColor = getSectionColor('ai-config'); // Blue for AI Configuration section
   const providerDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const modeDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isProviderDropdownOpen && !isModelDropdownOpen) {
+    if (!isProviderDropdownOpen && !isModelDropdownOpen && !isModeDropdownOpen) {
       return;
     }
 
@@ -37,10 +40,12 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       const target = event.target as Node | null;
       const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
       const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+      const isInsideMode = modeDropdownRef.current?.contains(target ?? null);
 
-      if (!isInsideProvider && !isInsideModel) {
+      if (!isInsideProvider && !isInsideModel && !isInsideMode) {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -48,10 +53,12 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       const target = event.target as Node | null;
       const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
       const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+      const isInsideMode = modeDropdownRef.current?.contains(target ?? null);
 
-      if (!isInsideProvider && !isInsideModel) {
+      if (!isInsideProvider && !isInsideModel && !isInsideMode) {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -59,6 +66,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       if (event.key === 'Escape') {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -71,7 +79,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModelDropdownOpen, isProviderDropdownOpen]);
+  }, [isModeDropdownOpen, isModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
     onUpdateAiConfig({ provider });
@@ -83,6 +91,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       const next = !prev;
       if (next) {
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
       return next;
     });
@@ -93,6 +102,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       const next = !prev;
       if (next) {
         setIsProviderDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
       return next;
     });
@@ -101,6 +111,22 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const handleModelSelect = (model: string) => {
     onUpdateAiConfig({ model });
     setIsModelDropdownOpen(false);
+  };
+
+  const handleModeToggle = () => {
+    setIsModeDropdownOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const handleModeSelect = (iconGenerationMode: AiConfig['iconGenerationMode']) => {
+    onUpdateAiConfig({ iconGenerationMode });
+    setIsModeDropdownOpen(false);
   };
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,6 +206,41 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
                 >
                   {aiConfig.model === modelId && <span className="text-blue-400">●</span>}
                   {modelName}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Icon Generation Mode */}
+      <div className={UI_SPACING.sectionGap}>
+        <label className={uiClass(UI_TYPOGRAPHY.fieldLabel, 'text-gray-300 flex items-center gap-1')}>
+          Icon Generation
+        </label>
+        <div className="relative" ref={modeDropdownRef}>
+          <button
+            onClick={handleModeToggle}
+            className={UI_CONTROLS.dropdownTrigger}
+            style={{ borderColor: `${sectionColor}50`, color: '#d1d5db' }}
+            data-testid="icon-generation-mode-trigger"
+            aria-label="Icon generation mode"
+          >
+            <span className="truncate">{ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}</span>
+            <ChevronDown className="w-3 h-3 text-gray-400" />
+          </button>
+
+          {isModeDropdownOpen && (
+            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden" style={{ borderColor: `${sectionColor}50` }}>
+              {(Object.keys(ICON_GENERATION_MODE_LABELS) as Array<AiConfig['iconGenerationMode']>).map((mode) => (
+                <div
+                  key={mode}
+                  onClick={() => handleModeSelect(mode)}
+                  className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
+                  data-testid={`icon-generation-mode-option-${mode}`}
+                >
+                  {aiConfig.iconGenerationMode === mode && <span className="text-blue-400">●</span>}
+                  {ICON_GENERATION_MODE_LABELS[mode]}
                 </div>
               ))}
             </div>
@@ -302,6 +363,9 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
           <span className="text-gray-400">Current:</span>
           <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
             {availableModels[aiConfig.model] || aiConfig.model}
+          </span>
+          <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
+            {ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}
           </span>
           {aiConfig.isCustomKey && (
             <span className={uiClass('bg-green-600 px-1.5 py-0.5 rounded text-green-100', UI_TYPOGRAPHY.tiny)}>

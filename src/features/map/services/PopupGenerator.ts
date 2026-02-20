@@ -1,5 +1,15 @@
 import { PopupStyle, IconDefinition } from '@/types';
 
+const FALLBACK_POPUP_ICON =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">' +
+        '<circle cx="36" cy="36" r="30" fill="#1f2937"/>' +
+        '<path d="M36 16c-9.941 0-18 8.059-18 18 0 12.6 18 27 18 27s18-14.4 18-27c0-9.941-8.059-18-18-18z" fill="#60a5fa"/>' +
+        '<circle cx="36" cy="34" r="7.5" fill="#f8fafc"/>' +
+        '</svg>'
+    );
+
 export class PopupGenerator {
     private static readonly FRAME_ARROW_HEIGHT = 12;
     private static readonly FRAME_ARROW_HALF_WIDTH = 10;
@@ -97,7 +107,7 @@ export class PopupGenerator {
         const title = props.title;
         const desc = props.description || sub;
         const iconDef = activeIcons[sub] || activeIcons[cat];
-        const headerImg = iconDef?.imageUrl || '';
+        const headerImg = iconDef?.imageUrl || FALLBACK_POPUP_ICON;
 
         const wandIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M10.6 17.4 12 16"/><path d="M12.5 2.5 8 7"/><path d="M17.5 7.5 13 3"/><path d="M7 21l9-9"/><path d="M3 21l9-9"/></svg>`;
 
@@ -118,7 +128,9 @@ export class PopupGenerator {
             </button>
             <div data-mapalchemist-popup-content="true" style="position:relative; z-index:1; color:${text}; padding:14px 14px 12px;">
                 <div style="display: flex; gap: 12px; align-items:center;">
-                    ${headerImg ? `<div style=\"width: 72px; height: 72px; background: rgba(0,0,0,0.05); border-radius: 12px; padding: 5px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;\"><img src=\"${headerImg}\" style=\"max-width:62px; max-height:62px; object-fit:contain;\" /></div>` : ''}
+                    <div style="width: 72px; height: 72px; background: rgba(0,0,0,0.05); border-radius: 12px; padding: 5px; display:flex; align-items:center; justify-content:center; box-shadow: inset 0 0 0 2px ${border}40;">
+                        <img src="${headerImg}" alt="${title} icon" style="max-width:62px; max-height:62px; object-fit:contain;" />
+                    </div>
                     <div style="flex:1; padding-right: 12px;">
                         <h3 style="margin:0 0 4px; font-size:16px; font-weight:bold; line-height:1.2;">${title}</h3>
                         <div data-testid="poi-popup-category" style="font-size:11px; text-transform:uppercase; font-weight:bold; opacity:0.7;">${sub || cat || ''}</div>

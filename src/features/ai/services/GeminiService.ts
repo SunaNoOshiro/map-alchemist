@@ -1,10 +1,57 @@
 import { GoogleGenAI } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
-import { IAiService } from "@core/services/ai/IAiService";
-import { ImageSize, IconDefinition, MapStylePreset, PopupStyle } from "@/types";
+import { IAiService, IconAtlasResult } from "@core/services/ai/IAiService";
+import { ImageSize, IconDefinition, IconGenerationMode, MapStylePreset, PopupStyle } from "@/types";
 import { createLogger } from "@core/logger";
+import { buildIconAtlasLayout, sliceAtlasIntoIcons } from './iconAtlasUtils';
 
 const logger = createLogger('GeminiService');
+const ICON_ATLAS_MAX_ICONS_PER_BATCH = 144;
+const ICON_ATLAS_MIN_BATCH_SIZE = 9;
+const ICON_AUTO_FALLBACK_MAX = 24;
+const IMAGE_PROCESSING_TIMEOUT_MS = 5000;
+const TRANSPARENT_PLACEHOLDER_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+const INVALID_API_KEY_USER_MESSAGE = 'Invalid Gemini API key. Update API key in AI Configuration and try again.';
+
+const parseJsonIfPossible = (value: string): any | null => {
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+
+const getGeminiErrorEnvelope = (error: unknown): { message: string; status?: string; reasons: string[] } => {
+    const baseMessage = error instanceof Error ? error.message : String(error ?? '');
+    const parsed = parseJsonIfPossible(baseMessage);
+    const errorNode = parsed?.error;
+    const details = Array.isArray(errorNode?.details) ? errorNode.details : [];
+    const reasons = details
+        .map((detail: any) => (typeof detail?.reason === 'string' ? detail.reason : ''))
+        .filter(Boolean);
+
+    return {
+        message: typeof errorNode?.message === 'string' ? errorNode.message : baseMessage,
+        status: typeof errorNode?.status === 'string' ? errorNode.status : undefined,
+        reasons
+    };
+};
+
+const isInvalidApiKeyError = (error: unknown): boolean => {
+    const envelope = getGeminiErrorEnvelope(error);
+    const reasonMatch = envelope.reasons.some((reason) => reason.toUpperCase() === 'API_KEY_INVALID');
+    const statusMatch = (envelope.status || '').toUpperCase() === 'INVALID_ARGUMENT';
+    const message = envelope.message.toLowerCase();
+    const messageMatch = message.includes('api key not valid') || message.includes('api_key_invalid');
+    return reasonMatch || (statusMatch && messageMatch);
+};
+
+const toUserFacingGeminiError = (error: unknown): Error | null => {
+    if (isInvalidApiKeyError(error)) {
+        return new Error(INVALID_API_KEY_USER_MESSAGE);
+    }
+    return null;
+};
 
 // Helper functions (kept local to the module)
 const getClient = (apiKey: string) => {
@@ -39,7 +86,20 @@ const tryParseJSON = (jsonString: string) => {
 };
 
 const removeBackground = (base64Image: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value: string) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeoutId);
+            resolve(value);
+        };
+
+        const timeoutId = setTimeout(() => {
+            logger.warn(`Image processing timed out after ${IMAGE_PROCESSING_TIMEOUT_MS}ms, using raw image`);
+            finish(base64Image);
+        }, IMAGE_PROCESSING_TIMEOUT_MS);
+
         const img = new Image();
         img.crossOrigin = "Anonymous";
         img.onload = () => {
@@ -48,7 +108,7 @@ const removeBackground = (base64Image: string): Promise<string> => {
             canvas.height = img.height;
             const ctx = canvas.getContext('2d');
             if (!ctx) {
-                resolve(base64Image);
+                finish(base64Image);
                 return;
             }
             ctx.drawImage(img, 0, 0);
@@ -79,13 +139,18 @@ const removeBackground = (base64Image: string): Promise<string> => {
             }
 
             ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
+            finish(canvas.toDataURL('image/png'));
         };
         img.onerror = (e) => {
             logger.error("Image processing failed", e);
-            resolve(base64Image);
+            finish(base64Image);
         };
-        img.src = base64Image;
+        try {
+            img.src = base64Image;
+        } catch (error) {
+            logger.warn("Image source assignment failed, using raw image", error);
+            finish(base64Image);
+        }
     });
 };
 
@@ -145,6 +210,12 @@ const generateMapVisuals = async (prompt: string, apiKey: string, model: string)
         };
 
     } catch (error) {
+        const userFacingError = toUserFacingGeminiError(error);
+        if (userFacingError) {
+            logger.error("Style Generation Error:", error);
+            throw userFacingError;
+        }
+
         logger.error("Style Generation Error:", error);
         return {
             mapStyle: {},
@@ -154,13 +225,84 @@ const generateMapVisuals = async (prompt: string, apiKey: string, model: string)
     }
 };
 
+const buildAtlasPrompt = (
+    categories: string[],
+    styleDescription: string,
+    size: ImageSize
+) => {
+    const layout = buildIconAtlasLayout(categories, { size });
+    const categoryManifest = layout.orderedCategories
+        .map((category, index) => {
+            const row = Math.floor(index / layout.columns) + 1;
+            const col = (index % layout.columns) + 1;
+            return `${index + 1}. Row ${row}, Column ${col}: ${category}`;
+        })
+        .join('\n');
+
+    return `Create ONE square icon sprite atlas image exactly ${layout.atlasSize}x${layout.atlasSize}px.
+
+ART DIRECTION / THEME:
+${styleDescription}
+
+GRID REQUIREMENTS:
+- Grid is ${layout.columns} columns x ${layout.rows} rows.
+- Every cell should contain exactly one icon, centered.
+- Keep icon visuals inside the cell bounds.
+- No text labels, no numbers, no border lines, no guides, no shadows on background.
+- Use SOLID BRIGHT GREEN background (#00FF00) in all non-icon pixels for chroma-key cleanup.
+- Keep visual style and stroke weight consistent across all icons.
+
+CATEGORY-TO-CELL MAP (STRICT):
+${categoryManifest}
+
+Return only the final atlas image.`;
+};
+
 export class GeminiService implements IAiService {
     private apiKey: string;
     private model: string;
+    private iconGenerationMode: IconGenerationMode;
 
-    constructor(apiKey: string, model: string) {
+    constructor(apiKey: string, model: string, iconGenerationMode: IconGenerationMode = 'auto') {
         this.apiKey = apiKey;
         this.model = model;
+        this.iconGenerationMode = iconGenerationMode;
+    }
+
+    async generateIconAtlas(categories: string[], styleDescription: string, size: ImageSize = '1K'): Promise<IconAtlasResult> {
+        const normalizedCategories = [...new Set(categories.map((category) => category.trim()).filter(Boolean))];
+
+        if (normalizedCategories.length === 0) {
+            return {
+                atlasImageUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+                entries: {}
+            };
+        }
+
+        const client = getClient(this.apiKey);
+        const layout = buildIconAtlasLayout(normalizedCategories, { size });
+        const prompt = buildAtlasPrompt(normalizedCategories, styleDescription, size);
+
+        const response = await client.models.generateContent({
+            model: this.model,
+            contents: prompt
+        });
+
+        const parts = response.candidates?.[0]?.content?.parts;
+        if (parts) {
+            for (const part of parts) {
+                if (part.inlineData && part.inlineData.data) {
+                    const rawBase64 = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    const processedImage = await removeBackground(rawBase64);
+                    return {
+                        atlasImageUrl: processedImage,
+                        entries: layout.entries
+                    };
+                }
+            }
+        }
+
+        throw new Error('No atlas image data returned.');
     }
 
     async generateIconImage(category: string, styleDescription: string, size?: ImageSize): Promise<string> {
@@ -203,8 +345,14 @@ export class GeminiService implements IAiService {
             }
             throw new Error("No image data returned.");
         } catch (error) {
+            const userFacingError = toUserFacingGeminiError(error);
+            if (userFacingError) {
+                logger.error(`Icon Generation Error (${category}):`, error);
+                throw userFacingError;
+            }
+
             logger.error(`Icon Generation Error (${category}):`, error);
-            return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+            return TRANSPARENT_PLACEHOLDER_ICON;
         }
     }
 
@@ -215,25 +363,69 @@ export class GeminiService implements IAiService {
 
         const iconTheme = visuals.iconTheme;
         onProgress?.(`Art Direction: ${iconTheme.substring(0, 50)}...`);
+        const useAtlasOnly = this.iconGenerationMode === 'atlas';
+        const usePerIconOnly = this.iconGenerationMode === 'per-icon';
+        const useAutoMode = this.iconGenerationMode === 'auto';
 
-        onProgress?.(`Generating ${categories.length} icons in parallel...`);
+        if (usePerIconOnly) {
+            onProgress?.(`Generating ${categories.length} icons one by one...`);
+        } else if (useAtlasOnly) {
+            onProgress?.(`Generating ${categories.length} icons from atlas batches...`);
+        } else {
+            onProgress?.(`Generating ${categories.length} icons with auto mode (atlas + fallback)...`);
+        }
 
         let completedCount = 0;
         const totalCount = categories.length;
 
-        const batchSize = 6;
+        const batchSize = (useAtlasOnly || (useAutoMode && categories.length >= ICON_ATLAS_MIN_BATCH_SIZE))
+            ? Math.min(categories.length, ICON_ATLAS_MAX_ICONS_PER_BATCH)
+            : 6;
         const icons: IconDefinition[] = [];
+        let fallbackCount = 0;
+        let fallbackLimitReported = false;
 
         for (let i = 0; i < categories.length; i += batchSize) {
             const batch = categories.slice(i, i + batchSize);
+            const atlasBatchIndex = Math.floor(i / batchSize) + 1;
+            let atlasIcons: Record<string, string | null> = {};
+            const shouldTryAtlas = useAtlasOnly || (useAutoMode && batch.length >= ICON_ATLAS_MIN_BATCH_SIZE);
+
+            if (shouldTryAtlas) {
+                try {
+                    onProgress?.(`Generating icon atlas batch ${atlasBatchIndex} (${batch.length} icons)...`);
+                    const atlas = await this.generateIconAtlas(batch, iconTheme, '1K');
+                    atlasIcons = await sliceAtlasIntoIcons(atlas.atlasImageUrl, atlas.entries);
+                } catch (atlasError) {
+                    logger.warn(`Atlas batch ${atlasBatchIndex} failed, falling back to per-icon generation`, atlasError);
+                }
+            }
 
             const batchPromises = batch.map(async (cat) => {
                 try {
-                    const imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
+                    const atlasIcon = atlasIcons[cat];
+                    const shouldUsePerIconOnly = usePerIconOnly;
+                    const shouldUseAtlasFallback = useAutoMode && shouldTryAtlas;
+                    const canUseAutoFallback = shouldUseAtlasFallback && fallbackCount < ICON_AUTO_FALLBACK_MAX;
+
+                    let imageUrl: string | null = atlasIcon || null;
+
+                    if (!imageUrl && shouldUsePerIconOnly) {
+                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
+                    } else if (!imageUrl && canUseAutoFallback) {
+                        fallbackCount += 1;
+                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
+                    } else if (!imageUrl && useAutoMode && !shouldTryAtlas) {
+                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
+                    } else if (!imageUrl && shouldUseAtlasFallback && !fallbackLimitReported) {
+                        fallbackLimitReported = true;
+                        onProgress?.(`Auto fallback limit reached (${ICON_AUTO_FALLBACK_MAX}). Remaining icons kept empty.`);
+                    }
+
                     return {
                         category: cat,
                         prompt: iconTheme,
-                        imageUrl,
+                        imageUrl: imageUrl || null,
                         isLoading: false
                     } as IconDefinition;
                 } catch (e) {

@@ -100,4 +100,32 @@ describe('PoiService.refreshData label colors', () => {
         const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
         expect(outputFeature.properties.textColor).toBe(getCategoryColor('Fast Food'));
     });
+
+    it('filters out features with invalid point coordinates before updating GeoJSON source', () => {
+        const palette = { text: '#334155', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({
+                id: 10,
+                name: 'Valid POI'
+            }),
+            {
+                ...createPoiFeature({
+                    id: 11,
+                    name: 'Invalid POI'
+                }),
+                geometry: {
+                    type: 'Point',
+                    coordinates: [null, 35.681]
+                }
+            }
+        ]);
+
+        PoiService.refreshData(map, {}, palette, DEFAULT_POPUP_STYLE);
+
+        expect(setGeoJsonSourceData).toHaveBeenCalledTimes(1);
+        const [, payload] = setGeoJsonSourceData.mock.calls[0] as [string, { features: Array<{ properties: Record<string, string>; geometry: { coordinates: [number, number] } }> }];
+        expect(payload.features).toHaveLength(1);
+        expect(payload.features[0].properties.title).toBe('Valid POI');
+        expect(payload.features[0].geometry.coordinates).toEqual([139.767, 35.681]);
+    });
 });

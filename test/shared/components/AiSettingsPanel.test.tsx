@@ -8,6 +8,7 @@ const baseConfig: AiConfig = {
   model: 'gemini-2.5-flash',
   apiKey: '',
   isCustomKey: false,
+  iconGenerationMode: 'auto',
 };
 
 describe('AiSettingsPanel', () => {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, ArrowRight, ShieldCheck, Eye, ChevronDown, Key, BrainCircuit } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import { ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
 
 interface AuthScreenProps {
   onConnect: () => void;
@@ -14,13 +15,15 @@ interface AuthScreenProps {
 const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiConfig, availableModels, onUpdateAiConfig }) => {
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const providerDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const modeDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isProviderDropdownOpen && !isModelDropdownOpen) {
+    if (!isProviderDropdownOpen && !isModelDropdownOpen && !isModeDropdownOpen) {
       return;
     }
 
@@ -28,10 +31,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       const target = event.target as Node | null;
       const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
       const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+      const isInsideMode = modeDropdownRef.current?.contains(target ?? null);
 
-      if (!isInsideProvider && !isInsideModel) {
+      if (!isInsideProvider && !isInsideModel && !isInsideMode) {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -39,10 +44,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       const target = event.target as Node | null;
       const isInsideProvider = providerDropdownRef.current?.contains(target ?? null);
       const isInsideModel = modelDropdownRef.current?.contains(target ?? null);
+      const isInsideMode = modeDropdownRef.current?.contains(target ?? null);
 
-      if (!isInsideProvider && !isInsideModel) {
+      if (!isInsideProvider && !isInsideModel && !isInsideMode) {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -50,6 +57,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       if (event.key === 'Escape') {
         setIsProviderDropdownOpen(false);
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
     };
 
@@ -62,7 +70,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModelDropdownOpen, isProviderDropdownOpen]);
+  }, [isModeDropdownOpen, isModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
     onUpdateAiConfig({ provider, model: Object.keys(availableModels)[0] || 'gemini-2.5-flash' });
@@ -74,6 +82,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       const next = !prev;
       if (next) {
         setIsModelDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
       return next;
     });
@@ -84,6 +93,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
       const next = !prev;
       if (next) {
         setIsProviderDropdownOpen(false);
+        setIsModeDropdownOpen(false);
       }
       return next;
     });
@@ -92,6 +102,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
   const handleModelSelect = (model: string) => {
     onUpdateAiConfig({ model });
     setIsModelDropdownOpen(false);
+  };
+
+  const handleModeToggle = () => {
+    setIsModeDropdownOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsProviderDropdownOpen(false);
+        setIsModelDropdownOpen(false);
+      }
+      return next;
+    });
+  };
+
+  const handleModeSelect = (iconGenerationMode: AiConfig['iconGenerationMode']) => {
+    onUpdateAiConfig({ iconGenerationMode });
+    setIsModeDropdownOpen(false);
   };
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,6 +218,40 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onConnect, onGuestAccess, aiCon
                     >
                       {aiConfig.model === modelId && <span className="text-blue-400">●</span>}
                       {modelName}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Icon Generation Mode */}
+          <div className={UI_SPACING.blockGapTight}>
+            <label className={uiClass(UI_TYPOGRAPHY.fieldLabel, 'text-gray-300 flex items-center gap-1')}>
+              Icon Generation
+            </label>
+            <div className="relative" ref={modeDropdownRef}>
+              <button
+                onClick={handleModeToggle}
+                className={UI_CONTROLS.dropdownTrigger}
+                data-testid="icon-generation-mode-trigger"
+                aria-label="Icon generation mode"
+              >
+                <span className="truncate">{ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}</span>
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              </button>
+
+              {isModeDropdownOpen && (
+                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden">
+                  {(Object.keys(ICON_GENERATION_MODE_LABELS) as Array<AiConfig['iconGenerationMode']>).map((mode) => (
+                    <div
+                      key={mode}
+                      onClick={() => handleModeSelect(mode)}
+                      className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
+                      data-testid={`icon-generation-mode-option-${mode}`}
+                    >
+                      {aiConfig.iconGenerationMode === mode && <span className="text-blue-400">●</span>}
+                      {ICON_GENERATION_MODE_LABELS[mode]}
                     </div>
                   ))}
                 </div>

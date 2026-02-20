@@ -1,4 +1,4 @@
-import { AiProvider } from '@/types';
+import { AiProvider, IconGenerationMode } from '@/types';
 
 export const AI_PROVIDERS: Record<AiProvider, {
   displayName: string;
@@ -17,7 +17,14 @@ export const DEFAULT_AI_CONFIG = {
   provider: 'google-gemini' as AiProvider,
   model: 'gemini-2.5-flash',
   apiKey: '',
-  isCustomKey: false
+  isCustomKey: false,
+  iconGenerationMode: 'auto' as IconGenerationMode
+};
+
+export const ICON_GENERATION_MODE_LABELS: Record<IconGenerationMode, string> = {
+  auto: 'Auto (Atlas + Fallback)',
+  atlas: 'Atlas only',
+  'per-icon': 'Per-icon only'
 };
 
 export const getAvailableModels = (provider: AiProvider): Record<string, string> => {

@@ -5,6 +5,7 @@ import { createLogger } from '@core/logger';
 
 const logger = createLogger('AuthHook');
 const AI_CONFIG_STORAGE_KEY = 'mapAlchemistAiConfig';
+const VALID_ICON_GENERATION_MODES = new Set<AiConfig['iconGenerationMode']>(['auto', 'atlas', 'per-icon']);
 
 export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -26,7 +27,10 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
                         provider: parsed.provider || DEFAULT_AI_CONFIG.provider,
                         model: parsed.model || DEFAULT_AI_CONFIG.model,
                         apiKey: parsed.apiKey || '',
-                        isCustomKey: parsed.isCustomKey || false
+                        isCustomKey: parsed.isCustomKey || false,
+                        iconGenerationMode: VALID_ICON_GENERATION_MODES.has(parsed.iconGenerationMode)
+                            ? parsed.iconGenerationMode
+                            : DEFAULT_AI_CONFIG.iconGenerationMode
                     }));
                 }
             } catch (e) {

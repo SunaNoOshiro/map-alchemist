@@ -19,11 +19,11 @@ export class AiFactory {
 
             switch (config.provider) {
                 case 'google-gemini':
-                    this.instance = new GeminiService(config.apiKey, config.model);
+                    this.instance = new GeminiService(config.apiKey, config.model, config.iconGenerationMode);
                     break;
                 // Add other providers here in the future
                 default:
-                    this.instance = new GeminiService(config.apiKey, config.model);
+                    this.instance = new GeminiService(config.apiKey, config.model, config.iconGenerationMode);
             }
         }
         return this.instance;

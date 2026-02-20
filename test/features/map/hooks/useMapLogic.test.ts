@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIconSyncPlan } from '@/features/map/hooks/useMapLogic';
+import { buildIconSyncPlan, sanitizeMapStyleNumericExpressions } from '@/features/map/hooks/useMapLogic';
 import { IconDefinition } from '@/types';
 
 describe('buildIconSyncPlan', () => {
@@ -50,5 +50,130 @@ describe('buildIconSyncPlan', () => {
       transport: 'https://cdn.example/transport.png',
     });
     expect(plan.staleKeys).toEqual(['shopping']);
+  });
+});
+
+describe('sanitizeMapStyleNumericExpressions', () => {
+  it('wraps nullable numeric get inputs in interpolate expressions', () => {
+    const rawStyle = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'poi-label',
+          type: 'symbol',
+          layout: {
+            'text-size': ['interpolate', ['linear'], ['get', 'rank'], 10, 11, 20, 13],
+          },
+        },
+      ],
+    };
+
+    const normalized = sanitizeMapStyleNumericExpressions(rawStyle);
+    expect(normalized.layers[0].layout['text-size']).toEqual([
+      'interpolate',
+      ['linear'],
+      ['coalesce', ['to-number', ['get', 'rank']], 0],
+      10,
+      11,
+      20,
+      13,
+    ]);
+  });
+
+  it('wraps nullable numeric get inputs in step expressions', () => {
+    const rawStyle = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'roads',
+          type: 'line',
+          paint: {
+            'line-width': ['step', ['get', 'class_rank'], 0.4, 4, 0.8, 8, 1.6],
+          },
+        },
+      ],
+    };
+
+    const normalized = sanitizeMapStyleNumericExpressions(rawStyle);
+    expect(normalized.layers[0].paint['line-width']).toEqual([
+      'step',
+      ['coalesce', ['to-number', ['get', 'class_rank']], 0],
+      0.4,
+      4,
+      0.8,
+      8,
+      1.6,
+    ]);
+  });
+
+  it('normalizes null numeric layout values to stable defaults', () => {
+    const rawStyle = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'poi-label',
+          type: 'symbol',
+          layout: {
+            'symbol-spacing': null,
+            'text-size': null,
+          },
+        },
+      ],
+    };
+
+    const normalized = sanitizeMapStyleNumericExpressions(rawStyle);
+    expect(normalized.layers[0].layout['symbol-spacing']).toBe(250);
+    expect(normalized.layers[0].layout['text-size']).toBe(0);
+  });
+
+  it('guards direct numeric get expressions with to-number/coalesce fallback', () => {
+    const rawStyle = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'roads',
+          type: 'line',
+          paint: {
+            'line-width': ['get', 'width'],
+          },
+        },
+      ],
+    };
+
+    const normalized = sanitizeMapStyleNumericExpressions(rawStyle);
+    expect(normalized.layers[0].paint['line-width']).toEqual([
+      'coalesce',
+      ['to-number', ['get', 'width']],
+      0,
+    ]);
+  });
+
+  it('normalizes numeric filter comparisons to avoid nullable get warnings', () => {
+    const rawStyle = {
+      version: 8,
+      sources: {},
+      layers: [
+        {
+          id: 'poi-rank',
+          type: 'symbol',
+          filter: [
+            'all',
+            ['>=', ['get', 'rank'], 7],
+            ['<', ['get', 'rank'], 20],
+          ],
+        },
+      ],
+    };
+
+    const normalized = sanitizeMapStyleNumericExpressions(rawStyle);
+    expect(normalized.layers[0].filter).toEqual([
+      'all',
+      ['>=', ['coalesce', ['to-number', ['get', 'rank']], 0], 7],
+      ['<', ['coalesce', ['to-number', ['get', 'rank']], 0], 20],
+    ]);
   });
 });

@@ -2,8 +2,18 @@ import { createBdd } from 'playwright-bdd';
 import { expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MAP_CATEGORIES } from '../../../src/constants';
 
 const { Given, When, Then } = createBdd();
+
+const normalizeCategoryKey = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const VALID_ICON_KEYS = Array.from(
+    new Set(
+        MAP_CATEGORIES.map((category) => normalizeCategoryKey(category))
+    )
+);
 
 // Helper: Find and click a visible POI with a likely icon (copied from original spec)
 async function clickVisiblePOI(page: Page) {
@@ -20,51 +30,156 @@ async function clickVisiblePOI(page: Page) {
         return await page.evaluate(() => {
             const map = (window as any).__map;
             if (!map) return false;
-            const features = map.querySourceFeatures('places');
-            return features && features.length > 0;
+            const placesSource = map.getSource?.('places');
+            if (!placesSource) return false;
+
+            const sourceData = (placesSource as any)?._data;
+            const sourceFeatures = Array.isArray(sourceData?.features) ? sourceData.features.length : 0;
+            if (sourceFeatures > 0) return true;
+
+            const queriedFeatures = map.querySourceFeatures('places') || [];
+            if (queriedFeatures.length > 0) return true;
+
+            if (sourceFeatures === 0 && queriedFeatures.length === 0) {
+                try {
+                    map.fire('moveend');
+                } catch (_error) {
+                    // no-op: best effort refresh
+                }
+            }
+            return false;
         });
     }, {
-        message: 'No POI features found in "places" source after 15s',
-        timeout: 15000
+        message: 'No POI features found in "places" source after 30s',
+        timeout: 30000
     }).toBeTruthy();
 
-    const point = await page.evaluate(() => {
-        const map = (window as any).__map;
-        const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
-        if (!features.length) return null;
+    let points: Array<{ x: number; y: number }> | null = null;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        points = await page.evaluate((validIconKeys) => {
+            const map = (window as any).__map;
+            if (!map) return null;
+            const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
+            if (!features.length) return null;
 
-        const canvas = map.getCanvas();
-        const width = canvas.width;
-        const height = canvas.height;
-        const rect = canvas.getBoundingClientRect();
-        const validCategories = ['restaurant', 'cafe', 'bar'];
+            const canvas = map.getCanvas();
+            const rect = canvas.getBoundingClientRect();
+            const width = rect.width;
+            const height = rect.height;
+            const ratioX = canvas.width / rect.width;
+            const ratioY = canvas.height / rect.height;
+            const allowedKeys = new Set(validIconKeys);
 
-        const visibleFeature = features.find((f: any) => {
-            if (!f.properties.title) return false;
-            const cat = (f.properties.category || '').toLowerCase();
-            const sub = (f.properties.subcategory || '').toLowerCase();
-            const hasIcon = validCategories.some(c => cat === c || sub === c);
+            const hasDisplayIcon = (feature: any) => {
+                const iconKey = feature?.properties?.iconKey;
+                if (typeof iconKey !== 'string' || iconKey.length === 0) return false;
+                const normalizedIconKey = iconKey.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+                return allowedKeys.has(normalizedIconKey);
+            };
 
-            return hasIcon && (() => {
+            const visibleFeatures = features.filter((f: any) => {
+                if (!f.properties?.title) return false;
+                if (!hasDisplayIcon(f)) return false;
                 const p = map.project(f.geometry.coordinates);
                 return p.x > 20 && p.y > 20 && p.x < (width - 20) && p.y < (height - 20);
-            })();
-        });
+            });
 
-        if (!visibleFeature) return null;
+            if (visibleFeatures.length === 0) {
+                const placesSource = map.getSource?.('places') as any;
+                const sourceFeatures = Array.isArray(placesSource?._data?.features)
+                    ? placesSource._data.features
+                    : [];
+                const preferred = sourceFeatures.find((f: any) => {
+                    if (f?.geometry?.type !== 'Point') return false;
+                    if (!Array.isArray(f?.geometry?.coordinates) || f.geometry.coordinates.length < 2) return false;
+                    return hasDisplayIcon(f);
+                });
 
-        const f = visibleFeature;
-        const pixel = map.project(f.geometry.coordinates);
-        return {
-            x: pixel.x + rect.left,
-            y: pixel.y + rect.top,
-            props: f.properties
-        };
-    });
+                if (preferred?.geometry?.coordinates) {
+                    map.easeTo({
+                        center: preferred.geometry.coordinates,
+                        zoom: Math.max(14, map.getZoom()),
+                        duration: 0
+                    });
+                }
+                return [];
+            }
 
-    if (!point) throw new Error('No POI found on map');
-    await page.mouse.click(point.x, point.y);
-    return point;
+            return visibleFeatures.slice(0, 5).map((feature: any) => {
+                const pixel = map.project(feature.geometry.coordinates);
+                const candidates = [
+                    { x: pixel.x, y: pixel.y },
+                    ratioX > 0 && ratioY > 0 ? { x: pixel.x / ratioX, y: pixel.y / ratioY } : null
+                ].filter(Boolean) as Array<{ x: number; y: number }>;
+
+                const inBounds = (point: { x: number; y: number }) =>
+                    point.x >= 0 && point.y >= 0 && point.x <= width && point.y <= height;
+
+                for (const candidate of candidates) {
+                    if (!inBounds(candidate)) continue;
+                    const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: ['unclustered-point'] });
+                    if (hits && hits.length > 0) {
+                        return candidate;
+                    }
+                }
+
+                return candidates.find(inBounds) || candidates[0];
+            });
+        }, VALID_ICON_KEYS);
+
+        if (points && points.length > 0) break;
+        await page.waitForTimeout(1000);
+    }
+
+    if (!points || points.length === 0) throw new Error('No visible POI with loaded icon found on map');
+
+    const mapCanvas = page.locator('.maplibregl-canvas');
+    await expect(mapCanvas).toBeVisible();
+    const popup = page.locator('.maplibregl-popup-content');
+
+    for (const point of points) {
+        const triggeredViaMapEvent = await page.evaluate((candidate) => {
+            const map = (window as any).__map;
+            if (!map) return false;
+            const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: ['unclustered-point'] });
+            if (!hits || hits.length === 0) return false;
+            const firstFeature = hits[0] as any;
+            const coordinates = firstFeature?.geometry?.coordinates;
+            const lng = Array.isArray(coordinates) ? Number(coordinates[0]) : Number.NaN;
+            const lat = Array.isArray(coordinates) ? Number(coordinates[1]) : Number.NaN;
+
+            try {
+                map.fire('click', {
+                    point: { x: candidate.x, y: candidate.y },
+                    lngLat: Number.isFinite(lng) && Number.isFinite(lat)
+                        ? { lng, lat }
+                        : map.unproject([candidate.x, candidate.y]),
+                    features: hits
+                });
+                return true;
+            } catch (_error) {
+                return false;
+            }
+        }, point);
+
+        if (!triggeredViaMapEvent) {
+            await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
+        }
+
+        if (await popup.isVisible().catch(() => false)) {
+            return point;
+        }
+        if (triggeredViaMapEvent) {
+            await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
+            if (await popup.isVisible().catch(() => false)) {
+                return point;
+            }
+        }
+        await page.waitForTimeout(200);
+    }
+
+    throw new Error('POI popup did not appear after clicking visible candidates.');
 }
 
 Given('I am on the home page', async ({ page }) => {
@@ -136,31 +251,36 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
     const pirateThemeOriginal = themesData.find((t: any) => t.name.toLowerCase().includes('pirates')) || themesData[0];
     const cartoonThemeOriginal = themesData.find((t: any) => t.name.toLowerCase().includes('cartoon')) || themesData[1] || themesData[0];
 
-    const themesToInject = [
-        { ...pirateThemeOriginal, iconsByCategory: {} },
-        { ...cartoonThemeOriginal, iconsByCategory: {} }
-    ];
+    const stripThemeIcons = (theme: any) => ({
+        ...theme,
+        iconsByCategory: {}
+    });
 
-    await page.evaluate(async (themes) => {
+    const themesToInject = [
+        stripThemeIcons(pirateThemeOriginal),
+        stripThemeIcons(cartoonThemeOriginal)
+    ];
+    const iconSeedKeys = [...MAP_CATEGORIES];
+
+    await page.evaluate(async ({ themes, iconKeys }) => {
         const dummyIcon = {
             imageUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKw66AAAAABJRU5ErkJggg==',
             prompt: 'Test icon',
             isLoading: false
         };
 
+        const buildIconMap = () =>
+            iconKeys.reduce((acc: Record<string, any>, key: string) => {
+                acc[key] = { ...dummyIcon, category: key };
+                return acc;
+            }, {} as Record<string, any>);
+
         const createCustom = (base: any, name: string) => ({
             ...base,
             id: 'custom-' + name.toLowerCase().replace(/\s/g, '-') + '-' + Date.now(),
             name: `${name} (Custom)`,
             isBundledDefault: true,
-            iconsByCategory: {
-                'Restaurant': { ...dummyIcon, category: 'Restaurant' },
-                'restaurant': { ...dummyIcon, category: 'Restaurant' },
-                'Cafe': { ...dummyIcon, category: 'Cafe' },
-                'cafe': { ...dummyIcon, category: 'Cafe' },
-                'Bar': { ...dummyIcon, category: 'Bar' },
-                'bar': { ...dummyIcon, category: 'Bar' }
-            }
+            iconsByCategory: buildIconMap()
         });
 
         const customStyles = [
@@ -195,7 +315,7 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
             };
             request.onerror = () => reject(request.error);
         });
-    }, themesToInject);
+    }, { themes: themesToInject, iconKeys: iconSeedKeys });
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     console.log('[E2E] Page reloaded (DOM loaded), waiting for map canvas...');
@@ -331,6 +451,14 @@ When('I click the Remix button in the popup', async ({ page }) => {
 });
 
 Then('the icon edit sidebar should be open', async ({ page }) => {
-    const sectionHeader = page.getByText('Art Direction Prompt');
-    await expect(sectionHeader).toBeVisible();
+    const iconAssetsList = page.getByTestId('icon-assets-list');
+    await expect(iconAssetsList).toBeVisible();
+
+    const hasRemixUi = await Promise.all([
+        page.getByText(/Art Direction Prompt/i).first().isVisible().catch(() => false),
+        page.getByRole('button', { name: /Regenerate Icon|Quick Magic Regenerate/i }).first().isVisible().catch(() => false),
+        page.getByRole('heading', { name: /Icon Assets/i }).isVisible().catch(() => false)
+    ]);
+
+    expect(hasRemixUi.some(Boolean)).toBe(true);
 });

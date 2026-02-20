@@ -218,6 +218,26 @@ Increase POI popup icon size and make the popup pointer to POI visually clearer 
 2. exported runtime snippet popup.
 
 ### User Review Required
+
+## Hotfix Scope (Gemini API Key Invalid Storm)
+### Goal
+Stop repetitive `400 API_KEY_INVALID` Gemini requests and present a single actionable failure when API key is invalid.
+
+### Proposed Changes
+1. Update `src/features/ai/services/GeminiService.ts`:
+   - detect Gemini auth/key failures (`API_KEY_INVALID` / invalid key payloads).
+   - throw a user-actionable error from style generation instead of silently falling back and continuing icon generation.
+   - throw on invalid key in single icon generation flow (instead of returning placeholder image).
+2. Update `src/features/ai/hooks/useMapGeneration.ts`:
+   - map thrown invalid-key errors to a concise user-facing log message.
+3. Add tests:
+   - new `test/features/ai/services/GeminiService.test.ts` for invalid-key detection + fail-fast behavior.
+   - adjust hook tests if needed for new error handling expectation.
+
+### Verification Plan
+1. Run `npm test test/features/ai/services/GeminiService.test.ts`.
+2. Run `npm test test/features/ai/hooks/MapGeneration.test.ts`.
+3. Run `npm test`.
 1. Confirm target size increase for popup icon:
    - Proposed: from current small thumbnail to `56x56` effective visual size in popup header.
 2. Confirm pointer style:
@@ -526,3 +546,104 @@ Make MapAlchemist UI typography, paddings, and control sizing consistent across 
 3. Manual visual check:
    - auth screen, toolbar, left/right sidebars, publish modal.
    - verify matching font family, label/button sizing, and paddings in desktop and mobile.
+
+## Follow-up Scope (Single-Image Atlas Icon Generation)
+### Goal
+Generate category icons in atlas batches (single image per batch), slice them into per-category icons deterministically, and keep export compatibility with MapLibre/Maputnik sprite contracts (`sprite.png + sprite.json` and `@2x`).
+
+### User Review Required
+1. Confirm generation strategy:
+   - atlas batch generation for categories (not one model call per icon by default).
+2. Confirm compatibility target:
+   - preserve existing output contract for downstream editors/services (`style.json` + `sprite(.json/.png)`).
+3. Confirm fallback behavior:
+   - if atlas slicing fails for a cell, fallback to existing per-icon generation for that category.
+
+### Proposed Changes
+1. Update AI service contract:
+   - extend `src/core/services/ai/IAiService.ts` with optional atlas generation method.
+2. Implement atlas generation in `src/features/ai/services/GeminiService.ts`:
+   - generate grid-style icon sheet for category batches.
+   - deterministic grid/cell mapping and slicing back to category image data URLs.
+   - retain existing per-icon method as fallback and for manual regeneration.
+3. Reuse/align sprite coordinate logic:
+   - keep deterministic ordering (`localeCompare`) and shared grid math parity with `src/features/styles/services/spriteUtils.ts`.
+4. Preserve export compatibility:
+   - no breaking changes to `src/features/styles/services/MaputnikExportService.ts` output schema.
+5. Tests:
+   - add unit tests for atlas slice mapping logic.
+   - update AI hook/service tests to cover atlas mode happy path + fallback path.
+
+### Verification Plan
+1. Run `npm test test/features/ai/hooks/MapGeneration.test.ts`.
+2. Run `npm test`.
+3. Run `npm run test:e2e:bdd`.
+
+## Follow-up Scope (Icon Generation Mode Switch + BDD)
+### Goal
+Add explicit user-facing icon generation mode switching (`Auto`, `Atlas`, `Per-icon`) and cover it with BDD tests.
+
+### User Review Required
+1. Confirm mode labels:
+   - `Auto (Atlas + Fallback)`, `Atlas only`, `Per-icon only`.
+2. Confirm mode should be configurable in both auth screen and left sidebar AI settings.
+3. Confirm selection must persist via localStorage across page reloads.
+
+### Proposed Changes
+1. Update config contracts:
+   - extend `src/types.ts` and `src/constants/aiConstants.ts` with `IconGenerationMode`.
+2. Persist and propagate config:
+   - update `src/features/auth/hooks/useAppAuth.ts` to load/save validated `iconGenerationMode`.
+   - update `src/features/ai/services/AiFactory.ts` and `src/features/ai/services/GeminiService.ts` to respect selected mode.
+3. UI controls:
+   - add mode dropdown to:
+     - `src/features/auth/components/AuthScreen.tsx`
+     - `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+4. Tests:
+   - update component tests for new `AiConfig` shape.
+   - add BDD coverage in `test/e2e/features/GuestMode.feature` + step definitions.
+
+### Verification Plan
+1. Run `npm test`.
+2. Run `npm run test:e2e:bdd`.
+
+## Follow-up Scope (BDD Invocation Accounting for All Icon Modes)
+### Goal
+Add deterministic BDD coverage for invocation counts across all three icon generation modes and edge fallback behavior.
+
+### User Review Required
+1. Confirm invocation assertions should target Gemini `generateContent` request counts at E2E layer.
+2. Confirm edge behavior checks:
+   - `atlas` mode: no per-icon fallback when atlas call fails.
+   - `auto` mode: per-icon fallback is capped.
+
+### Proposed Changes
+1. Add new feature:
+   - `test/e2e/features/IconGenerationModes.feature`
+   - scenarios for `Per-icon only`, `Atlas only`, `Auto (atlas + capped fallback)`.
+2. Add new step definitions:
+   - `test/e2e/steps/IconGenerationMode.steps.ts`
+   - mock Gemini API responses and collect invocation counters by request prompt type.
+3. Assertions:
+   - verify exact invocation numbers for visuals / atlas / per-icon / total.
+   - verify fallback cap behavior in auto mode.
+
+### Verification Plan
+1. Run `npm run test:e2e:bdd`.
+
+## Hotfix Scope (MapLibre Numeric Null Warning)
+### Goal
+Eliminate browser warning `Expected value to be of type number, but found null instead.` by normalizing numeric style properties before map initialization.
+
+### Proposed Changes
+1. Update `src/features/map/hooks/useMapLogic.ts`:
+   - extend style sanitization to detect numeric layout/paint keys.
+   - normalize numeric properties when value is `null`/invalid, and guard expression outputs via numeric fallback wrapper.
+2. Add tests in `test/features/map/hooks/useMapLogic.test.ts`:
+   - assert numeric null values are normalized.
+   - assert numeric expressions are wrapped to avoid nullable runtime outputs.
+
+### Verification Plan
+1. Run `npm test test/features/map/hooks/useMapLogic.test.ts`.
+2. Run `npm test`.
+3. Run `npm run test:e2e:bdd` and confirm warning no longer appears in browser logs.

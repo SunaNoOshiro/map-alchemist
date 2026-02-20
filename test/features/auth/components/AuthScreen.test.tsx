@@ -6,7 +6,7 @@ describe('AuthScreen', () => {
   const defaultProps = {
     onConnect: () => undefined,
     onGuestAccess: () => undefined,
-    aiConfig: { provider: 'google-gemini' as const, model: 'gemini-2.5-flash', apiKey: '', isCustomKey: false },
+    aiConfig: { provider: 'google-gemini' as const, model: 'gemini-2.5-flash', apiKey: '', isCustomKey: false, iconGenerationMode: 'auto' as const },
     availableModels: {
       'gemini-2.5-flash': 'Gemini Flash',
       'gemini-pro': 'Gemini Pro',
