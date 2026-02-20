@@ -43,6 +43,42 @@ Reduce runtime map churn and console noise caused by repeated POI refreshes that
    - Confirm POI logs are no longer flooding at `info` level.
    - Confirm POI icons/labels still update when theme/icons change.
 
+## Hotfix Plan: Gemini Image 429 Rate-Limit Resilience (2026-02-20)
+
+### Goal
+Prevent icon generation failures when Gemini image model returns `429 Too Many Requests` / `RESOURCE_EXHAUSTED`.
+
+### User Review Required
+1. Reliability preference:
+   - Favor stable generation over peak throughput by pacing per-icon requests and adding automatic retries for transient rate limits.
+
+### Proposed Changes
+1. Add explicit retry/backoff handling for transient rate-limit failures.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Detect `429`, `RESOURCE_EXHAUSTED`, and related rate-limit signals.
+   - Retry image generation calls with exponential backoff + jitter.
+
+2. Pace image requests to avoid bursty traffic.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Enforce minimum spacing between image model requests in a generation run.
+
+3. Remove bursty per-batch parallel icon requests.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Process each icon request sequentially within batch loop to avoid 64-way fallback spikes.
+
+4. Add regression coverage.
+   - File: `test/features/ai/services/GeminiService.test.ts`
+   - Add test ensuring an image-model 429 is retried and eventually succeeds.
+
+### Verification Plan
+1. Targeted tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts`
+2. Full unit suite:
+   - `npm test -- --run`
+3. Manual check:
+   - Generate a theme with real API and inspect Network tab for reduced immediate 429 failures.
+   - Confirm generation completes even when transient 429 occurs.
+
 ## Hotfix Plan: Deployed Basemap Rendering Regression (2026-02-20)
 
 ### Goal

@@ -38,6 +38,40 @@ describe('PopupGenerator', () => {
     expect(html).toContain('max-width:62px; max-height:62px;');
   });
 
+  it('prefers iconKey image so popup icon matches the map symbol icon', () => {
+    const html = PopupGenerator.generateHtml(
+      {
+        properties: {
+          category: 'Transport',
+          subcategory: 'Bus Stop',
+          iconKey: 'Taxi Stand',
+          title: 'Downtown Stop',
+          description: 'Transit point'
+        }
+      },
+      popupStyle,
+      { land: '#ffffff', text: '#111111', road: '#222222' },
+      {
+        'Bus Stop': {
+          category: 'Transport',
+          prompt: 'Bus icon',
+          imageUrl: 'https://example.com/bus.png',
+          isLoading: false
+        },
+        'Taxi Stand': {
+          category: 'Transport',
+          prompt: 'Taxi icon',
+          imageUrl: 'https://example.com/taxi.png',
+          isLoading: false
+        }
+      },
+      false
+    );
+
+    expect(html).toContain('https://example.com/taxi.png');
+    expect(html).not.toContain('https://example.com/bus.png');
+  });
+
   it('renders a unified popup frame and arrow contour', () => {
     const html = PopupGenerator.generateHtml(
       {

@@ -20,9 +20,15 @@ const ICON_ATLAS_MAX_ICONS_PER_BATCH = 64;
 const ICON_ATLAS_MIN_BATCH_SIZE = 9;
 const ICON_AUTO_FALLBACK_MAX = 24;
 const ICON_PER_ICON_MAX_CALLS = 32;
+const IMAGE_REQUEST_MIN_INTERVAL_MS = 180;
+const IMAGE_RATE_LIMIT_MAX_RETRIES = 4;
+const IMAGE_RATE_LIMIT_BACKOFF_BASE_MS = 400;
+const IMAGE_RATE_LIMIT_BACKOFF_MAX_MS = 4000;
+const IMAGE_RATE_LIMIT_COOLDOWN_MS = 45000;
 const IMAGE_PROCESSING_TIMEOUT_MS = 5000;
 const TRANSPARENT_PLACEHOLDER_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 const INVALID_API_KEY_USER_MESSAGE = 'Invalid Gemini API key. Update API key in AI Configuration and try again.';
+const IMAGE_RATE_LIMIT_USER_MESSAGE = 'Image model is temporarily rate-limited. Please retry in about a minute.';
 const FALLBACK_BASE_STYLE = { version: 8, sources: {}, layers: [] };
 
 let cachedBaseStyleTemplate: any | null = null;
@@ -35,7 +41,7 @@ const parseJsonIfPossible = (value: string): any | null => {
     }
 };
 
-const getGeminiErrorEnvelope = (error: unknown): { message: string; status?: string; reasons: string[] } => {
+const getGeminiErrorEnvelope = (error: unknown): { message: string; status?: string; code?: number; reasons: string[] } => {
     const baseMessage = error instanceof Error ? error.message : String(error ?? '');
     const parsed = parseJsonIfPossible(baseMessage);
     const errorNode = parsed?.error;
@@ -47,6 +53,7 @@ const getGeminiErrorEnvelope = (error: unknown): { message: string; status?: str
     return {
         message: typeof errorNode?.message === 'string' ? errorNode.message : baseMessage,
         status: typeof errorNode?.status === 'string' ? errorNode.status : undefined,
+        code: typeof errorNode?.code === 'number' ? errorNode.code : undefined,
         reasons
     };
 };
@@ -61,10 +68,44 @@ const isInvalidApiKeyError = (error: unknown): boolean => {
 };
 
 const toUserFacingGeminiError = (error: unknown): Error | null => {
+    if (error instanceof Error && error.message === INVALID_API_KEY_USER_MESSAGE) {
+        return error;
+    }
     if (isInvalidApiKeyError(error)) {
         return new Error(INVALID_API_KEY_USER_MESSAGE);
     }
     return null;
+};
+
+const isRateLimitError = (error: unknown): boolean => {
+    const envelope = getGeminiErrorEnvelope(error);
+    if (envelope.code === 429) return true;
+
+    const upperStatus = (envelope.status || '').toUpperCase();
+    if (upperStatus === 'RESOURCE_EXHAUSTED') return true;
+
+    const hasRateLimitReason = envelope.reasons.some((reason) => {
+        const normalized = reason.toUpperCase();
+        return normalized.includes('RATE_LIMIT') || normalized.includes('RESOURCE_EXHAUSTED');
+    });
+    if (hasRateLimitReason) return true;
+
+    const message = envelope.message.toLowerCase();
+    return message.includes('too many requests')
+        || message.includes('rate limit')
+        || message.includes('resource exhausted');
+};
+
+const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+
+const computeRateLimitBackoffMs = (retryIndex: number): number => {
+    const exponential = Math.min(
+        IMAGE_RATE_LIMIT_BACKOFF_MAX_MS,
+        IMAGE_RATE_LIMIT_BACKOFF_BASE_MS * Math.pow(2, retryIndex)
+    );
+    const jitter = Math.floor(Math.random() * 120);
+    return exponential + jitter;
 };
 
 // Helper functions (kept local to the module)
@@ -388,6 +429,8 @@ export class GeminiService implements IAiService {
     private textModel: string;
     private imageModel: string;
     private iconGenerationMode: IconGenerationMode;
+    private lastImageRequestAt: number;
+    private imageRateLimitedUntil: number;
 
     constructor(
         apiKey: string,
@@ -399,6 +442,70 @@ export class GeminiService implements IAiService {
         this.textModel = textModel;
         this.imageModel = imageModel;
         this.iconGenerationMode = iconGenerationMode;
+        this.lastImageRequestAt = 0;
+        this.imageRateLimitedUntil = 0;
+    }
+
+    private getImageRateLimitRemainingMs(): number {
+        return Math.max(0, this.imageRateLimitedUntil - Date.now());
+    }
+
+    private isImageRateLimited(): boolean {
+        return this.getImageRateLimitRemainingMs() > 0;
+    }
+
+    private activateImageRateLimitCooldown() {
+        const cooldownUntil = Date.now() + IMAGE_RATE_LIMIT_COOLDOWN_MS;
+        this.imageRateLimitedUntil = Math.max(this.imageRateLimitedUntil, cooldownUntil);
+    }
+
+    private async waitForImageRequestSlot() {
+        const now = Date.now();
+        const elapsed = now - this.lastImageRequestAt;
+        if (elapsed < IMAGE_REQUEST_MIN_INTERVAL_MS) {
+            await sleep(IMAGE_REQUEST_MIN_INTERVAL_MS - elapsed);
+        }
+        this.lastImageRequestAt = Date.now();
+    }
+
+    private async generateImageContentWithRetries(contents: string) {
+        const client = getClient(this.apiKey);
+        let retryIndex = 0;
+
+        while (true) {
+            if (this.isImageRateLimited()) {
+                const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+                throw new Error(`Image model rate limit cooldown active (${remainingSeconds}s remaining).`);
+            }
+
+            await this.waitForImageRequestSlot();
+            try {
+                return await client.models.generateContent({
+                    model: this.imageModel,
+                    contents
+                });
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                const retryableRateLimit = isRateLimitError(error);
+                if (!retryableRateLimit || retryIndex >= IMAGE_RATE_LIMIT_MAX_RETRIES) {
+                    if (retryableRateLimit) {
+                        this.activateImageRateLimitCooldown();
+                    }
+                    throw error;
+                }
+
+                const backoffMs = computeRateLimitBackoffMs(retryIndex);
+                logger.warn(
+                    `Image model rate-limited (attempt ${retryIndex + 1}/${IMAGE_RATE_LIMIT_MAX_RETRIES + 1}). Retrying in ${backoffMs}ms...`
+                );
+                await sleep(backoffMs);
+                retryIndex += 1;
+            }
+        }
     }
 
     async generateIconAtlas(categories: string[], styleDescription: string, size: ImageSize = '1K'): Promise<IconAtlasResult> {
@@ -411,14 +518,10 @@ export class GeminiService implements IAiService {
             };
         }
 
-        const client = getClient(this.apiKey);
         const layout = buildIconAtlasLayout(normalizedCategories, { size });
         const prompt = buildAtlasPrompt(normalizedCategories, styleDescription, size);
 
-        const response = await client.models.generateContent({
-            model: this.imageModel,
-            contents: prompt
-        });
+        const response = await this.generateImageContentWithRetries(prompt);
 
         const parts = response.candidates?.[0]?.content?.parts;
         if (parts) {
@@ -437,8 +540,6 @@ export class GeminiService implements IAiService {
     }
 
     async generateIconImage(category: string, styleDescription: string, size?: ImageSize): Promise<string> {
-        const client = getClient(this.apiKey);
-
         const prompt = `Create a single graphical SYMBOL representing: "${category}".
       
       ART DIRECTION / THEME: ${styleDescription}
@@ -456,13 +557,10 @@ export class GeminiService implements IAiService {
          - **CENTERED**: The object must be perfectly centered.
          - **BACKGROUND**: SOLID BRIGHT GREEN (Hex #00FF00) for chroma keying. NO gradients, NO shadows on background.
       4. **NO TEXT**.
-      `;
+        `;
 
         try {
-            const response = await client.models.generateContent({
-                model: this.imageModel,
-                contents: prompt,
-            });
+            const response = await this.generateImageContentWithRetries(prompt);
 
             const parts = response.candidates?.[0]?.content?.parts;
             if (parts) {
@@ -482,6 +580,11 @@ export class GeminiService implements IAiService {
                 throw userFacingError;
             }
 
+            if (isRateLimitError(error)) {
+                logger.warn(`Icon Generation Rate Limited (${category})`, error);
+                throw new Error(IMAGE_RATE_LIMIT_USER_MESSAGE);
+            }
+
             logger.error(`Icon Generation Error (${category}):`, error);
             return TRANSPARENT_PLACEHOLDER_ICON;
         }
@@ -498,6 +601,18 @@ export class GeminiService implements IAiService {
         const usePerIconOnly = this.iconGenerationMode === 'per-icon';
         const useAutoMode = this.iconGenerationMode === 'auto';
         let generationCategories = getCanonicalPoiCategories(categories);
+        let rateLimitSkipNoticeShown = false;
+
+        const reportRateLimitSkip = () => {
+            if (rateLimitSkipNoticeShown) return;
+            rateLimitSkipNoticeShown = true;
+            const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+            const warning = remainingSeconds > 0
+                ? `Image model rate-limited. Skipping remaining icon requests for ~${remainingSeconds}s to avoid quota burn.`
+                : 'Image model rate-limited. Skipping remaining icon requests to avoid quota burn.';
+            logger.warn(warning);
+            onProgress?.(warning);
+        };
 
         if (usePerIconOnly) {
             const budgeted = applyPerIconBudget(generationCategories);
@@ -535,20 +650,40 @@ export class GeminiService implements IAiService {
             const shouldTryAtlas = useAtlasOnly || (useAutoMode && batch.length >= ICON_ATLAS_MIN_BATCH_SIZE);
 
             if (shouldTryAtlas) {
-                try {
-                    onProgress?.(`Generating icon atlas batch ${atlasBatchIndex} (${batch.length} icons)...`);
-                    const atlas = await this.generateIconAtlas(batch, iconTheme, '1K');
-                    atlasIcons = await sliceAtlasIntoIcons(atlas.atlasImageUrl, atlas.entries);
-                } catch (atlasError) {
-                    logger.warn(`Atlas batch ${atlasBatchIndex} failed, falling back to per-icon generation`, atlasError);
+                if (this.isImageRateLimited()) {
+                    reportRateLimitSkip();
+                } else {
+                    try {
+                        onProgress?.(`Generating icon atlas batch ${atlasBatchIndex} (${batch.length} icons)...`);
+                        const atlas = await this.generateIconAtlas(batch, iconTheme, '1K');
+                        atlasIcons = await sliceAtlasIntoIcons(atlas.atlasImageUrl, atlas.entries);
+                    } catch (atlasError) {
+                        if (isRateLimitError(atlasError)) {
+                            reportRateLimitSkip();
+                        } else {
+                            logger.warn(`Atlas batch ${atlasBatchIndex} failed, falling back to per-icon generation`, atlasError);
+                        }
+                    }
                 }
             }
 
-            const batchPromises = batch.map(async (cat) => {
+            const batchResults: IconDefinition[] = [];
+            for (const cat of batch) {
                 try {
+                    if (this.isImageRateLimited()) {
+                        reportRateLimitSkip();
+                        batchResults.push({
+                            category: cat,
+                            prompt: iconTheme,
+                            imageUrl: null,
+                            isLoading: false
+                        } as IconDefinition);
+                        continue;
+                    }
+
                     const atlasIcon = atlasIcons[cat];
                     const shouldUsePerIconOnly = usePerIconOnly;
-                    const shouldUseAtlasFallback = useAutoMode && shouldTryAtlas;
+                    const shouldUseAtlasFallback = useAutoMode && shouldTryAtlas && !this.isImageRateLimited();
                     const canUseAutoFallback = shouldUseAtlasFallback && fallbackCount < ICON_AUTO_FALLBACK_MAX;
 
                     let imageUrl: string | null = atlasIcon || null;
@@ -558,33 +693,34 @@ export class GeminiService implements IAiService {
                     } else if (!imageUrl && canUseAutoFallback) {
                         fallbackCount += 1;
                         imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
-                    } else if (!imageUrl && useAutoMode && !shouldTryAtlas) {
+                    } else if (!imageUrl && useAutoMode && !shouldTryAtlas && !this.isImageRateLimited()) {
                         imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
                     } else if (!imageUrl && shouldUseAtlasFallback && !fallbackLimitReported) {
                         fallbackLimitReported = true;
                         onProgress?.(`Auto fallback limit reached (${ICON_AUTO_FALLBACK_MAX}). Remaining icons kept empty.`);
                     }
 
-                    return {
+                    batchResults.push({
                         category: cat,
                         prompt: iconTheme,
                         imageUrl: imageUrl || null,
                         isLoading: false
-                    } as IconDefinition;
+                    } as IconDefinition);
                 } catch (e) {
-                    return {
+                    batchResults.push({
                         category: cat,
                         prompt: iconTheme,
                         imageUrl: null,
                         isLoading: false
-                    } as IconDefinition;
+                    } as IconDefinition);
+                    if (isRateLimitError(e)) {
+                        reportRateLimitSkip();
+                    }
                 } finally {
                     completedCount++;
                     onProgress?.(`Created icon for ${cat} (${completedCount}/${totalCount})`);
                 }
-            });
-
-            const batchResults = await Promise.all(batchPromises);
+            }
             const batchUsableCount = batchResults.filter((icon) => Boolean(icon.imageUrl)).length;
             usableIconCount += batchUsableCount;
             if (shouldTryAtlas) {

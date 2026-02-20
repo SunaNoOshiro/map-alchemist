@@ -104,9 +104,10 @@ export class PopupGenerator {
         const props = feature.properties;
         const cat = props.category;
         const sub = props.subcategory;
+        const iconKey = props.iconKey;
         const title = props.title;
         const desc = props.description || sub;
-        const iconDef = activeIcons[sub] || activeIcons[cat];
+        const iconDef = activeIcons[iconKey] || activeIcons[sub] || activeIcons[cat];
         const headerImg = iconDef?.imageUrl || FALLBACK_POPUP_ICON;
 
         const wandIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M10.6 17.4 12 16"/><path d="M12.5 2.5 8 7"/><path d="M17.5 7.5 13 3"/><path d="M7 21l9-9"/><path d="M3 21l9-9"/></svg>`;

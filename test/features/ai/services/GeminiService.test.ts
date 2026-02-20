@@ -29,6 +29,21 @@ const invalidApiKeyError = new Error(JSON.stringify({
   },
 }));
 
+const rateLimitError = new Error(JSON.stringify({
+  error: {
+    code: 429,
+    message: 'Too many requests. Please try again later.',
+    status: 'RESOURCE_EXHAUSTED',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'RATE_LIMIT_EXCEEDED',
+        domain: 'googleapis.com',
+      },
+    ],
+  },
+}));
+
 describe('GeminiService invalid key handling', () => {
   beforeEach(() => {
     generateContentMock.mockReset();
@@ -157,5 +172,94 @@ describe('GeminiService invalid key handling', () => {
     expect(generateIconImageSpy).toHaveBeenCalledTimes(32);
     expect(Object.keys(preset.iconsByCategory).length).toBe(32);
     expect(preset.iconsByCategory['Landmark']).toBeDefined();
+  });
+
+  it('retries icon atlas generation after transient 429 rate limits', async () => {
+    generateContentMock
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: 'ZmFrZS1pbWFnZS1kYXRh',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+    const result = await service.generateIconAtlas(['Cafe', 'Bar'], 'Retro cartoon style', '1K');
+
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    expect(result.atlasImageUrl).toContain('data:image/png;base64,ZmFrZS1pbWFnZS1kYXRh');
+    expect(Object.keys(result.entries)).toEqual(expect.arrayContaining(['Cafe', 'Bar']));
+  });
+
+  it('activates cooldown after repeated 429 errors and skips remaining icon requests', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      // Run retry/backoff waits immediately in tests.
+      .mockImplementation((handler: any) => {
+        if (typeof handler === 'function') {
+          handler();
+        }
+        return 0 as any;
+      });
+
+    try {
+      generateContentMock.mockResolvedValueOnce({
+        text: JSON.stringify({
+          themeSpec: {
+            tokens: {
+              water: '#0a84ff',
+              primaryRoad: '#ff6b3d',
+              textPrimary: '#f8fbff',
+              haloPrimary: '#11182b'
+            }
+          },
+          popupStyle: {
+            backgroundColor: '#101828',
+            textColor: '#f8fafc',
+            borderColor: '#334155',
+            borderRadius: '10px',
+            fontFamily: 'Fira Sans'
+          },
+          iconTheme: 'Rate limit stress test'
+        })
+      });
+      generateContentMock.mockRejectedValue(rateLimitError);
+
+      const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+      const preset = await service.generateMapTheme('Rate limit stress', ['A', 'B', 'C', 'D']);
+
+      // 1 text request + up to 5 image retry attempts, then cooldown prevents further image calls.
+      expect(generateContentMock.mock.calls.length).toBeLessThanOrEqual(7);
+      expect(Object.keys(preset.iconsByCategory)).toEqual(expect.arrayContaining(['Landmark']));
+      expect(Object.values(preset.iconsByCategory).every((icon) => !icon.imageUrl)).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });
