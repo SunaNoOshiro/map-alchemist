@@ -2,6 +2,7 @@ import { DEFAULT_STYLE_URL } from '@/constants';
 import { MapStyleExportPackage, MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { derivePalette, normalizePopupStyle } from '@core/services/defaultThemes';
 import { createLogger } from '@core/logger';
+import { extractPaletteFromCompiledStyle, isMapLibreStyleJson } from '@features/map/services/styleCompiler';
 
 const logger = createLogger('MapStyleExportService');
 
@@ -164,15 +165,20 @@ export const MapStyleExportService = {
     options: { baseStyleJson?: MapLibreStyle; baseStyleUrl?: string } = {}
   ): Promise<MapStyleExportPackage> {
     const baseStyleUrl = options.baseStyleUrl || DEFAULT_STYLE_URL;
-    const baseStyleJson = options.baseStyleJson || await fetchBaseStyle(baseStyleUrl);
-
-    const cloned = ensureStyleShape(cloneStyleJson(baseStyleJson));
-
+    const paletteFromCompiledStyle = extractPaletteFromCompiledStyle(preset.mapStyleJson);
     const palette = (preset.palette && Object.keys(preset.palette).length > 0)
       ? preset.palette
-      : derivePalette(preset.mapStyleJson);
+      : paletteFromCompiledStyle || derivePalette(preset.mapStyleJson);
 
-    applyPaletteToStyle(cloned, palette);
+    let cloned: MapLibreStyle;
+    if (isMapLibreStyleJson(preset.mapStyleJson)) {
+      cloned = ensureStyleShape(cloneStyleJson(preset.mapStyleJson as MapLibreStyle));
+    } else {
+      const baseStyleJson = options.baseStyleJson || await fetchBaseStyle(baseStyleUrl);
+      cloned = ensureStyleShape(cloneStyleJson(baseStyleJson));
+      applyPaletteToStyle(cloned, palette);
+    }
+
     ensurePlacesSource(cloned);
     ensurePoiLayer(cloned);
     cloned.name = preset.name;

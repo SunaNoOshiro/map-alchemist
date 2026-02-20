@@ -8,6 +8,12 @@ type InvocationType = 'visuals' | 'atlas' | 'perIcon' | 'unknown';
 
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const ATLAS_SVG_BASE64 = Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+    <rect width="1024" height="1024" fill="#00FF00"/>
+    <rect x="1" y="1" width="1022" height="1022" fill="#111111"/>
+  </svg>`
+).toString('base64');
 
 const iconModeByLabel = (label: string): 'auto' | 'atlas' | 'per-icon' => {
   const normalized = label.trim().toLowerCase();
@@ -18,7 +24,10 @@ const iconModeByLabel = (label: string): 'auto' | 'atlas' | 'per-icon' => {
 };
 
 const classifyGenerateContentCall = (payload: string): InvocationType => {
-  if (payload.includes('Generate map theme for:')) return 'visuals';
+  if (
+    payload.includes('Generate map theme for:') ||
+    payload.includes('Generate a complete themed map design package for')
+  ) return 'visuals';
   if (payload.includes('Create ONE square icon sprite atlas image')) return 'atlas';
   if (payload.includes('Create a single graphical SYMBOL representing:')) return 'perIcon';
   return 'unknown';
@@ -31,13 +40,17 @@ const createVisualsResponse = () => ({
         parts: [
           {
             text: JSON.stringify({
-              mapColors: {
-                water: '#5FA9FF',
-                land: '#1F2937',
-                building: '#374151',
-                road: '#9CA3AF',
-                park: '#16A34A',
-                text: '#E5E7EB',
+              themeSpec: {
+                tokens: {
+                  water: '#5FA9FF',
+                  land: '#1F2937',
+                  building: '#374151',
+                  primaryRoad: '#9CA3AF',
+                  secondaryRoad: '#9CA3AF',
+                  localRoad: '#9CA3AF',
+                  park: '#16A34A',
+                  textPrimary: '#E5E7EB',
+                },
               },
               popupStyle: {
                 backgroundColor: '#111827',
@@ -64,6 +77,23 @@ const createImageResponse = () => ({
             inlineData: {
               mimeType: 'image/png',
               data: TINY_PNG_BASE64,
+            },
+          },
+        ],
+      },
+    },
+  ],
+});
+
+const createAtlasResponse = () => ({
+  candidates: [
+    {
+      content: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/svg+xml',
+              data: ATLAS_SVG_BASE64,
             },
           },
         ],
@@ -123,7 +153,7 @@ Given('Gemini API calls are mocked with atlas behavior {string}', async ({ page 
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(createImageResponse()),
+        body: JSON.stringify(createAtlasResponse()),
       });
       return;
     }

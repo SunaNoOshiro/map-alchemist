@@ -1,20 +1,11 @@
 import { IMapController } from '@core/interfaces/IMapController';
-import { OSM_MAPPING, CATEGORY_COLORS, getCategoryColor } from '@/constants';
+import { CATEGORY_COLORS, getCategoryColor } from '@/constants';
 import { IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
+import { resolvePoiIconKey, resolvePoiTaxonomy } from './poiIconResolver';
+import { extractPoiSymbolSources } from './styleCatalog';
 
 const logger = createLogger('PoiService');
-
-const SUBCLASS_MAPPING: Record<string, { category: string; subcategory: string }> = Object.entries(OSM_MAPPING).reduce(
-    (acc, [combo, value]) => {
-        const [, rawSubclass] = combo.split('=');
-        if (rawSubclass) {
-            acc[rawSubclass.toLowerCase()] = { category: value.category, subcategory: value.subcategory };
-        }
-        return acc;
-    },
-    {} as Record<string, { category: string; subcategory: string }>
-);
 
 const DEFAULT_CATEGORY_GROUP_COLOR = getCategoryColor('__unknown_category__');
 
@@ -184,23 +175,9 @@ export class PoiService {
         palette: Record<string, string>,
         popupStyle: PopupStyle
     ) {
-        // Discovery logic derived from MapView.tsx
-        // In the original, it scanned layers to find 'poi' layers.
-        // This requires access to style layers.
         const layers = map.getLayers();
-        const poiLayers = layers
-            .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'));
-
-        const poiSources = poiLayers.reduce<{ source: string; sourceLayer: string }[]>((acc, layer) => {
-            const source = (layer as any).source as string | undefined;
-            const sourceLayer = (layer as any)['source-layer'] as string | undefined;
-            if (!source || !sourceLayer) return acc;
-            // Simple dedupe
-            if (!acc.find(item => item.source === source && item.sourceLayer === sourceLayer)) {
-                acc.push({ source, sourceLayer });
-            }
-            return acc;
-        }, []);
+        const poiSources = extractPoiSymbolSources({ layers: layers as any[] })
+            .map((entry) => ({ source: entry.source, sourceLayer: entry.sourceLayer }));
 
         const byId = new Map<string, any>();
         poiSources.forEach(({ source, sourceLayer }) => {
@@ -211,7 +188,7 @@ export class PoiService {
                 if (!name) return;
 
                 const subclass = (props.subclass || props.class || props.amenity || props.shop || props.tourism || props.leisure || '').toLowerCase();
-                const match = SUBCLASS_MAPPING[subclass];
+                const { category, subcategory } = resolvePoiTaxonomy(subclass, props.class);
 
                 const fid = props.id?.toString() || props.osm_id?.toString() || `${subclass || 'poi'}-${name}-${feature.id}`;
                 if (byId.has(fid)) return;
@@ -219,12 +196,11 @@ export class PoiService {
                 const coords = extractPointCoordinates(feature);
                 if (!coords) return;
 
-                const category = match?.category || subclass || 'poi';
-                const subcategory = match?.subcategory || subclass || category;
-                // Use subcategory/category as iconKey if we have an icon for it, otherwise use category as fallback
-                const iconKey = (activeIcons[subcategory]?.imageUrl) ? subcategory
-                    : (activeIcons[category]?.imageUrl) ? category
-                        : subcategory; // Fallback to subcategory name even if no image yet
+                const iconKey = resolvePoiIconKey(activeIcons, {
+                    category,
+                    subcategory,
+                    subclass
+                });
 
                 const fallbackTextColor = palette.text || popupStyle.textColor || '#202124';
                 const categoryColor = resolveCategoryGroupColor(subcategory, category);

@@ -98,4 +98,47 @@ describe('MapStyleExportService.buildExportPackage', () => {
 
     expect(Object.keys(result.iconsByCategory)).toEqual(['Cafe']);
   });
+
+  it('uses compiled full style JSON directly when preset already contains MapLibre layers', async () => {
+    const compiledPreset = createPreset();
+    compiledPreset.mapStyleJson = {
+      version: 8,
+      sources: {
+        openmaptiles: { type: 'vector', url: 'https://example.com' }
+      },
+      metadata: {
+        mapAlchemist: {
+          palette: {
+            water: '#0a84ff',
+            land: '#1c2435',
+            building: '#334155',
+            road: '#ff6b3d',
+            park: '#1f5a3a',
+            text: '#f8fbff'
+          }
+        }
+      },
+      layers: [
+        { id: 'water-layer', type: 'fill', paint: { 'fill-color': '#0a84ff' } },
+        { id: 'land-layer', type: 'background', paint: { 'background-color': '#1c2435' } },
+        { id: 'road-primary', type: 'line', paint: { 'line-color': '#ff6b3d' } },
+      ]
+    };
+    delete (compiledPreset as Partial<MapStylePreset>).palette;
+
+    const result = await MapStyleExportService.buildExportPackage(compiledPreset, { baseStyleJson: baseStyle });
+    const styleJson = result.styleJson as ExportStyleJson;
+
+    expect(getLayer(styleJson, 'water-layer')?.paint?.['fill-color']).toBe('#0a84ff');
+    expect(getLayer(styleJson, 'land-layer')?.paint?.['background-color']).toBe('#1c2435');
+    expect(getLayer(styleJson, 'road-primary')?.paint?.['line-color']).toBe('#ff6b3d');
+    expect(result.palette).toEqual({
+      water: '#0a84ff',
+      land: '#1c2435',
+      building: '#334155',
+      road: '#ff6b3d',
+      park: '#1f5a3a',
+      text: '#f8fbff'
+    });
+  });
 });

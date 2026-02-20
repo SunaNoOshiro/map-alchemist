@@ -28,6 +28,8 @@ const MIN_ICON_SIZE = 16;
 const MIN_PADDING = 2;
 const MIN_VISIBLE_ALPHA = 10;
 const MIN_FILLED_RATIO = 0.004;
+const CHROMA_GREEN_TARGET = { r: 0, g: 255, b: 0 };
+const CHROMA_GREEN_MAX_DISTANCE = 170;
 
 const toUniqueSortedCategories = (categories: string[]) => {
   return [...new Set(categories.map((category) => category.trim()).filter(Boolean))]
@@ -110,8 +112,34 @@ const loadImage = (url: string): Promise<HTMLImageElement | null> => {
   });
 };
 
-const hasVisiblePixels = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-  const data = ctx.getImageData(0, 0, width, height).data;
+export const isLikelyGreenScreenPixel = (r: number, g: number, b: number): boolean => {
+  const distance = Math.sqrt(
+    (r - CHROMA_GREEN_TARGET.r) ** 2 +
+    (g - CHROMA_GREEN_TARGET.g) ** 2 +
+    (b - CHROMA_GREEN_TARGET.b) ** 2
+  );
+  const dominantGreen = g > 90 && g - r > 30 && g - b > 30;
+  return dominantGreen && distance <= CHROMA_GREEN_MAX_DISTANCE;
+};
+
+export const applyGreenScreenChromaKey = (data: Uint8ClampedArray): Uint8ClampedArray => {
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha < MIN_VISIBLE_ALPHA) continue;
+
+    const r = data[index];
+    const g = data[index + 1];
+    const b = data[index + 2];
+
+    if (isLikelyGreenScreenPixel(r, g, b)) {
+      data[index + 3] = 0;
+    }
+  }
+
+  return data;
+};
+
+const hasVisiblePixels = (data: Uint8ClampedArray, width: number, height: number) => {
   let visible = 0;
 
   for (let index = 0; index < data.length; index += 4) {
@@ -158,7 +186,11 @@ export const sliceAtlasIntoIcons = async (
       entry.height
     );
 
-    iconUrls[category] = hasVisiblePixels(ctx, entry.width, entry.height)
+    const imageData = ctx.getImageData(0, 0, entry.width, entry.height);
+    applyGreenScreenChromaKey(imageData.data);
+    ctx.putImageData(imageData, 0, 0);
+
+    iconUrls[category] = hasVisiblePixels(imageData.data, entry.width, entry.height)
       ? canvas.toDataURL('image/png')
       : null;
   }

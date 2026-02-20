@@ -4,14 +4,28 @@ import { IAiService, IconAtlasResult } from "@core/services/ai/IAiService";
 import { ImageSize, IconDefinition, IconGenerationMode, MapStylePreset, PopupStyle } from "@/types";
 import { createLogger } from "@core/logger";
 import { buildIconAtlasLayout, sliceAtlasIntoIcons } from './iconAtlasUtils';
+import { DEFAULT_STYLE_URL } from '@/constants';
+import { compileThemeStyle } from '@features/map/services/styleCompiler';
+import {
+    ThemeSpec,
+    convertLegacyMapColorsToTokens,
+    normalizeThemePopupStyle,
+    normalizeThemeSpec,
+    toLegacyPalette
+} from './themeSpec';
+import { FALLBACK_POI_ICON_KEY, getCanonicalPoiCategories } from '@features/map/services/poiIconResolver';
 
 const logger = createLogger('GeminiService');
-const ICON_ATLAS_MAX_ICONS_PER_BATCH = 144;
+const ICON_ATLAS_MAX_ICONS_PER_BATCH = 64;
 const ICON_ATLAS_MIN_BATCH_SIZE = 9;
 const ICON_AUTO_FALLBACK_MAX = 24;
+const ICON_PER_ICON_MAX_CALLS = 32;
 const IMAGE_PROCESSING_TIMEOUT_MS = 5000;
 const TRANSPARENT_PLACEHOLDER_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 const INVALID_API_KEY_USER_MESSAGE = 'Invalid Gemini API key. Update API key in AI Configuration and try again.';
+const FALLBACK_BASE_STYLE = { version: 8, sources: {}, layers: [] };
+
+let cachedBaseStyleTemplate: any | null = null;
 
 const parseJsonIfPossible = (value: string): any | null => {
     try {
@@ -85,6 +99,55 @@ const tryParseJSON = (jsonString: string) => {
     }
 };
 
+const cloneJson = <T>(value: T): T => {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+};
+
+const loadBaseStyleTemplate = async (): Promise<any> => {
+    if (cachedBaseStyleTemplate) {
+        return cloneJson(cachedBaseStyleTemplate);
+    }
+
+    try {
+        const response = await fetch(DEFAULT_STYLE_URL);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch base style (${response.status})`);
+        }
+        const styleJson = await response.json();
+        cachedBaseStyleTemplate = styleJson;
+        return cloneJson(styleJson);
+    } catch (error) {
+        logger.error("Failed to load base style template", error);
+        cachedBaseStyleTemplate = FALLBACK_BASE_STYLE;
+        return cloneJson(FALLBACK_BASE_STYLE);
+    }
+};
+
+const resolveThemeSpec = (result: Record<string, any>): ThemeSpec => {
+    const rawThemeSpec = (result.themeSpec && typeof result.themeSpec === 'object')
+        ? result.themeSpec
+        : {};
+    const rawThemeTokens = (rawThemeSpec.tokens && typeof rawThemeSpec.tokens === 'object')
+        ? rawThemeSpec.tokens
+        : {};
+    const legacyTokens = convertLegacyMapColorsToTokens(
+        result.mapColors && typeof result.mapColors === 'object'
+            ? result.mapColors
+            : undefined
+    );
+
+    return normalizeThemeSpec({
+        ...rawThemeSpec,
+        tokens: {
+            ...legacyTokens,
+            ...rawThemeTokens
+        }
+    });
+};
+
 const removeBackground = (base64Image: string): Promise<string> => {
     return new Promise((resolve) => {
         let settled = false;
@@ -154,36 +217,64 @@ const removeBackground = (base64Image: string): Promise<string> => {
     });
 };
 
-const generateMapVisuals = async (prompt: string, apiKey: string, model: string): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string }> => {
+const generateMapVisuals = async (
+    prompt: string,
+    apiKey: string,
+    model: string
+): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string, themeSpec: ThemeSpec, palette: Record<string, string> }> => {
     const client = getClient(apiKey);
 
-    const systemInstruction = `You are a Mapbox Style Generator. Output JSON ONLY.
-    Task: Create a visual theme definition based on: "${prompt}".
-  
-    You must output a JSON object with:
-    1. "mapColors": A simple object defining hex codes for standard MapLibre layers.
-       Keys MUST be: "water", "land", "building", "road", "park", "text".
-    2. "popupStyle": Styling for info windows.
-    3. "iconTheme": Art direction description.
-  
-    Response Format:
-    {
-      "mapColors": {
-        "water": "#...",
-        "land": "#...",
-        "building": "#...",
-        "road": "#...",
-        "park": "#...",
-        "text": "#..."
-      },
-      "popupStyle": { "backgroundColor": "#...", "textColor": "#...", "borderColor": "#...", "borderRadius": "...", "fontFamily": "..." },
-      "iconTheme": "A string describing the icon style..."
-    }`;
+    const systemInstruction = `You are Cartographer-AI. Return JSON only.
+Task: create a theme definition for "${prompt}".
+
+Output object format:
+{
+  "themeSpec": {
+    "tokens": {
+      "background": "#...",
+      "land": "#...",
+      "park": "#...",
+      "industrial": "#...",
+      "residential": "#...",
+      "building": "#...",
+      "water": "#...",
+      "waterLine": "#...",
+      "motorway": "#...",
+      "primaryRoad": "#...",
+      "secondaryRoad": "#...",
+      "localRoad": "#...",
+      "roadCasing": "#...",
+      "boundary": "#...",
+      "admin": "#...",
+      "poiAccent": "#...",
+      "poiText": "#...",
+      "poiHalo": "#...",
+      "textPrimary": "#...",
+      "textSecondary": "#...",
+      "haloPrimary": "#...",
+      "haloSecondary": "#..."
+    },
+    "layerOverrides": {
+      "optional-layer-id": {
+        "paint": { "line-color": "#..." },
+        "layout": { "text-color": "#..." }
+      }
+    }
+  },
+  "popupStyle": {
+    "backgroundColor": "#...",
+    "textColor": "#...",
+    "borderColor": "#...",
+    "borderRadius": "8px",
+    "fontFamily": "Noto Sans"
+  },
+  "iconTheme": "short visual art direction string for POI icons"
+}`;
 
     try {
         const response = await client.models.generateContent({
             model: model,
-            contents: `Generate map theme for: "${prompt}".`,
+            contents: `Generate a complete themed map design package for "${prompt}".`,
             config: {
                 systemInstruction,
                 responseMimeType: "application/json",
@@ -197,16 +288,20 @@ const generateMapVisuals = async (prompt: string, apiKey: string, model: string)
             throw new Error("No text returned from model");
         }
 
+        const themeSpec = resolveThemeSpec(result || {});
+        const palette = toLegacyPalette(themeSpec.tokens);
+        const popupStyle = normalizeThemePopupStyle(result?.popupStyle);
+        const baseStyle = await loadBaseStyleTemplate();
+        const compiledStyle = compileThemeStyle(baseStyle, themeSpec);
+
         return {
-            mapStyle: result.mapColors || { water: '#a0c8f0', land: '#f0f0f0' },
-            popupStyle: result.popupStyle || {
-                backgroundColor: '#ffffff',
-                textColor: '#000000',
-                borderColor: '#cccccc',
-                borderRadius: '8px',
-                fontFamily: 'sans-serif'
-            },
-            iconTheme: result.iconTheme || `Minimalist flat icons matching ${prompt}`
+            mapStyle: compiledStyle,
+            popupStyle,
+            iconTheme: typeof result?.iconTheme === 'string' && result.iconTheme.trim()
+                ? result.iconTheme.trim()
+                : `Minimalist flat icons matching ${prompt}`,
+            themeSpec,
+            palette
         };
 
     } catch (error) {
@@ -217,10 +312,16 @@ const generateMapVisuals = async (prompt: string, apiKey: string, model: string)
         }
 
         logger.error("Style Generation Error:", error);
+        const themeSpec = normalizeThemeSpec({});
+        const palette = toLegacyPalette(themeSpec.tokens);
+        const baseStyle = await loadBaseStyleTemplate();
+        const compiledStyle = compileThemeStyle(baseStyle, themeSpec);
         return {
-            mapStyle: {},
-            popupStyle: { backgroundColor: '#fff', textColor: '#000', borderColor: '#ccc', borderRadius: '4px', fontFamily: 'Arial' },
-            iconTheme: `Simple icons for ${prompt}`
+            mapStyle: compiledStyle,
+            popupStyle: normalizeThemePopupStyle(null),
+            iconTheme: `Simple icons for ${prompt}`,
+            themeSpec,
+            palette
         };
     }
 };
@@ -258,6 +359,30 @@ ${categoryManifest}
 Return only the final atlas image.`;
 };
 
+const normalizeToken = (value?: string): string =>
+    String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+const applyPerIconBudget = (
+    categories: string[]
+): { categories: string[]; wasCapped: boolean } => {
+    if (categories.length <= ICON_PER_ICON_MAX_CALLS) {
+        return { categories, wasCapped: false };
+    }
+
+    const limited = categories.slice(0, ICON_PER_ICON_MAX_CALLS);
+    const hasFallback = limited.some(
+        (category) => normalizeToken(category) === normalizeToken(FALLBACK_POI_ICON_KEY)
+    );
+    if (!hasFallback && limited.length > 0) {
+        limited[limited.length - 1] = FALLBACK_POI_ICON_KEY;
+    }
+
+    return { categories: limited, wasCapped: true };
+};
+
 export class GeminiService implements IAiService {
     private apiKey: string;
     private model: string;
@@ -293,9 +418,8 @@ export class GeminiService implements IAiService {
             for (const part of parts) {
                 if (part.inlineData && part.inlineData.data) {
                     const rawBase64 = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                    const processedImage = await removeBackground(rawBase64);
                     return {
-                        atlasImageUrl: processedImage,
+                        atlasImageUrl: rawBase64,
                         entries: layout.entries
                     };
                 }
@@ -366,27 +490,39 @@ export class GeminiService implements IAiService {
         const useAtlasOnly = this.iconGenerationMode === 'atlas';
         const usePerIconOnly = this.iconGenerationMode === 'per-icon';
         const useAutoMode = this.iconGenerationMode === 'auto';
+        let generationCategories = getCanonicalPoiCategories(categories);
 
         if (usePerIconOnly) {
-            onProgress?.(`Generating ${categories.length} icons one by one...`);
+            const budgeted = applyPerIconBudget(generationCategories);
+            generationCategories = budgeted.categories;
+            if (budgeted.wasCapped) {
+                const warning = `Per-icon mode capped at ${ICON_PER_ICON_MAX_CALLS} requests to control API spend. Switch to Atlas or Auto for broader coverage.`;
+                logger.warn(warning);
+                onProgress?.(warning);
+            }
+        }
+
+        if (usePerIconOnly) {
+            onProgress?.(`Generating ${generationCategories.length} icons one by one...`);
         } else if (useAtlasOnly) {
-            onProgress?.(`Generating ${categories.length} icons from atlas batches...`);
+            onProgress?.(`Generating ${generationCategories.length} icons from atlas batches...`);
         } else {
-            onProgress?.(`Generating ${categories.length} icons with auto mode (atlas + fallback)...`);
+            onProgress?.(`Generating ${generationCategories.length} icons with auto mode (atlas + fallback)...`);
         }
 
         let completedCount = 0;
-        const totalCount = categories.length;
+        const totalCount = generationCategories.length;
 
-        const batchSize = (useAtlasOnly || (useAutoMode && categories.length >= ICON_ATLAS_MIN_BATCH_SIZE))
-            ? Math.min(categories.length, ICON_ATLAS_MAX_ICONS_PER_BATCH)
+        const batchSize = (useAtlasOnly || (useAutoMode && generationCategories.length >= ICON_ATLAS_MIN_BATCH_SIZE))
+            ? Math.min(generationCategories.length, ICON_ATLAS_MAX_ICONS_PER_BATCH)
             : 6;
         const icons: IconDefinition[] = [];
         let fallbackCount = 0;
         let fallbackLimitReported = false;
+        let usableIconCount = 0;
 
-        for (let i = 0; i < categories.length; i += batchSize) {
-            const batch = categories.slice(i, i + batchSize);
+        for (let i = 0; i < generationCategories.length; i += batchSize) {
+            const batch = generationCategories.slice(i, i + batchSize);
             const atlasBatchIndex = Math.floor(i / batchSize) + 1;
             let atlasIcons: Record<string, string | null> = {};
             const shouldTryAtlas = useAtlasOnly || (useAutoMode && batch.length >= ICON_ATLAS_MIN_BATCH_SIZE);
@@ -442,7 +578,21 @@ export class GeminiService implements IAiService {
             });
 
             const batchResults = await Promise.all(batchPromises);
+            const batchUsableCount = batchResults.filter((icon) => Boolean(icon.imageUrl)).length;
+            usableIconCount += batchUsableCount;
+            if (shouldTryAtlas) {
+                onProgress?.(`Atlas batch ${atlasBatchIndex} usable icons: ${batchUsableCount}/${batch.length}`);
+            }
             icons.push(...batchResults);
+        }
+
+        onProgress?.(`Usable icons: ${usableIconCount}/${totalCount}`);
+        if (usableIconCount === 0) {
+            const warning = useAtlasOnly
+                ? 'Atlas produced no usable icons. Switch Icon Generation mode to "Auto (Atlas + Fallback)" and regenerate.'
+                : 'No usable icons were generated. Try regenerating or changing icon generation mode.';
+            logger.warn(warning);
+            onProgress?.(warning);
         }
 
         onProgress?.("Finalizing theme...");
@@ -459,6 +609,7 @@ export class GeminiService implements IAiService {
             iconTheme,
             createdAt: new Date().toISOString(),
             mapStyleJson: visuals.mapStyle,
+            palette: visuals.palette,
             popupStyle: visuals.popupStyle,
             iconsByCategory
         };

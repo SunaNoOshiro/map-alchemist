@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildIconSyncPlan, sanitizeMapStyleNumericExpressions } from '@/features/map/hooks/useMapLogic';
+import {
+  buildIconSyncPlan,
+  resolveRenderStyle,
+  sanitizeMapStyleNumericExpressions,
+  shouldApplyPaletteOverrides
+} from '@/features/map/hooks/useMapLogic';
 import { IconDefinition } from '@/types';
 
 describe('buildIconSyncPlan', () => {
@@ -175,5 +180,45 @@ describe('sanitizeMapStyleNumericExpressions', () => {
       ['>=', ['coalesce', ['to-number', ['get', 'rank']], 0], 7],
       ['<', ['coalesce', ['to-number', ['get', 'rank']], 0], 20],
     ]);
+  });
+});
+
+describe('compiled style render mode', () => {
+  it('skips palette overrides when active style is a full MapLibre style JSON', () => {
+    const fullStyle = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#010203' } }],
+    };
+
+    expect(shouldApplyPaletteOverrides(fullStyle)).toBe(false);
+  });
+
+  it('falls back to base style when style JSON is an empty placeholder', () => {
+    const emptyPlaceholderStyle = {
+      version: 8,
+      sources: {},
+      layers: [],
+    };
+    const baseStyle = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#010203' } }],
+    };
+
+    expect(shouldApplyPaletteOverrides(emptyPlaceholderStyle)).toBe(true);
+    expect(resolveRenderStyle(emptyPlaceholderStyle, baseStyle)).toEqual(baseStyle);
+  });
+
+  it('uses base style fallback for legacy palette-style objects', () => {
+    const legacyStyle = { water: '#0a84ff', land: '#1c2435' };
+    const baseStyle = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#010203' } }],
+    };
+
+    expect(shouldApplyPaletteOverrides(legacyStyle)).toBe(true);
+    expect(resolveRenderStyle(legacyStyle, baseStyle)).toEqual(baseStyle);
   });
 });

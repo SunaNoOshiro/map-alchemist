@@ -5,9 +5,10 @@ import { PopupGenerator } from '../services/PopupGenerator';
 import { PaletteService } from '../services/PaletteService';
 import { PoiService } from '../services/PoiService';
 import { derivePalette } from '@core/services/defaultThemes';
-import { DEFAULT_STYLE_URL, MAP_CATEGORIES, OSM_MAPPING } from '@/constants';
+import { DEFAULT_STYLE_URL, MAP_CATEGORIES } from '@/constants';
 import { MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
+import { isMapLibreStyleJson } from '../services/styleCompiler';
 
 const logger = createLogger('MapLogicHook');
 const NUMERIC_LAYOUT_PROPERTIES = new Set([
@@ -236,6 +237,24 @@ export const sanitizeMapStyleNumericExpressions = (styleJson: any): any => {
     };
 };
 
+const hasRenderableStyleContent = (styleJson: any): boolean => {
+    if (!isMapLibreStyleJson(styleJson)) return false;
+    const hasLayers = Array.isArray(styleJson.layers) && styleJson.layers.length > 0;
+    const hasSources = !!styleJson.sources
+        && typeof styleJson.sources === 'object'
+        && Object.keys(styleJson.sources).length > 0;
+    return hasLayers && hasSources;
+};
+
+export const shouldApplyPaletteOverrides = (mapStyleJson: any): boolean => !hasRenderableStyleContent(mapStyleJson);
+
+export const resolveRenderStyle = (mapStyleJson: any, baseStyle: any): any => {
+    if (hasRenderableStyleContent(mapStyleJson)) {
+        return sanitizeMapStyleNumericExpressions(mapStyleJson);
+    }
+    return sanitizeMapStyleNumericExpressions(baseStyle);
+};
+
 // Helper for safe style loading (moved from MapView)
 const loadSafeStyle = async (styleUrl: string) => {
     try {
@@ -296,6 +315,65 @@ export const useMapLogic = ({
     const loadedIconUrls = useRef<Record<string, string>>({});
     const activeStyleRef = useRef<string | null | undefined>(styleId);
 
+    const ensurePoiInfrastructure = useCallback((controller: IMapController) => {
+        const rawMap = controller.getRawMap?.();
+        if (!rawMap) return;
+
+        if (!rawMap.getSource('places')) {
+            rawMap.addSource('places', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+                cluster: false
+            });
+            logger.info('Created "places" source on map load');
+        }
+
+        if (!rawMap.getLayer('unclustered-point')) {
+            rawMap.addLayer({
+                id: 'unclustered-point',
+                type: 'symbol',
+                source: 'places',
+                minzoom: 13,
+                layout: {
+                    'icon-image': ['get', 'iconKey'],
+                    'icon-size': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        13, 0.15,
+                        14, 0.25,
+                        16, 0.35,
+                        18, 0.45
+                    ],
+                    'icon-allow-overlap': false,
+                    'symbol-spacing': 250,
+                    'text-field': ['get', 'title'],
+                    'text-font': ['Noto Sans Regular'],
+                    'text-offset': [0, 1.2],
+                    'text-anchor': 'top',
+                    'text-size': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        13, 9,
+                        15, 11,
+                        18, 13
+                    ],
+                    'text-optional': true,
+                    'text-allow-overlap': false
+                },
+                paint: {
+                    'text-color': ['get', 'textColor'],
+                    'text-halo-color': ['get', 'haloColor'],
+                    'text-halo-width': 2
+                }
+            });
+            logger.info('Created "unclustered-point" layer on map load');
+        }
+
+        PoiService.hideBaseMapPOILayers(controller);
+    }, []);
+
     // 1. Initialize Map
     useEffect(() => {
         if (!containerRef.current) return;
@@ -319,65 +397,7 @@ export const useMapLogic = ({
 
             controller.initialize(containerRef.current!, safeBase, () => {
                 if (!active) return;
-
-                // Create POI source and layer ONCE on map load (critical timing!)
-                const rawMap = controller.getRawMap?.();
-                if (rawMap) {
-                    if (!rawMap.getSource('places')) {
-                        rawMap.addSource('places', {
-                            type: 'geojson',
-                            data: { type: 'FeatureCollection', features: [] },
-                            cluster: false
-                        });
-                        logger.info('Created "places" source on map load');
-                    }
-
-                    if (!rawMap.getLayer('unclustered-point')) {
-                        rawMap.addLayer({
-                            id: 'unclustered-point',
-                            type: 'symbol',
-                            source: 'places',
-                            minzoom: 13, // Show POIs starting at zoom 13 (street level)
-                            layout: {
-                                'icon-image': ['get', 'iconKey'],
-                                'icon-size': [
-                                    'interpolate',
-                                    ['linear'],
-                                    ['zoom'],
-                                    13, 0.15,
-                                    14, 0.25,
-                                    16, 0.35,
-                                    18, 0.45
-                                ],
-                                'icon-allow-overlap': false, // Prevent icon overlap
-                                'symbol-spacing': 250, // Minimum distance in pixels between symbols
-                                'text-field': ['get', 'title'],
-                                'text-font': ['Noto Sans Regular'],
-                                'text-offset': [0, 1.2],
-                                'text-anchor': 'top',
-                                'text-size': [
-                                    'interpolate',
-                                    ['linear'],
-                                    ['zoom'],
-                                    13, 9,
-                                    15, 11,
-                                    18, 13
-                                ],
-                                'text-optional': true,
-                                'text-allow-overlap': false // Prevent text overlap
-                            },
-                            paint: {
-                                'text-color': ['get', 'textColor'],
-                                'text-halo-color': ['get', 'haloColor'],
-                                'text-halo-width': 2
-                            }
-                        });
-                        logger.info('Created "unclustered-point" layer on map load');
-                    }
-
-                    // Hide base map POI layers - our custom layer handles all POIs
-                    PoiService.hideBaseMapPOILayers(controller);
-                }
+                ensurePoiInfrastructure(controller);
 
                 setLoaded(true);
                 // Expose for testing
@@ -395,7 +415,7 @@ export const useMapLogic = ({
             active = false;
             mapController.current?.dispose();
         };
-    }, []);
+    }, [ensurePoiInfrastructure]);
 
     useEffect(() => {
         if (!loaded || !mapController.current || !containerRef.current) return;
@@ -408,6 +428,37 @@ export const useMapLogic = ({
         return () => observer.disconnect();
     }, [loaded, containerRef]);
 
+    const paletteOverrideMode = useMemo(
+        () => shouldApplyPaletteOverrides(mapStyleJson),
+        [mapStyleJson]
+    );
+
+    useEffect(() => {
+        if (!loaded || !mapController.current || !baseStyle) return;
+        if (!styleId && styleId !== null) return;
+
+        const controller = mapController.current;
+        const rawMap = controller.getRawMap?.();
+        if (!rawMap) return;
+
+        const styleToApply = resolveRenderStyle(mapStyleJson, baseStyle);
+        controller.setStyle(styleToApply);
+
+        const onStyleData = () => {
+            if (!controller.getRawMap?.()) return;
+            ensurePoiInfrastructure(controller);
+            PoiService.refreshData(controller, activeIcons, paletteProp || derivePalette(mapStyleJson), popupStyle);
+        };
+
+        rawMap.once('styledata', onStyleData);
+    }, [
+        loaded,
+        styleId,
+        mapStyleJson,
+        baseStyle,
+        ensurePoiInfrastructure
+    ]);
+
     // 2. Derive Palette
     const palette = useMemo(() => {
         if (paletteProp) return paletteProp;
@@ -416,7 +467,7 @@ export const useMapLogic = ({
 
     // 3. Apply Palette Logic
     useEffect(() => {
-        if (!loaded || !mapController.current || !palette) return;
+        if (!loaded || !mapController.current || !palette || !paletteOverrideMode) return;
         const controller = mapController.current;
 
         // We apply palette when style matches or layers exist
@@ -431,7 +482,7 @@ export const useMapLogic = ({
         // Listen for style load (if adapter supported it fully)
         // For now, we rely on the React effect re-running when dependencies change
 
-    }, [loaded, palette, popupStyle]); // Re-run when palette changes
+    }, [loaded, palette, popupStyle, paletteOverrideMode]); // Re-run when palette changes
 
     // Close stale popup UI when switching between themes/styles.
     useEffect(() => {

@@ -246,6 +246,11 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             </div>
           )}
         </div>
+        {aiConfig.iconGenerationMode === 'per-icon' && (
+          <p className={uiClass(UI_TYPOGRAPHY.tiny, 'text-amber-300 mt-1')}>
+            Per-icon mode is capped per run to control API spend. Use Atlas/Auto for full coverage at lower cost.
+          </p>
+        )}
       </div>
 
       {/* API Key Section */}
