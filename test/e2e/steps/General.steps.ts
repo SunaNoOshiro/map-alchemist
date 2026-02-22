@@ -4,14 +4,16 @@ import { expect } from '@playwright/test';
 const { Given, When, Then } = createBdd();
 
 const ICON_MODE_LABELS = {
-    auto: 'Auto (Atlas + Fallback)',
+    auto: 'Auto (HQ Atlas 4x4 + Repair)',
+    'batch-async': 'Batch API (Async, Cheap)',
     atlas: 'Atlas only',
     'per-icon': 'Per-icon only'
 } as const;
 
 const resolveIconModeKey = (value: string): keyof typeof ICON_MODE_LABELS => {
     const normalized = value.trim().toLowerCase();
-    if (normalized === 'auto' || normalized === 'auto (atlas + fallback)') return 'auto';
+    if (normalized === 'auto' || normalized === 'auto (hq atlas 4x4 + repair)' || normalized === 'auto (batch + smart fallback)') return 'auto';
+    if (normalized === 'batch' || normalized === 'batch-async' || normalized === 'batch api (async, cheap)') return 'batch-async';
     if (normalized === 'atlas' || normalized === 'atlas only') return 'atlas';
     if (normalized === 'per-icon' || normalized === 'per icon' || normalized === 'per-icon only') return 'per-icon';
     throw new Error(`Unsupported icon generation mode: ${value}`);

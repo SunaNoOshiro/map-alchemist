@@ -1,5 +1,64 @@
 # Implementation Plan
 
+## Feature Plan: True Gemini Batch API + Icon Reliability + Cost Controls (2026-02-22)
+
+### Goal
+Implement a real async Gemini Batch API pipeline for icon generation so large POI sets (139+) are generated reliably, cheaply, and with bounded request behavior.
+
+### User Review Required
+1. Execution scope:
+   - Deliver end-to-end now: new `batch-async` mode, upgraded `auto` strategy, retry round for failed icons, and popup/icon fallback correctness fix.
+2. Product default:
+   - Switch default icon generation mode to Batch API first (`batch-async`) for cheaper async generation by default.
+
+### Proposed Changes
+1. Add true Batch API mode in AI config and UI.
+   - Files: `src/types.ts`, `src/constants/aiConstants.ts`, `src/features/auth/components/AuthScreen.tsx`, `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+   - Add `iconGenerationMode = 'batch-async'` option with explicit label.
+   - Keep existing modes (`auto`, `atlas`, `per-icon`) for controlled fallback/testing.
+
+2. Implement Gemini async batch icon pipeline.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Use `client.batches.create(...)` + `client.batches.get(...)` polling with terminal-state handling.
+   - Submit inlined per-icon requests in bounded chunks (to avoid oversized payloads).
+   - Parse inlined responses deterministically by request order.
+   - Preserve invalid-key and 429 protections with user-facing errors.
+
+3. Add failed-icon retry rounds (batch-first).
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Collect failed/missing icons after first pass.
+   - Re-run failed icons in one or more compact async batch rounds.
+   - Cap retry rounds and per-round icon volume to keep spend bounded.
+
+4. Upgrade `auto` orchestration for reliability.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Prefer true batch path first.
+   - If batch path fails or returns partial output, use bounded fallback path (atlas/per-icon) instead of silently completing with empty icons.
+
+5. Fix wrong-icon fallback behavior in POI mapping.
+   - File: `src/features/map/services/poiIconResolver.ts`
+   - Stop returning arbitrary first available icon when no matching icon exists.
+   - Prefer deterministic fallback key (`Landmark`) to avoid mismatched popup/map icon semantics.
+
+6. Expand automated coverage (unit + BDD impact points).
+   - Files: `test/features/ai/services/GeminiService.test.ts`, `test/constants/aiConstants.test.ts`, `test/features/map/services/poiIconResolver.test.ts`, `test/e2e/steps/IconGenerationMode.steps.ts`, `test/e2e/steps/General.steps.ts`, `test/e2e/features/IconGenerationModes.feature`
+   - Add tests for async batch success/failure/polling/retry behavior.
+   - Update icon mode parsing/assertions for new `batch-async` label/mode.
+   - Keep invocation accounting deterministic under mocked network routes.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts test/constants/aiConstants.test.ts test/features/map/services/poiIconResolver.test.ts test/shared/components/AiSettingsPanel.test.tsx test/features/auth/components/AuthScreen.test.tsx`
+2. BDD icon mode suite:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. Full unit sanity:
+   - `npm test -- --run`
+4. Manual sanity:
+   - Generate a theme with real API and verify:
+     - icon generation logs show async batch creation/polling/completion,
+     - custom icons appear in sidebar/map/popup (not mismatched),
+     - network is batch-oriented (not one request per icon in standard sync path).
+
 ## Hotfix Plan: POI Refresh Churn & Console Spam (2026-02-20)
 
 ### Goal
@@ -340,3 +399,157 @@ Replace the current heuristic palette flow with a deterministic style compiler t
 5. Cost safety checks:
    - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
    - confirm invocation counts match configured caps and success-path minima.
+
+## Feature Plan: HQ Low-Quota Icon Pipeline (4x4 Atlas + Validation + Repair) (2026-02-22)
+
+### Goal
+Implement the agreed high-quality, low-quota icon generation pipeline so icon generation no longer relies on one request per category, while still repairing failed cells deterministically.
+
+### User Review Required
+1. Execution scope:
+   - Apply the full pipeline now in `auto` mode:
+     - generate 4x4 (16-icon) atlas chunks,
+     - slice and validate each cell,
+     - re-generate failed icons per-icon with a bounded budget,
+     - keep existing async Batch API mode available as a separate explicit mode.
+
+### Proposed Changes
+1. Atlas chunking strategy
+   - Files: `src/features/ai/services/GeminiService.ts`, `src/features/ai/services/iconAtlasUtils.ts`
+   - Force atlas chunk size to 16 for HQ mode (`4x4`).
+   - Build deterministic cell mapping for each chunk and preserve category order.
+
+2. Cell quality validation
+   - File: `src/features/ai/services/iconAtlasUtils.ts`
+   - Add per-cell quality checks after chroma-keying:
+     - non-empty and visible area thresholds,
+     - noise/speckle heuristics,
+     - text-like caption/noise heuristics,
+     - structured validation result (valid/invalid reason).
+
+3. Failed-cell repair queue
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Collect failed atlas cells across all chunks.
+   - Run one additional 4x4 atlas retry pass for all failed categories (chunked).
+   - Preserve rate-limit circuit breaker behavior and skip logic under 429 cooldown.
+
+4. Prompt hardening for cleaner icon outputs
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Tighten atlas and per-icon prompts:
+     - symbols only,
+     - no letters/captions/numbers,
+     - no decorative noise/particles/grain.
+   - Reframe “glitchy” to controlled geometric digital accents rather than random visual noise.
+
+5. Mode semantics update
+   - Files: `src/features/ai/services/GeminiService.ts`, `src/constants/aiConstants.ts`, `test/e2e/steps/General.steps.ts`, `test/e2e/features/IconGenerationModes.feature`
+   - Keep `batch-async` as explicit true Batch API mode.
+   - Make `auto` run HQ atlas+repair pipeline by default.
+
+6. Automated coverage
+   - Files: `test/features/ai/services/GeminiService.test.ts`, `test/features/ai/services/iconAtlasUtils.test.ts`, `test/e2e/steps/IconGenerationMode.steps.ts`, `test/e2e/features/IconGenerationModes.feature`
+   - Add/adjust tests for:
+     - 4x4 atlas chunk invocation behavior,
+     - failed-cell atlas retry behavior,
+     - validation functions,
+     - unchanged explicit batch-async mode behavior.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/ai/services/iconAtlasUtils.test.ts test/features/ai/services/GeminiService.test.ts test/constants/aiConstants.test.ts`
+2. BDD icon mode accounting:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. Full unit sanity:
+   - `npm test -- --run`
+4. Manual sanity:
+   - Run theme generation in `Auto` mode and verify logs show:
+     - atlas chunk generation in groups of 16,
+     - failed-cell repair pass,
+     - no per-icon repair calls in auto mode.
+
+## Test Plan: Extended BDD for Icon Quality Recovery (2026-02-22)
+
+### Goal
+Increase end-to-end confidence for the new 4x4 atlas + repair pipelines by asserting usable icon coverage across success, partial-failure, hard-failure, and rate-limit conditions.
+
+### Proposed Changes
+1. Add new BDD feature focused on usable icon outcomes.
+   - File: `test/e2e/features/IconUsableCoverage.feature`
+   - Cover atlas-only, auto-repair, and batch-async outcomes.
+
+2. Extend BDD step mocks to simulate richer atlas failure modes.
+   - File: `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Add behaviors for primary-pass-only failures, partial failures, persistent partial failures, and one-time 429.
+
+3. Add reusable BDD assertions for usable coverage.
+   - File: `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Assert full/zero/partial coverage from `Usable icons: X/Y` progress logs.
+
+### Verification Plan
+1. Targeted feature:
+   - `npm run test:e2e:bdd -- --grep "Icon Usable Coverage Recovery"`
+2. Combined icon BDD suites:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting|Icon Usable Coverage Recovery"`
+
+## Feature Plan: Hybrid Auto via True Async Batch for 4x4 Atlas (2026-02-22)
+
+### Goal
+Move `Auto (HQ Atlas 4x4 + Repair)` to true Gemini async Batch API transport so 4x4 atlas chunk requests are submitted as inlined batch requests (primary + repair), improving cost efficiency while preserving existing slicing/validation quality behavior.
+
+### User Review Required
+1. Execution scope:
+   - Keep `Atlas only` as direct sync calls.
+   - Upgrade only `Auto` transport to async batch for atlas chunks.
+
+### Proposed Changes
+1. Async batch transport for atlas chunks in auto mode.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Create generic async batch job method for arbitrary inlined requests.
+   - Build atlas requests per 4x4 chunk and submit in grouped async batch jobs.
+   - Parse inlined responses in-order and run existing slicing/validation pipeline.
+
+2. Keep repair logic atlas-to-atlas.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Primary pass via async batch atlas requests.
+   - Repair pass via async batch atlas requests for failed subset only.
+   - No per-icon fallback in `auto`.
+
+3. BDD mock alignment for batch-atlas behavior.
+   - File: `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Distinguish atlas vs single-icon requests inside batch payload.
+   - Simulate partial/primary failure paths for auto via atlas-style responses.
+
+4. BDD scenario expectations update.
+   - Files: `test/e2e/features/IconGenerationModes.feature`, `test/e2e/features/IconUsableCoverage.feature`
+   - Update invocation accounting for auto mode from `atlas` counters to batch counters.
+   - Preserve coverage assertions for full/partial/zero usable outputs.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts test/features/ai/services/iconAtlasUtils.test.ts`
+2. Icon invocation BDD:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. Icon usable-coverage BDD:
+   - `npm run test:e2e:bdd -- --grep "Icon Usable Coverage Recovery"`
+4. Full unit sanity:
+   - `npm test -- --run`
+
+## UX Plan: Icon Mode Explanations on Hover (2026-02-22)
+
+### Goal
+Improve clarity of icon generation modes by showing concise explanations for all modes and previewing each explanation when hovering options in the mode dropdown.
+
+### Proposed Changes
+1. Add centralized descriptions per icon generation mode.
+   - File: `src/constants/aiConstants.ts`
+2. Update AI settings mode dropdown to:
+   - show selected mode explanation by default,
+   - preview hovered mode explanation while the dropdown is open,
+   - provide native hover tooltips (`title`) on each option.
+   - File: `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+3. Add unit coverage for hover-preview behavior.
+   - File: `test/shared/components/AiSettingsPanel.test.tsx`
+
+### Verification Plan
+1. Run targeted tests:
+   - `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/constants/aiConstants.test.ts`

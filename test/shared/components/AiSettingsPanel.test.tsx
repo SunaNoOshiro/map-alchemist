@@ -2,6 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import AiSettingsPanel from '@/shared/components/sidebar/left/AiSettingsPanel';
 import { AiConfig } from '@/types';
+import { ICON_GENERATION_MODE_DESCRIPTIONS } from '@/constants/aiConstants';
 
 const baseConfig: AiConfig = {
   provider: 'google-gemini',
@@ -46,5 +47,23 @@ describe('AiSettingsPanel', () => {
 
     fireEvent.pointerDown(document.body);
     expect(screen.queryByText('Gemini Pro')).not.toBeInTheDocument();
+  });
+
+  it('shows hovered mode explanation while choosing icon generation mode', () => {
+    render(<AiSettingsPanel {...defaultProps} />);
+
+    const trigger = screen.getByTestId('icon-generation-mode-trigger');
+    fireEvent.click(trigger);
+
+    const description = screen.getByTestId('icon-generation-mode-description');
+    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS.auto);
+
+    const batchOption = screen.getByTestId('icon-generation-mode-option-batch-async');
+    fireEvent.mouseEnter(batchOption);
+    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS['batch-async']);
+
+    const atlasOption = screen.getByTestId('icon-generation-mode-option-atlas');
+    fireEvent.mouseEnter(atlasOption);
+    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS.atlas);
   });
 });

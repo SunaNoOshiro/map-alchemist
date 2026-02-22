@@ -1,9 +1,9 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, JobState } from "@google/genai";
 import { v4 as uuidv4 } from 'uuid';
 import { IAiService, IconAtlasResult } from "@core/services/ai/IAiService";
 import { ImageSize, IconDefinition, IconGenerationMode, MapStylePreset, PopupStyle } from "@/types";
 import { createLogger } from "@core/logger";
-import { buildIconAtlasLayout, sliceAtlasIntoIcons } from './iconAtlasUtils';
+import { buildIconAtlasLayout, sliceAtlasIntoIconsWithValidation } from './iconAtlasUtils';
 import { DEFAULT_STYLE_URL } from '@/constants';
 import { compileThemeStyle } from '@features/map/services/styleCompiler';
 import {
@@ -16,9 +16,14 @@ import {
 import { FALLBACK_POI_ICON_KEY, getCanonicalPoiCategories } from '@features/map/services/poiIconResolver';
 
 const logger = createLogger('GeminiService');
-const ICON_ATLAS_MAX_ICONS_PER_BATCH = 64;
-const ICON_ATLAS_MIN_BATCH_SIZE = 9;
-const ICON_AUTO_FALLBACK_MAX = 24;
+const ICON_ATLAS_GRID_DIM = 4;
+const ICON_ATLAS_CHUNK_SIZE = ICON_ATLAS_GRID_DIM * ICON_ATLAS_GRID_DIM;
+const ICON_ATLAS_RETRY_PASSES = 1;
+const ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB = 24;
+const ICON_ASYNC_BATCH_MAX_ICONS_PER_JOB = 24;
+const ICON_ASYNC_BATCH_MAX_RETRY_ICONS = 48;
+const ICON_ASYNC_BATCH_POLL_INTERVAL_MS = 5000;
+const ICON_ASYNC_BATCH_POLL_TIMEOUT_MS = 480000;
 const ICON_PER_ICON_MAX_CALLS = 32;
 const IMAGE_REQUEST_MIN_INTERVAL_MS = 180;
 const IMAGE_RATE_LIMIT_MAX_RETRIES = 4;
@@ -30,6 +35,29 @@ const TRANSPARENT_PLACEHOLDER_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhE
 const INVALID_API_KEY_USER_MESSAGE = 'Invalid Gemini API key. Update API key in AI Configuration and try again.';
 const IMAGE_RATE_LIMIT_USER_MESSAGE = 'Image model is temporarily rate-limited. Please retry in about a minute.';
 const FALLBACK_BASE_STYLE = { version: 8, sources: {}, layers: [] };
+const TERMINAL_BATCH_JOB_STATES = new Set<string>([
+    JobState.JOB_STATE_SUCCEEDED,
+    JobState.JOB_STATE_PARTIALLY_SUCCEEDED,
+    JobState.JOB_STATE_FAILED,
+    JobState.JOB_STATE_CANCELLED,
+    JobState.JOB_STATE_EXPIRED,
+    'BATCH_STATE_SUCCEEDED',
+    'BATCH_STATE_PARTIALLY_SUCCEEDED',
+    'BATCH_STATE_FAILED',
+    'BATCH_STATE_CANCELLED',
+    'BATCH_STATE_EXPIRED'
+]);
+const SUCCESS_BATCH_JOB_STATES = new Set<string>([
+    JobState.JOB_STATE_SUCCEEDED,
+    JobState.JOB_STATE_PARTIALLY_SUCCEEDED,
+    'BATCH_STATE_SUCCEEDED',
+    'BATCH_STATE_PARTIALLY_SUCCEEDED'
+]);
+
+type AsyncBatchInlinedRequest = {
+    contents: string;
+    metadata?: Record<string, string>;
+};
 
 let cachedBaseStyleTemplate: any | null = null;
 
@@ -192,14 +220,17 @@ const resolveThemeSpec = (result: Record<string, any>): ThemeSpec => {
 const removeBackground = (base64Image: string): Promise<string> => {
     return new Promise((resolve) => {
         let settled = false;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         const finish = (value: string) => {
             if (settled) return;
             settled = true;
-            clearTimeout(timeoutId);
+            if (timeoutId !== null) {
+                clearTimeout(timeoutId);
+            }
             resolve(value);
         };
 
-        const timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
             logger.warn(`Image processing timed out after ${IMAGE_PROCESSING_TIMEOUT_MS}ms, using raw image`);
             finish(base64Image);
         }, IMAGE_PROCESSING_TIMEOUT_MS);
@@ -370,9 +401,20 @@ Output object format:
 const buildAtlasPrompt = (
     categories: string[],
     styleDescription: string,
-    size: ImageSize
+    size: ImageSize,
+    options: { fixedColumns?: number; fixedRows?: number } = {}
 ) => {
-    const layout = buildIconAtlasLayout(categories, { size });
+    const layout = buildIconAtlasLayout(categories, { size, ...options });
+    const normalizedArtDirection = (() => {
+        const cleaned = styleDescription.replace(/\s+/g, ' ').trim();
+        if (!cleaned) {
+            return 'Clean geometric vector symbols, high contrast, no decorative noise.';
+        }
+        if (/glitchy|glitch|distorted/i.test(cleaned)) {
+            return `${cleaned}. Interpret glitch aesthetics as controlled geometric HUD accents only (no random artifacts).`;
+        }
+        return cleaned;
+    })();
     const categoryManifest = layout.orderedCategories
         .map((category, index) => {
             const row = Math.floor(index / layout.columns) + 1;
@@ -384,13 +426,15 @@ const buildAtlasPrompt = (
     return `Create ONE square icon sprite atlas image exactly ${layout.atlasSize}x${layout.atlasSize}px.
 
 ART DIRECTION / THEME:
-${styleDescription}
+${normalizedArtDirection}
 
 GRID REQUIREMENTS:
 - Grid is ${layout.columns} columns x ${layout.rows} rows.
 - Every cell should contain exactly one icon, centered.
 - Keep icon visuals inside the cell bounds.
-- No text labels, no numbers, no border lines, no guides, no shadows on background.
+- SYMBOLS ONLY: no letters, no words, no captions, no numbers.
+- No border lines, no guides, no drop shadows on the background.
+- Decorative noise is forbidden: no particles, no grain, no static, no texture, no visual garbage.
 - Use SOLID BRIGHT GREEN background (#00FF00) in all non-icon pixels for chroma-key cleanup.
 - Keep visual style and stroke weight consistent across all icons.
 
@@ -398,6 +442,71 @@ CATEGORY-TO-CELL MAP (STRICT):
 ${categoryManifest}
 
 Return only the final atlas image.`;
+};
+
+const buildSingleIconPrompt = (category: string, styleDescription: string) => {
+    const normalizedArtDirection = styleDescription.replace(/\s+/g, ' ').trim();
+    return `Create one flat vector map icon for category "${category}".
+
+ART DIRECTION / THEME:
+${normalizedArtDirection}
+
+HARD CONSTRAINTS:
+- SYMBOLS ONLY. No letters, words, numbers, captions, labels, or typography.
+- No decorative noise, particles, grain, static, texture, or glitch trash.
+- Keep line weight consistent and legible at 32px.
+- Center icon and fill ~85-90% of frame with clear silhouette.
+- Background must be solid #00FF00 only (for chroma key).
+- No shadows cast on the background.
+
+Return only the icon image.`;
+};
+
+const chunkArray = <T>(items: T[], chunkSize: number): T[][] => {
+    if (chunkSize <= 0) return [items];
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += chunkSize) {
+        chunks.push(items.slice(index, index + chunkSize));
+    }
+    return chunks;
+};
+
+const extractInlineImageDataUrl = (response: any): string | null => {
+    const parts = response?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return null;
+
+    for (const part of parts) {
+        if (part?.inlineData?.data) {
+            const mimeType = part.inlineData.mimeType || 'image/png';
+            return `data:${mimeType};base64,${part.inlineData.data}`;
+        }
+    }
+
+    return null;
+};
+
+const extractBatchJobState = (job: any): string | undefined => {
+    if (typeof job?.state === 'string' && job.state.trim()) {
+        return job.state;
+    }
+    if (typeof job?.metadata?.state === 'string' && job.metadata.state.trim()) {
+        return job.metadata.state;
+    }
+    return undefined;
+};
+
+const extractBatchInlinedResponses = (job: any): any[] => {
+    if (Array.isArray(job?.dest?.inlinedResponses)) {
+        return job.dest.inlinedResponses;
+    }
+    if (Array.isArray(job?.output?.inlinedResponses)) {
+        return job.output.inlinedResponses;
+    }
+    const nested = job?.metadata?.output?.inlinedResponses?.inlinedResponses;
+    if (Array.isArray(nested)) {
+        return nested;
+    }
+    return [];
 };
 
 const normalizeToken = (value?: string): string =>
@@ -508,7 +617,554 @@ export class GeminiService implements IAiService {
         }
     }
 
-    async generateIconAtlas(categories: string[], styleDescription: string, size: ImageSize = '1K'): Promise<IconAtlasResult> {
+    private isBatchJobTerminalState(state?: string): boolean {
+        if (!state) return false;
+        return TERMINAL_BATCH_JOB_STATES.has(state);
+    }
+
+    private isBatchJobSuccessState(state?: string): boolean {
+        if (!state) return false;
+        return SUCCESS_BATCH_JOB_STATES.has(state);
+    }
+
+    private async createAsyncBatchJob(
+        inlinedRequests: AsyncBatchInlinedRequest[],
+        displayNamePrefix: string
+    ) {
+        const client = getClient(this.apiKey);
+        let retryIndex = 0;
+
+        if (!Array.isArray(inlinedRequests) || inlinedRequests.length === 0) {
+            throw new Error('Cannot create async batch without requests.');
+        }
+
+        while (true) {
+            if (this.isImageRateLimited()) {
+                const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+                throw new Error(`Image model rate limit cooldown active (${remainingSeconds}s remaining).`);
+            }
+
+            await this.waitForImageRequestSlot();
+            try {
+                return await client.batches.create({
+                    model: this.imageModel,
+                    src: {
+                        inlinedRequests
+                    },
+                    config: {
+                        displayName: `${displayNamePrefix}-${Date.now()}`
+                    }
+                });
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                const retryableRateLimit = isRateLimitError(error);
+                if (!retryableRateLimit || retryIndex >= IMAGE_RATE_LIMIT_MAX_RETRIES) {
+                    if (retryableRateLimit) {
+                        this.activateImageRateLimitCooldown();
+                    }
+                    throw error;
+                }
+
+                const backoffMs = computeRateLimitBackoffMs(retryIndex);
+                logger.warn(
+                    `Async batch creation rate-limited (attempt ${retryIndex + 1}/${IMAGE_RATE_LIMIT_MAX_RETRIES + 1}). Retrying in ${backoffMs}ms...`
+                );
+                await sleep(backoffMs);
+                retryIndex += 1;
+            }
+        }
+    }
+
+    private async createAsyncIconBatchJob(categories: string[], styleDescription: string) {
+        const inlinedRequests = categories.map((category) => ({
+            contents: buildSingleIconPrompt(category, styleDescription),
+            metadata: {
+                category
+            }
+        }));
+        return this.createAsyncBatchJob(inlinedRequests, 'mapalchemist-icons');
+    }
+
+    private async waitForAsyncBatchJobCompletion(jobName: string, onProgress?: (message: string) => void) {
+        const client = getClient(this.apiKey);
+        const startedAt = Date.now();
+        let pollAttempt = 0;
+
+        while (true) {
+            if (Date.now() - startedAt > ICON_ASYNC_BATCH_POLL_TIMEOUT_MS) {
+                throw new Error(`Async batch timeout after ${(ICON_ASYNC_BATCH_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
+            }
+
+            const pollDelay = pollAttempt === 0
+                ? Math.max(1000, Math.floor(ICON_ASYNC_BATCH_POLL_INTERVAL_MS / 2))
+                : ICON_ASYNC_BATCH_POLL_INTERVAL_MS;
+            await sleep(pollDelay);
+
+            try {
+                const job = await client.batches.get({ name: jobName });
+                const state = extractBatchJobState(job) || JobState.JOB_STATE_UNSPECIFIED;
+                onProgress?.(`Batch ${jobName} state: ${state}`);
+
+                if (!this.isBatchJobTerminalState(state)) {
+                    pollAttempt += 1;
+                    continue;
+                }
+
+                if (this.isBatchJobSuccessState(state)) {
+                    return job;
+                }
+
+                const errorMessage = job.error?.message
+                    || job?.metadata?.error?.message
+                    || `Batch job failed with state ${state}`;
+                throw new Error(errorMessage);
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                if (isRateLimitError(error)) {
+                    const backoffMs = Math.max(ICON_ASYNC_BATCH_POLL_INTERVAL_MS, computeRateLimitBackoffMs(pollAttempt));
+                    logger.warn(`Batch polling rate-limited; retrying in ${backoffMs}ms...`);
+                    await sleep(backoffMs);
+                    pollAttempt += 1;
+                    continue;
+                }
+
+                throw error;
+            }
+        }
+    }
+
+    private async deleteBatchJobIfPossible(jobName?: string) {
+        if (!jobName) return;
+        try {
+            const client = getClient(this.apiKey);
+            await client.batches.delete({ name: jobName });
+        } catch (error) {
+            logger.debug(`Batch cleanup skipped for ${jobName}`, error);
+        }
+    }
+
+    private async extractAsyncBatchChunkIcons(
+        categories: string[],
+        styleDescription: string,
+        onProgress?: (message: string) => void
+    ): Promise<Record<string, string | null>> {
+        const chunkResult = Object.fromEntries(categories.map((category) => [category, null])) as Record<string, string | null>;
+        let batchJobName = '';
+
+        try {
+            const createdBatch = await this.createAsyncIconBatchJob(categories, styleDescription);
+            batchJobName = createdBatch.name || '';
+            if (!batchJobName) {
+                throw new Error('Async batch created without a job name.');
+            }
+
+            onProgress?.(`Submitted async batch ${batchJobName} (${categories.length} icons)...`);
+            const completedBatch = await this.waitForAsyncBatchJobCompletion(batchJobName, onProgress);
+            const inlinedResponses = extractBatchInlinedResponses(completedBatch);
+
+            if (!Array.isArray(inlinedResponses) || inlinedResponses.length === 0) {
+                logger.warn(`Async batch ${batchJobName} completed without inline responses`);
+                return chunkResult;
+            }
+
+            for (let index = 0; index < categories.length; index += 1) {
+                const category = categories[index];
+                const responseItem = inlinedResponses[index];
+                if (!responseItem || responseItem.error) {
+                    chunkResult[category] = null;
+                    continue;
+                }
+
+                const imageUrl = extractInlineImageDataUrl(responseItem.response);
+                if (!imageUrl) {
+                    chunkResult[category] = null;
+                    continue;
+                }
+
+                chunkResult[category] = await removeBackground(imageUrl);
+            }
+
+            return chunkResult;
+        } finally {
+            await this.deleteBatchJobIfPossible(batchJobName);
+        }
+    }
+
+    private async generateIconsWithAsyncBatch(
+        categories: string[],
+        styleDescription: string,
+        onProgress?: (message: string) => void
+    ): Promise<{ iconUrls: Record<string, string | null>; failedCategories: string[] }> {
+        const iconUrls = Object.fromEntries(categories.map((category) => [category, null])) as Record<string, string | null>;
+        const chunks = chunkArray(categories, ICON_ASYNC_BATCH_MAX_ICONS_PER_JOB);
+
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+            const chunk = chunks[chunkIndex];
+            if (chunk.length === 0) continue;
+
+            if (this.isImageRateLimited()) {
+                const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+                onProgress?.(`Image model cooldown active (${remainingSeconds}s). Skipping async icon chunk.`);
+                chunk.forEach((category) => { iconUrls[category] = null; });
+                continue;
+            }
+
+            onProgress?.(`Running async batch chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} icons)...`);
+            try {
+                const chunkIcons = await this.extractAsyncBatchChunkIcons(chunk, styleDescription, onProgress);
+                chunk.forEach((category) => {
+                    iconUrls[category] = chunkIcons[category] || null;
+                });
+                const usableCount = chunk.filter((category) => Boolean(iconUrls[category])).length;
+                onProgress?.(`Async batch chunk ${chunkIndex + 1} usable icons: ${usableCount}/${chunk.length}`);
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                if (isRateLimitError(error)) {
+                    this.activateImageRateLimitCooldown();
+                    const warning = `Async batch chunk ${chunkIndex + 1} hit rate limits. Remaining chunk icons left empty.`;
+                    logger.warn(warning, error);
+                    onProgress?.(warning);
+                } else {
+                    logger.warn(`Async batch chunk ${chunkIndex + 1} failed`, error);
+                }
+
+                chunk.forEach((category) => {
+                    iconUrls[category] = null;
+                });
+            }
+        }
+
+        const failedCategories = categories.filter((category) => !iconUrls[category]);
+        return { iconUrls, failedCategories };
+    }
+
+    private async generateIconsWithAsyncBatchRetry(
+        categories: string[],
+        styleDescription: string,
+        onProgress?: (message: string) => void
+    ): Promise<{ iconUrls: Record<string, string | null>; failedCategories: string[] }> {
+        const firstPass = await this.generateIconsWithAsyncBatch(categories, styleDescription, onProgress);
+        if (firstPass.failedCategories.length === 0) {
+            return firstPass;
+        }
+
+        const retryTargets = firstPass.failedCategories.slice(0, ICON_ASYNC_BATCH_MAX_RETRY_ICONS);
+        if (retryTargets.length === 0) {
+            return firstPass;
+        }
+
+        if (firstPass.failedCategories.length > retryTargets.length) {
+            onProgress?.(`Retry budget cap reached (${ICON_ASYNC_BATCH_MAX_RETRY_ICONS}); some failed icons remain empty.`);
+        }
+
+        onProgress?.(`Retrying ${retryTargets.length} failed icons via async batch...`);
+        const retryPass = await this.generateIconsWithAsyncBatch(retryTargets, styleDescription, onProgress);
+        const merged = { ...firstPass.iconUrls };
+
+        retryTargets.forEach((category) => {
+            if (retryPass.iconUrls[category]) {
+                merged[category] = retryPass.iconUrls[category];
+            }
+        });
+
+        const failedCategories = categories.filter((category) => !merged[category]);
+        return { iconUrls: merged, failedCategories };
+    }
+
+    private buildAtlasChunkRequests(
+        categories: string[],
+        styleDescription: string,
+        size: ImageSize = '1K'
+    ): Array<{ categories: string[]; entries: IconAtlasResult['entries']; prompt: string }> {
+        const requests: Array<{ categories: string[]; entries: IconAtlasResult['entries']; prompt: string }> = [];
+        const chunks = chunkArray(categories, ICON_ATLAS_CHUNK_SIZE);
+
+        for (const chunk of chunks) {
+            const normalizedChunk = [...new Set(chunk.map((category) => category.trim()).filter(Boolean))];
+            if (normalizedChunk.length === 0) continue;
+
+            const layout = buildIconAtlasLayout(normalizedChunk, {
+                size,
+                fixedColumns: ICON_ATLAS_GRID_DIM,
+                fixedRows: ICON_ATLAS_GRID_DIM
+            });
+
+            requests.push({
+                categories: layout.orderedCategories,
+                entries: layout.entries,
+                prompt: buildAtlasPrompt(layout.orderedCategories, styleDescription, size, {
+                    fixedColumns: ICON_ATLAS_GRID_DIM,
+                    fixedRows: ICON_ATLAS_GRID_DIM
+                })
+            });
+        }
+
+        return requests;
+    }
+
+    private async generateIconsWithAtlasPassDirect(
+        categories: string[],
+        styleDescription: string,
+        onProgress: ((message: string) => void) | undefined,
+        passLabel: string
+    ): Promise<{ iconUrls: Record<string, string | null>; failedCategories: string[] }> {
+        const iconUrls = Object.fromEntries(categories.map((category) => [category, null])) as Record<string, string | null>;
+        const chunks = chunkArray(categories, ICON_ATLAS_CHUNK_SIZE);
+        const failedCategoriesSet = new Set<string>();
+
+        for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+            const chunk = chunks[chunkIndex];
+            if (chunk.length === 0) continue;
+
+            if (this.isImageRateLimited()) {
+                const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+                onProgress?.(`Image model cooldown active (${remainingSeconds}s). Skipping ${passLabel} atlas chunk ${chunkIndex + 1}.`);
+                chunk.forEach((category) => failedCategoriesSet.add(category));
+                continue;
+            }
+
+            onProgress?.(`Generating ${passLabel} 4x4 atlas chunk ${chunkIndex + 1}/${chunks.length} (${chunk.length} icons)...`);
+
+            try {
+                const atlas = await this.generateIconAtlas(chunk, styleDescription, '1K', {
+                    fixedColumns: ICON_ATLAS_GRID_DIM,
+                    fixedRows: ICON_ATLAS_GRID_DIM
+                });
+                const sliced = await sliceAtlasIntoIconsWithValidation(atlas.atlasImageUrl, atlas.entries);
+
+                let usable = 0;
+                let failed = 0;
+
+                chunk.forEach((category) => {
+                    const cell = sliced[category];
+                    const imageUrl = cell?.imageUrl || null;
+                    if (imageUrl) {
+                        iconUrls[category] = imageUrl;
+                        usable += 1;
+                        return;
+                    }
+
+                    failed += 1;
+                    failedCategoriesSet.add(category);
+                    iconUrls[category] = null;
+                    if (cell?.validation?.reason && cell.validation.reason !== 'ok') {
+                        logger.debug(`Atlas cell rejected for "${category}"`, cell.validation);
+                    }
+                });
+
+                onProgress?.(`${passLabel} atlas chunk ${chunkIndex + 1} usable icons: ${usable}/${chunk.length}; failed: ${failed}`);
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                if (isRateLimitError(error)) {
+                    this.activateImageRateLimitCooldown();
+                    onProgress?.(`${passLabel} atlas chunk ${chunkIndex + 1} hit rate limits. Chunk deferred.`);
+                } else {
+                    logger.warn(`${passLabel} atlas chunk ${chunkIndex + 1} failed`, error);
+                }
+                chunk.forEach((category) => {
+                    iconUrls[category] = null;
+                    failedCategoriesSet.add(category);
+                });
+            }
+        }
+
+        const failedCategories = categories.filter((category) => failedCategoriesSet.has(category) || !iconUrls[category]);
+        return { iconUrls, failedCategories };
+    }
+
+    private async generateIconsWithAtlasPassViaAsyncBatch(
+        categories: string[],
+        styleDescription: string,
+        onProgress: ((message: string) => void) | undefined,
+        passLabel: string
+    ): Promise<{ iconUrls: Record<string, string | null>; failedCategories: string[] }> {
+        const iconUrls = Object.fromEntries(categories.map((category) => [category, null])) as Record<string, string | null>;
+        const failedCategoriesSet = new Set<string>();
+        const atlasChunkRequests = this.buildAtlasChunkRequests(categories, styleDescription, '1K');
+        const groupedRequests = chunkArray(atlasChunkRequests, ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB);
+
+        const markChunkFailed = (chunkCategories: string[]) => {
+            chunkCategories.forEach((category) => {
+                iconUrls[category] = null;
+                failedCategoriesSet.add(category);
+            });
+        };
+
+        for (let groupIndex = 0; groupIndex < groupedRequests.length; groupIndex += 1) {
+            const requestGroup = groupedRequests[groupIndex];
+            if (requestGroup.length === 0) continue;
+
+            if (this.isImageRateLimited()) {
+                const remainingSeconds = Math.ceil(this.getImageRateLimitRemainingMs() / 1000);
+                onProgress?.(
+                    `Image model cooldown active (${remainingSeconds}s). Skipping ${passLabel} async atlas batch ${groupIndex + 1}.`
+                );
+                requestGroup.forEach((request) => markChunkFailed(request.categories));
+                continue;
+            }
+
+            onProgress?.(
+                `Generating ${passLabel} 4x4 atlas batch ${groupIndex + 1}/${groupedRequests.length} (${requestGroup.length} chunks)...`
+            );
+
+            let batchJobName = '';
+            try {
+                const createdBatch = await this.createAsyncBatchJob(
+                    requestGroup.map((request, requestIndex) => ({
+                        contents: request.prompt,
+                        metadata: {
+                            mode: 'atlas',
+                            pass: passLabel,
+                            chunk: `${groupIndex * ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB + requestIndex + 1}`
+                        }
+                    })),
+                    'mapalchemist-atlas'
+                );
+
+                batchJobName = createdBatch.name || '';
+                if (!batchJobName) {
+                    throw new Error('Async atlas batch created without a job name.');
+                }
+
+                onProgress?.(`Submitted ${passLabel} async atlas batch ${batchJobName} (${requestGroup.length} chunks)...`);
+                const completedBatch = await this.waitForAsyncBatchJobCompletion(batchJobName, onProgress);
+                const inlinedResponses = extractBatchInlinedResponses(completedBatch);
+
+                if (!Array.isArray(inlinedResponses) || inlinedResponses.length === 0) {
+                    logger.warn(`Async atlas batch ${batchJobName} completed without inline responses`);
+                    requestGroup.forEach((request) => markChunkFailed(request.categories));
+                    continue;
+                }
+
+                for (let requestIndex = 0; requestIndex < requestGroup.length; requestIndex += 1) {
+                    const atlasRequest = requestGroup[requestIndex];
+                    const chunkNumber = groupIndex * ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB + requestIndex + 1;
+                    const responseItem = inlinedResponses[requestIndex];
+                    if (!responseItem || responseItem.error) {
+                        markChunkFailed(atlasRequest.categories);
+                        onProgress?.(`${passLabel} atlas chunk ${chunkNumber} failed in batch response.`);
+                        continue;
+                    }
+
+                    const atlasImageUrl = extractInlineImageDataUrl(responseItem.response);
+                    if (!atlasImageUrl) {
+                        markChunkFailed(atlasRequest.categories);
+                        onProgress?.(`${passLabel} atlas chunk ${chunkNumber} returned no image.`);
+                        continue;
+                    }
+
+                    const sliced = await sliceAtlasIntoIconsWithValidation(atlasImageUrl, atlasRequest.entries);
+                    let usable = 0;
+                    let failed = 0;
+
+                    atlasRequest.categories.forEach((category) => {
+                        const cell = sliced[category];
+                        const imageUrl = cell?.imageUrl || null;
+                        if (imageUrl) {
+                            iconUrls[category] = imageUrl;
+                            usable += 1;
+                            return;
+                        }
+
+                        failed += 1;
+                        iconUrls[category] = null;
+                        failedCategoriesSet.add(category);
+                        if (cell?.validation?.reason && cell.validation.reason !== 'ok') {
+                            logger.debug(`Atlas cell rejected for "${category}"`, cell.validation);
+                        }
+                    });
+
+                    onProgress?.(`${passLabel} atlas chunk ${chunkNumber} usable icons: ${usable}/${atlasRequest.categories.length}; failed: ${failed}`);
+                }
+            } catch (error) {
+                const userFacingError = toUserFacingGeminiError(error);
+                if (userFacingError) {
+                    throw userFacingError;
+                }
+
+                if (isRateLimitError(error)) {
+                    this.activateImageRateLimitCooldown();
+                    onProgress?.(`${passLabel} async atlas batch ${groupIndex + 1} hit rate limits. Chunks deferred.`);
+                } else {
+                    logger.warn(`${passLabel} async atlas batch ${groupIndex + 1} failed`, error);
+                }
+
+                requestGroup.forEach((request) => markChunkFailed(request.categories));
+            } finally {
+                await this.deleteBatchJobIfPossible(batchJobName);
+            }
+        }
+
+        const failedCategories = categories.filter((category) => failedCategoriesSet.has(category) || !iconUrls[category]);
+        return { iconUrls, failedCategories };
+    }
+
+    private async generateIconsWithAtlasRepair(
+        categories: string[],
+        styleDescription: string,
+        onProgress: ((message: string) => void) | undefined,
+        options: { retryFailedViaAtlas: boolean; useAsyncBatchTransport: boolean }
+    ): Promise<{ iconUrls: Record<string, string | null>; failedCategories: string[] }> {
+        const atlasPassGenerator = options.useAsyncBatchTransport
+            ? this.generateIconsWithAtlasPassViaAsyncBatch.bind(this)
+            : this.generateIconsWithAtlasPassDirect.bind(this);
+        const firstPass = await atlasPassGenerator(categories, styleDescription, onProgress, 'Primary');
+
+        if (!options.retryFailedViaAtlas || firstPass.failedCategories.length === 0 || ICON_ATLAS_RETRY_PASSES <= 0) {
+            return firstPass;
+        }
+
+        let merged = { ...firstPass.iconUrls };
+        let retryTargets = firstPass.failedCategories;
+
+        for (let passIndex = 0; passIndex < ICON_ATLAS_RETRY_PASSES; passIndex += 1) {
+            if (retryTargets.length === 0) {
+                break;
+            }
+
+            onProgress?.(`Retrying ${retryTargets.length} failed icons with 4x4 atlas repair pass ${passIndex + 1}/${ICON_ATLAS_RETRY_PASSES}...`);
+            const retryPass = await atlasPassGenerator(
+                retryTargets,
+                styleDescription,
+                onProgress,
+                `Repair ${passIndex + 1}`
+            );
+
+            retryTargets.forEach((category) => {
+                if (retryPass.iconUrls[category]) {
+                    merged[category] = retryPass.iconUrls[category];
+                }
+            });
+
+            retryTargets = retryTargets.filter((category) => !merged[category]);
+        }
+
+        const failedCategories = categories.filter((category) => !merged[category]);
+        return { iconUrls: merged, failedCategories };
+    }
+
+    async generateIconAtlas(
+        categories: string[],
+        styleDescription: string,
+        size: ImageSize = '1K',
+        options: { fixedColumns?: number; fixedRows?: number } = {}
+    ): Promise<IconAtlasResult> {
         const normalizedCategories = [...new Set(categories.map((category) => category.trim()).filter(Boolean))];
 
         if (normalizedCategories.length === 0) {
@@ -518,59 +1174,32 @@ export class GeminiService implements IAiService {
             };
         }
 
-        const layout = buildIconAtlasLayout(normalizedCategories, { size });
-        const prompt = buildAtlasPrompt(normalizedCategories, styleDescription, size);
+        const layout = buildIconAtlasLayout(normalizedCategories, { size, ...options });
+        const prompt = buildAtlasPrompt(normalizedCategories, styleDescription, size, options);
 
         const response = await this.generateImageContentWithRetries(prompt);
 
-        const parts = response.candidates?.[0]?.content?.parts;
-        if (parts) {
-            for (const part of parts) {
-                if (part.inlineData && part.inlineData.data) {
-                    const rawBase64 = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                    return {
-                        atlasImageUrl: rawBase64,
-                        entries: layout.entries
-                    };
-                }
-            }
+        const rawBase64 = extractInlineImageDataUrl(response);
+        if (rawBase64) {
+            return {
+                atlasImageUrl: rawBase64,
+                entries: layout.entries
+            };
         }
 
         throw new Error('No atlas image data returned.');
     }
 
     async generateIconImage(category: string, styleDescription: string, size?: ImageSize): Promise<string> {
-        const prompt = `Create a single graphical SYMBOL representing: "${category}".
-      
-      ART DIRECTION / THEME: ${styleDescription}
-      
-      CRITICAL INSTRUCTIONS:
-      1. **SUBJECT**: 
-         - Draw an OBJECT, ITEM, or CHARACTER FACE that visually explains "${category}".
-         - **THEME INTEGRATION**: The object MUST look like it belongs in the world of the theme.
-      2. **VISUAL STYLE**:
-         - **VIBRANT**: Use bold, saturated colors suitable for the theme.
-         - **FLAT / VECTOR / STICKER**: Clean lines, no noise.
-         - **ICONOGRAPHY**: Must be readable at 32px. Big shapes.
-      3. **COMPOSITION**:
-         - **FILL THE FRAME**: The subject must occupy 90% of the image canvas. **ZOOM IN.**
-         - **CENTERED**: The object must be perfectly centered.
-         - **BACKGROUND**: SOLID BRIGHT GREEN (Hex #00FF00) for chroma keying. NO gradients, NO shadows on background.
-      4. **NO TEXT**.
-        `;
+        const prompt = buildSingleIconPrompt(category, styleDescription);
 
         try {
             const response = await this.generateImageContentWithRetries(prompt);
 
-            const parts = response.candidates?.[0]?.content?.parts;
-            if (parts) {
-                for (const part of parts) {
-                    if (part.inlineData && part.inlineData.data) {
-                        const rawBase64 = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                        const processedImage = await removeBackground(rawBase64);
-                        return processedImage;
-                    }
-                }
+            const rawBase64 = extractInlineImageDataUrl(response);
+            if (rawBase64) {
+                const processedImage = await removeBackground(rawBase64);
+                return processedImage;
             }
             throw new Error("No image data returned.");
         } catch (error) {
@@ -597,6 +1226,7 @@ export class GeminiService implements IAiService {
 
         const iconTheme = visuals.iconTheme;
         onProgress?.(`Art Direction: ${iconTheme.substring(0, 50)}...`);
+        const useBatchAsyncOnly = this.iconGenerationMode === 'batch-async';
         const useAtlasOnly = this.iconGenerationMode === 'atlas';
         const usePerIconOnly = this.iconGenerationMode === 'per-icon';
         const useAutoMode = this.iconGenerationMode === 'auto';
@@ -618,121 +1248,95 @@ export class GeminiService implements IAiService {
             const budgeted = applyPerIconBudget(generationCategories);
             generationCategories = budgeted.categories;
             if (budgeted.wasCapped) {
-                const warning = `Per-icon mode capped at ${ICON_PER_ICON_MAX_CALLS} requests to control API spend. Switch to Atlas or Auto for broader coverage.`;
+                const warning = `Per-icon mode capped at ${ICON_PER_ICON_MAX_CALLS} requests to control API spend. Switch to Batch API or Auto for broader coverage.`;
                 logger.warn(warning);
                 onProgress?.(warning);
             }
         }
 
-        if (usePerIconOnly) {
+        if (useBatchAsyncOnly) {
+            onProgress?.(`Generating ${generationCategories.length} icons with true async Batch API...`);
+        } else if (usePerIconOnly) {
             onProgress?.(`Generating ${generationCategories.length} icons one by one...`);
         } else if (useAtlasOnly) {
-            onProgress?.(`Generating ${generationCategories.length} icons from atlas batches...`);
+            onProgress?.(`Generating ${generationCategories.length} icons via 4x4 atlas chunks (no repair fallback)...`);
         } else {
-            onProgress?.(`Generating ${generationCategories.length} icons with auto mode (atlas + fallback)...`);
+            onProgress?.(`Generating ${generationCategories.length} icons with auto mode (async batch 4x4 atlas + validation + repair)...`);
         }
 
-        let completedCount = 0;
         const totalCount = generationCategories.length;
+        const imageUrlsByCategory = Object.fromEntries(
+            generationCategories.map((category) => [category, null])
+        ) as Record<string, string | null>;
 
-        const batchSize = (useAtlasOnly || (useAutoMode && generationCategories.length >= ICON_ATLAS_MIN_BATCH_SIZE))
-            ? Math.min(generationCategories.length, ICON_ATLAS_MAX_ICONS_PER_BATCH)
-            : 6;
-        const icons: IconDefinition[] = [];
-        let fallbackCount = 0;
-        let fallbackLimitReported = false;
-        let usableIconCount = 0;
-
-        for (let i = 0; i < generationCategories.length; i += batchSize) {
-            const batch = generationCategories.slice(i, i + batchSize);
-            const atlasBatchIndex = Math.floor(i / batchSize) + 1;
-            let atlasIcons: Record<string, string | null> = {};
-            const shouldTryAtlas = useAtlasOnly || (useAutoMode && batch.length >= ICON_ATLAS_MIN_BATCH_SIZE);
-
-            if (shouldTryAtlas) {
-                if (this.isImageRateLimited()) {
-                    reportRateLimitSkip();
-                } else {
-                    try {
-                        onProgress?.(`Generating icon atlas batch ${atlasBatchIndex} (${batch.length} icons)...`);
-                        const atlas = await this.generateIconAtlas(batch, iconTheme, '1K');
-                        atlasIcons = await sliceAtlasIntoIcons(atlas.atlasImageUrl, atlas.entries);
-                    } catch (atlasError) {
-                        if (isRateLimitError(atlasError)) {
-                            reportRateLimitSkip();
-                        } else {
-                            logger.warn(`Atlas batch ${atlasBatchIndex} failed, falling back to per-icon generation`, atlasError);
-                        }
-                    }
+        if (useBatchAsyncOnly) {
+            const batchResult = await this.generateIconsWithAsyncBatchRetry(generationCategories, iconTheme, onProgress);
+            Object.entries(batchResult.iconUrls).forEach(([category, imageUrl]) => {
+                imageUrlsByCategory[category] = imageUrl || null;
+            });
+        } else if (useAutoMode || useAtlasOnly) {
+            const atlasResult = await this.generateIconsWithAtlasRepair(
+                generationCategories,
+                iconTheme,
+                onProgress,
+                {
+                    retryFailedViaAtlas: useAutoMode,
+                    useAsyncBatchTransport: useAutoMode
                 }
-            }
+            );
 
-            const batchResults: IconDefinition[] = [];
-            for (const cat of batch) {
+            Object.entries(atlasResult.iconUrls).forEach(([category, imageUrl]) => {
+                imageUrlsByCategory[category] = imageUrl || null;
+            });
+
+            if (useAtlasOnly && atlasResult.failedCategories.length > 0) {
+                onProgress?.(
+                    `Atlas-only mode kept ${atlasResult.failedCategories.length} failed cells empty (repair disabled).`
+                );
+            }
+        } else {
+            for (const category of generationCategories) {
                 try {
                     if (this.isImageRateLimited()) {
                         reportRateLimitSkip();
-                        batchResults.push({
-                            category: cat,
-                            prompt: iconTheme,
-                            imageUrl: null,
-                            isLoading: false
-                        } as IconDefinition);
+                        imageUrlsByCategory[category] = null;
                         continue;
                     }
 
-                    const atlasIcon = atlasIcons[cat];
-                    const shouldUsePerIconOnly = usePerIconOnly;
-                    const shouldUseAtlasFallback = useAutoMode && shouldTryAtlas && !this.isImageRateLimited();
-                    const canUseAutoFallback = shouldUseAtlasFallback && fallbackCount < ICON_AUTO_FALLBACK_MAX;
-
-                    let imageUrl: string | null = atlasIcon || null;
-
-                    if (!imageUrl && shouldUsePerIconOnly) {
-                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
-                    } else if (!imageUrl && canUseAutoFallback) {
-                        fallbackCount += 1;
-                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
-                    } else if (!imageUrl && useAutoMode && !shouldTryAtlas && !this.isImageRateLimited()) {
-                        imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
-                    } else if (!imageUrl && shouldUseAtlasFallback && !fallbackLimitReported) {
-                        fallbackLimitReported = true;
-                        onProgress?.(`Auto fallback limit reached (${ICON_AUTO_FALLBACK_MAX}). Remaining icons kept empty.`);
-                    }
-
-                    batchResults.push({
-                        category: cat,
-                        prompt: iconTheme,
-                        imageUrl: imageUrl || null,
-                        isLoading: false
-                    } as IconDefinition);
-                } catch (e) {
-                    batchResults.push({
-                        category: cat,
-                        prompt: iconTheme,
-                        imageUrl: null,
-                        isLoading: false
-                    } as IconDefinition);
-                    if (isRateLimitError(e)) {
+                    const imageUrl = await this.generateIconImage(category, iconTheme, '1K');
+                    imageUrlsByCategory[category] = imageUrl && imageUrl !== TRANSPARENT_PLACEHOLDER_ICON
+                        ? imageUrl
+                        : null;
+                } catch (error) {
+                    imageUrlsByCategory[category] = null;
+                    if (isRateLimitError(error)) {
                         reportRateLimitSkip();
                     }
-                } finally {
-                    completedCount++;
-                    onProgress?.(`Created icon for ${cat} (${completedCount}/${totalCount})`);
                 }
             }
-            const batchUsableCount = batchResults.filter((icon) => Boolean(icon.imageUrl)).length;
-            usableIconCount += batchUsableCount;
-            if (shouldTryAtlas) {
-                onProgress?.(`Atlas batch ${atlasBatchIndex} usable icons: ${batchUsableCount}/${batch.length}`);
-            }
-            icons.push(...batchResults);
         }
+
+        let completedCount = 0;
+        let usableIconCount = 0;
+        const icons: IconDefinition[] = generationCategories.map((category) => {
+            completedCount += 1;
+            const imageUrl = imageUrlsByCategory[category] || null;
+            if (imageUrl) {
+                usableIconCount += 1;
+            }
+            onProgress?.(`Created icon for ${category} (${completedCount}/${totalCount})`);
+            return {
+                category,
+                prompt: iconTheme,
+                imageUrl,
+                isLoading: false
+            } as IconDefinition;
+        });
 
         onProgress?.(`Usable icons: ${usableIconCount}/${totalCount}`);
         if (usableIconCount === 0) {
             const warning = useAtlasOnly
-                ? 'Atlas produced no usable icons. Switch Icon Generation mode to "Auto (Atlas + Fallback)" and regenerate.'
+                ? 'Atlas produced no usable icons. Switch Icon Generation mode to "Batch API (Async, Cheap)" and regenerate.'
                 : 'No usable icons were generated. Try regenerating or changing icon generation mode.';
             logger.warn(warning);
             onProgress?.(warning);

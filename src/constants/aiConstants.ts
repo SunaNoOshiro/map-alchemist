@@ -27,9 +27,17 @@ export const DEFAULT_AI_CONFIG = {
 };
 
 export const ICON_GENERATION_MODE_LABELS: Record<IconGenerationMode, string> = {
-  auto: 'Auto (Atlas + Fallback)',
+  auto: 'Auto (HQ Atlas 4x4 + Repair)',
+  'batch-async': 'Batch API (Async, Cheap)',
   atlas: 'Atlas only',
   'per-icon': 'Per-icon only'
+};
+
+export const ICON_GENERATION_MODE_DESCRIPTIONS: Record<IconGenerationMode, string> = {
+  auto: 'Recommended default: async 4x4 atlas batches with cell validation, then repair only failed chunks.',
+  'batch-async': 'Most robust for large runs: async per-icon batch jobs with retry. More requests than atlas, but very reliable.',
+  atlas: 'Fast draft mode: 4x4 atlas chunks only, no repair. Fewest image-generation requests, but failed cells remain empty.',
+  'per-icon': 'Manual precise mode: one request per icon (max 32 per run). Best for targeted re-generation, not full sets.'
 };
 
 export const getAvailableTextModels = (provider: AiProvider): Record<string, string> => {
@@ -44,7 +52,7 @@ export const getProviderDisplayName = (provider: AiProvider): string => {
   return AI_PROVIDERS[provider]?.displayName || provider;
 };
 
-const ICON_GENERATION_MODES = new Set<IconGenerationMode>(['auto', 'atlas', 'per-icon']);
+const ICON_GENERATION_MODES = new Set<IconGenerationMode>(['auto', 'batch-async', 'atlas', 'per-icon']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;

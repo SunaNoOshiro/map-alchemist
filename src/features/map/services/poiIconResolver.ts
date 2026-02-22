@@ -117,6 +117,6 @@ export const resolvePoiIconKey = (
     if (resolved) return resolved;
   }
 
-  const firstAvailable = Object.keys(activeIcons).find((key) => Boolean(activeIcons[key]?.imageUrl));
-  return firstAvailable || FALLBACK_POI_ICON_KEY;
+  const fallbackResolved = pick(FALLBACK_POI_ICON_KEY);
+  return fallbackResolved || FALLBACK_POI_ICON_KEY;
 };

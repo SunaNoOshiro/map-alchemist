@@ -3,7 +3,8 @@ import {
   applyGreenScreenChromaKey,
   buildIconAtlasLayout,
   isLikelyGreenScreenPixel,
-  resolveAtlasSize
+  resolveAtlasSize,
+  sliceAtlasIntoIconsWithValidation
 } from '@features/ai/services/iconAtlasUtils';
 
 describe('iconAtlasUtils', () => {
@@ -21,6 +22,17 @@ describe('iconAtlasUtils', () => {
     expect(layout.rows).toBe(2);
     expect(layout.entries.Airport.y).toBe(layout.entries.Bakery.y);
     expect(layout.entries.Zoo.y).toBeGreaterThan(layout.entries.Airport.y);
+  });
+
+  it('supports fixed 4x4 atlas grid for chunked generation', () => {
+    const layout = buildIconAtlasLayout(
+      ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
+      { size: '1K', fixedColumns: 4, fixedRows: 4 }
+    );
+
+    expect(layout.columns).toBe(4);
+    expect(layout.rows).toBe(4);
+    expect(layout.orderedCategories).toHaveLength(7);
   });
 
   it('keeps all icon entry bounds inside atlas dimensions', () => {
@@ -64,5 +76,17 @@ describe('iconAtlasUtils', () => {
 
     expect(keyed[3]).toBe(0);
     expect(keyed[7]).toBe(255);
+  });
+
+  it('returns invalid empty slices when atlas image cannot be loaded', async () => {
+    const result = await sliceAtlasIntoIconsWithValidation('data:image/png;base64,broken', {
+      Cafe: { x: 0, y: 0, width: 64, height: 64 },
+      Bar: { x: 64, y: 0, width: 64, height: 64 }
+    });
+
+    expect(result.Cafe.imageUrl).toBeNull();
+    expect(result.Bar.imageUrl).toBeNull();
+    expect(result.Cafe.validation.isValid).toBe(false);
+    expect(result.Cafe.validation.reason).toBe('empty');
   });
 });

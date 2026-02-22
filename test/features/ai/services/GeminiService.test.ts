@@ -1,15 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const generateContentMock = vi.fn();
+const batchCreateMock = vi.fn();
+const batchGetMock = vi.fn();
+const batchDeleteMock = vi.fn();
 
 vi.mock('@google/genai', () => {
   class GoogleGenAI {
     models = {
       generateContent: generateContentMock,
     };
+    batches = {
+      create: batchCreateMock,
+      get: batchGetMock,
+      delete: batchDeleteMock,
+    };
   }
 
-  return { GoogleGenAI };
+  const JobState = {
+    JOB_STATE_UNSPECIFIED: 'JOB_STATE_UNSPECIFIED',
+    JOB_STATE_RUNNING: 'JOB_STATE_RUNNING',
+    JOB_STATE_SUCCEEDED: 'JOB_STATE_SUCCEEDED',
+    JOB_STATE_PARTIALLY_SUCCEEDED: 'JOB_STATE_PARTIALLY_SUCCEEDED',
+    JOB_STATE_FAILED: 'JOB_STATE_FAILED',
+    JOB_STATE_CANCELLED: 'JOB_STATE_CANCELLED',
+    JOB_STATE_EXPIRED: 'JOB_STATE_EXPIRED',
+  };
+
+  return { GoogleGenAI, JobState };
 });
 
 import { GeminiService } from '@/features/ai/services/GeminiService';
@@ -47,6 +65,9 @@ const rateLimitError = new Error(JSON.stringify({
 describe('GeminiService invalid key handling', () => {
   beforeEach(() => {
     generateContentMock.mockReset();
+    batchCreateMock.mockReset();
+    batchGetMock.mockReset();
+    batchDeleteMock.mockReset();
     vi.unstubAllGlobals();
   });
 
@@ -201,6 +222,143 @@ describe('GeminiService invalid key handling', () => {
     expect(result.atlasImageUrl).toContain('data:image/png;base64,ZmFrZS1pbWFnZS1kYXRh');
     expect(Object.keys(result.entries)).toEqual(expect.arrayContaining(['Cafe', 'Bar']));
   });
+
+  it('generates icons via true async batch mode', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            primaryRoad: '#ff6b3d',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b'
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Batch neon style'
+      })
+    });
+
+    batchCreateMock.mockResolvedValueOnce({ name: 'batches/mock-job-1' });
+    batchGetMock.mockResolvedValueOnce({
+      state: 'JOB_STATE_SUCCEEDED',
+      dest: {
+        inlinedResponses: [
+          { response: { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'ZmFrZS1pbWFnZS1kYXRh' } }] } }] } },
+        ]
+      }
+    });
+    batchDeleteMock.mockResolvedValue({});
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'batch-async');
+    const preset = await service.generateMapTheme('Batch style test', ['Landmark']);
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(batchCreateMock).toHaveBeenCalledTimes(1);
+    expect(batchGetMock).toHaveBeenCalledTimes(1);
+    expect(batchDeleteMock).toHaveBeenCalledTimes(1);
+    expect(Object.keys(preset.iconsByCategory)).toEqual(['Landmark']);
+  }, 10000);
+
+  it('auto mode runs atlas chunks via async batch and retries failed cells via async batch repair', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            primaryRoad: '#ff6b3d',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b'
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Auto fallback style'
+      })
+    });
+
+    batchCreateMock
+      .mockResolvedValueOnce({ name: 'batches/mock-atlas-job-1' })
+      .mockResolvedValueOnce({ name: 'batches/mock-atlas-job-2' });
+    batchGetMock
+      .mockResolvedValueOnce({
+        state: 'JOB_STATE_SUCCEEDED',
+        dest: {
+          inlinedResponses: [
+            { error: { message: 'primary chunk 1 failed' } },
+            { error: { message: 'primary chunk 2 failed' } },
+            { error: { message: 'primary chunk 3 failed' } },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        state: 'JOB_STATE_SUCCEEDED',
+        dest: {
+          inlinedResponses: [
+            { error: { message: 'repair chunk 1 failed' } },
+            { error: { message: 'repair chunk 2 failed' } },
+            { error: { message: 'repair chunk 3 failed' } },
+          ],
+        },
+      });
+    batchDeleteMock.mockResolvedValue({});
+
+    const categories = Array.from({ length: 40 }, (_, index) => `Category ${index + 1}`);
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+    const generateIconAtlasSpy = vi.spyOn(service, 'generateIconAtlas');
+    const generateIconImageSpy = vi.spyOn(service, 'generateIconImage');
+
+    const preset = await service.generateMapTheme('Auto fallback atlas failure', categories);
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(generateIconAtlasSpy).toHaveBeenCalledTimes(0);
+    expect(generateIconImageSpy).toHaveBeenCalledTimes(0);
+    expect(batchCreateMock).toHaveBeenCalledTimes(2);
+    expect(batchGetMock).toHaveBeenCalledTimes(2);
+    expect(batchDeleteMock).toHaveBeenCalledTimes(2);
+    expect(Object.keys(preset.iconsByCategory).length).toBe(41);
+  }, 15000);
 
   it('activates cooldown after repeated 429 errors and skips remaining icon requests', async () => {
     const baseStyle = {

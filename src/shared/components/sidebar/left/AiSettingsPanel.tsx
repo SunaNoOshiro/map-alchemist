@@ -3,7 +3,7 @@ import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
 import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
-import { ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
+import { ICON_GENERATION_MODE_DESCRIPTIONS, ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
 
 interface AiSettingsPanelProps {
   aiConfig: AiConfig;
@@ -26,6 +26,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const [isTextModelDropdownOpen, setIsTextModelDropdownOpen] = useState(false);
   const [isImageModelDropdownOpen, setIsImageModelDropdownOpen] = useState(false);
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false);
+  const [hoveredMode, setHoveredMode] = useState<AiConfig['iconGenerationMode'] | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
@@ -54,6 +55,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         setIsTextModelDropdownOpen(false);
         setIsImageModelDropdownOpen(false);
         setIsModeDropdownOpen(false);
+        setHoveredMode(null);
       }
     };
 
@@ -69,6 +71,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         setIsTextModelDropdownOpen(false);
         setIsImageModelDropdownOpen(false);
         setIsModeDropdownOpen(false);
+        setHoveredMode(null);
       }
     };
 
@@ -78,6 +81,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         setIsTextModelDropdownOpen(false);
         setIsImageModelDropdownOpen(false);
         setIsModeDropdownOpen(false);
+        setHoveredMode(null);
       }
     };
 
@@ -152,6 +156,10 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         setIsProviderDropdownOpen(false);
         setIsTextModelDropdownOpen(false);
         setIsImageModelDropdownOpen(false);
+        setHoveredMode(aiConfig.iconGenerationMode);
+      }
+      if (!next) {
+        setHoveredMode(null);
       }
       return next;
     });
@@ -160,6 +168,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const handleModeSelect = (iconGenerationMode: AiConfig['iconGenerationMode']) => {
     onUpdateAiConfig({ iconGenerationMode });
     setIsModeDropdownOpen(false);
+    setHoveredMode(null);
   };
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -177,6 +186,16 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
     } else {
       onConnectApi();
     }
+  };
+
+  const activeModeForDescription = (isModeDropdownOpen && hoveredMode)
+    ? hoveredMode
+    : aiConfig.iconGenerationMode;
+  const modeDescriptionTone: Record<AiConfig['iconGenerationMode'], string> = {
+    auto: 'text-emerald-300',
+    'batch-async': 'text-cyan-300',
+    atlas: 'text-blue-300',
+    'per-icon': 'text-amber-300'
   };
 
   return (
@@ -296,13 +315,28 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
           </button>
 
           {isModeDropdownOpen && (
-            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden" style={{ borderColor: `${sectionColor}50` }}>
+            <div
+              className="absolute z-30 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden"
+              style={{ borderColor: `${sectionColor}50` }}
+              onMouseLeave={() => setHoveredMode(aiConfig.iconGenerationMode)}
+            >
+              <div className="px-3 py-2 border-b border-gray-600/60 bg-gray-800/70">
+                <p
+                  className={uiClass(UI_TYPOGRAPHY.tiny, modeDescriptionTone[activeModeForDescription])}
+                  data-testid="icon-generation-mode-description"
+                >
+                  {ICON_GENERATION_MODE_DESCRIPTIONS[activeModeForDescription]}
+                </p>
+              </div>
               {(Object.keys(ICON_GENERATION_MODE_LABELS) as Array<AiConfig['iconGenerationMode']>).map((mode) => (
                 <div
                   key={mode}
                   onClick={() => handleModeSelect(mode)}
+                  onMouseEnter={() => setHoveredMode(mode)}
+                  onFocus={() => setHoveredMode(mode)}
                   className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
                   data-testid={`icon-generation-mode-option-${mode}`}
+                  title={ICON_GENERATION_MODE_DESCRIPTIONS[mode]}
                 >
                   {aiConfig.iconGenerationMode === mode && <span className="text-blue-400">●</span>}
                   {ICON_GENERATION_MODE_LABELS[mode]}
@@ -311,9 +345,12 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             </div>
           )}
         </div>
-        {aiConfig.iconGenerationMode === 'per-icon' && (
-          <p className={uiClass(UI_TYPOGRAPHY.tiny, 'text-amber-300 mt-1')}>
-            Per-icon mode is capped per run to control API spend. Use Atlas/Auto for full coverage at lower cost.
+        {!isModeDropdownOpen && (
+          <p
+            className={uiClass(UI_TYPOGRAPHY.tiny, 'mt-1', modeDescriptionTone[activeModeForDescription])}
+            data-testid="icon-generation-mode-description"
+          >
+            {ICON_GENERATION_MODE_DESCRIPTIONS[activeModeForDescription]}
           </p>
         )}
       </div>

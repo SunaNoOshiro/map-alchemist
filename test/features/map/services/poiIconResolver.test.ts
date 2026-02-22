@@ -52,4 +52,15 @@ describe('poiIconResolver', () => {
     });
     expect(iconKey).toBe(FALLBACK_POI_ICON_KEY);
   });
+
+  it('does not fallback to unrelated available icons when no match exists', () => {
+    const activeIcons = toIconMap(['Cafe', 'Bar']);
+    const taxonomy = resolvePoiTaxonomy('unknown_custom_poi', 'amenity');
+    const iconKey = resolvePoiIconKey(activeIcons, {
+      category: taxonomy.category,
+      subcategory: taxonomy.subcategory,
+      subclass: 'unknown_custom_poi'
+    });
+    expect(iconKey).toBe(FALLBACK_POI_ICON_KEY);
+  });
 });

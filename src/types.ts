@@ -83,7 +83,7 @@ export interface PlaceMarker {
 }
 
 export type ImageSize = '1K' | '2K' | '4K';
-export type IconGenerationMode = 'auto' | 'atlas' | 'per-icon';
+export type IconGenerationMode = 'auto' | 'batch-async' | 'atlas' | 'per-icon';
 
 export enum AppStatus {
   IDLE = 'IDLE',
