@@ -3,7 +3,16 @@ import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
 import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
-import { ICON_GENERATION_MODE_DESCRIPTIONS, ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
+import {
+  AI_PROVIDERS,
+  getAvailableImageModels,
+  getDefaultIconGenerationMode,
+  getIconGenerationModeDescription,
+  getSupportedIconGenerationModes,
+  getAvailableTextModels,
+  getProviderDisplayName,
+  ICON_GENERATION_MODE_LABELS
+} from '@/constants/aiConstants';
 
 interface AiSettingsPanelProps {
   aiConfig: AiConfig;
@@ -37,6 +46,10 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const currentTextModel = aiConfig.textModel || Object.keys(availableTextModels)[0] || '';
   const currentImageModel = aiConfig.imageModel || Object.keys(availableImageModels)[0] || '';
+  const supportedIconModes = getSupportedIconGenerationModes(aiConfig.provider);
+  const currentIconMode = supportedIconModes.includes(aiConfig.iconGenerationMode)
+    ? aiConfig.iconGenerationMode
+    : getDefaultIconGenerationMode(aiConfig.provider);
 
   useEffect(() => {
     if (!isProviderDropdownOpen && !isTextModelDropdownOpen && !isImageModelDropdownOpen && !isModeDropdownOpen) {
@@ -97,9 +110,20 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   }, [isModeDropdownOpen, isTextModelDropdownOpen, isImageModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
-    const nextTextModel = Object.keys(availableTextModels)[0] || currentTextModel || 'gemini-2.5-flash';
-    const nextImageModel = Object.keys(availableImageModels)[0] || currentImageModel || nextTextModel;
-    onUpdateAiConfig({ provider, textModel: nextTextModel, imageModel: nextImageModel });
+    const nextTextModels = getAvailableTextModels(provider);
+    const nextImageModels = getAvailableImageModels(provider);
+    const nextIconModes = getSupportedIconGenerationModes(provider);
+    const nextTextModel = Object.keys(nextTextModels)[0] || currentTextModel || aiConfig.textModel;
+    const nextImageModel = Object.keys(nextImageModels)[0] || currentImageModel || aiConfig.imageModel;
+    const nextIconMode = nextIconModes.includes(aiConfig.iconGenerationMode)
+      ? aiConfig.iconGenerationMode
+      : getDefaultIconGenerationMode(provider);
+    onUpdateAiConfig({
+      provider,
+      textModel: nextTextModel,
+      imageModel: nextImageModel,
+      iconGenerationMode: nextIconMode
+    });
     setIsProviderDropdownOpen(false);
   };
 
@@ -156,7 +180,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         setIsProviderDropdownOpen(false);
         setIsTextModelDropdownOpen(false);
         setIsImageModelDropdownOpen(false);
-        setHoveredMode(aiConfig.iconGenerationMode);
+        setHoveredMode(currentIconMode);
       }
       if (!next) {
         setHoveredMode(null);
@@ -190,7 +214,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
 
   const activeModeForDescription = (isModeDropdownOpen && hoveredMode)
     ? hoveredMode
-    : aiConfig.iconGenerationMode;
+    : currentIconMode;
   const modeDescriptionTone: Record<AiConfig['iconGenerationMode'], string> = {
     auto: 'text-emerald-300',
     'batch-async': 'text-cyan-300',
@@ -215,19 +239,22 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             className={UI_CONTROLS.dropdownTrigger}
             style={{ borderColor: `${sectionColor}50`, color: '#d1d5db' }}
           >
-            <span className="truncate">Google Gemini</span>
+            <span className="truncate">{getProviderDisplayName(aiConfig.provider)}</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
           </button>
 
           {isProviderDropdownOpen && (
             <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden" style={{ borderColor: `${sectionColor}50` }}>
-              <div
-                onClick={() => handleProviderSelect('google-gemini')}
-                className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
-              >
-                <span className="text-blue-400">●</span>
-                Google Gemini
-              </div>
+              {(Object.keys(AI_PROVIDERS) as AiConfig['provider'][]).map((provider) => (
+                <div
+                  key={provider}
+                  onClick={() => handleProviderSelect(provider)}
+                  className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
+                >
+                  {aiConfig.provider === provider && <span className="text-blue-400">●</span>}
+                  {getProviderDisplayName(provider)}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -310,7 +337,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             data-testid="icon-generation-mode-trigger"
             aria-label="Icon generation mode"
           >
-            <span className="truncate">{ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}</span>
+            <span className="truncate">{ICON_GENERATION_MODE_LABELS[currentIconMode]}</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
           </button>
 
@@ -318,17 +345,17 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             <div
               className="absolute z-30 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden"
               style={{ borderColor: `${sectionColor}50` }}
-              onMouseLeave={() => setHoveredMode(aiConfig.iconGenerationMode)}
+              onMouseLeave={() => setHoveredMode(currentIconMode)}
             >
               <div className="px-3 py-2 border-b border-gray-600/60 bg-gray-800/70">
                 <p
                   className={uiClass(UI_TYPOGRAPHY.tiny, modeDescriptionTone[activeModeForDescription])}
                   data-testid="icon-generation-mode-description"
                 >
-                  {ICON_GENERATION_MODE_DESCRIPTIONS[activeModeForDescription]}
+                  {getIconGenerationModeDescription(aiConfig.provider, activeModeForDescription)}
                 </p>
               </div>
-              {(Object.keys(ICON_GENERATION_MODE_LABELS) as Array<AiConfig['iconGenerationMode']>).map((mode) => (
+              {supportedIconModes.map((mode) => (
                 <div
                   key={mode}
                   onClick={() => handleModeSelect(mode)}
@@ -336,9 +363,9 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
                   onFocus={() => setHoveredMode(mode)}
                   className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
                   data-testid={`icon-generation-mode-option-${mode}`}
-                  title={ICON_GENERATION_MODE_DESCRIPTIONS[mode]}
+                  title={getIconGenerationModeDescription(aiConfig.provider, mode)}
                 >
-                  {aiConfig.iconGenerationMode === mode && <span className="text-blue-400">●</span>}
+                  {currentIconMode === mode && <span className="text-blue-400">●</span>}
                   {ICON_GENERATION_MODE_LABELS[mode]}
                 </div>
               ))}
@@ -350,7 +377,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             className={uiClass(UI_TYPOGRAPHY.tiny, 'mt-1', modeDescriptionTone[activeModeForDescription])}
             data-testid="icon-generation-mode-description"
           >
-            {ICON_GENERATION_MODE_DESCRIPTIONS[activeModeForDescription]}
+            {getIconGenerationModeDescription(aiConfig.provider, activeModeForDescription)}
           </p>
         )}
       </div>
@@ -475,7 +502,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             Image: {availableImageModels[currentImageModel] || currentImageModel}
           </span>
           <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
-            {ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}
+            {ICON_GENERATION_MODE_LABELS[currentIconMode]}
           </span>
           {aiConfig.isCustomKey && (
             <span className={uiClass('bg-green-600 px-1.5 py-0.5 rounded text-green-100', UI_TYPOGRAPHY.tiny)}>

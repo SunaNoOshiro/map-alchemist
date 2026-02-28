@@ -25,7 +25,7 @@ export const useMapGeneration = ({
 }: UseMapGenerationProps) => {
     const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
     const [loadingMessage, setLoadingMessage] = useState<string>('');
-    const invalidKeyPattern = /invalid gemini api key|api key not valid|api_key_invalid/i;
+    const invalidKeyPattern = /invalid gemini api key|invalid openai api key|invalid api key|api key not valid|api_key_invalid|incorrect api key/i;
 
     const handleGenerateStyle = async (prompt: string, hasApiKey: boolean, onConnectApi: () => void) => {
         if (!hasApiKey && !aiConfig.apiKey) {
@@ -56,7 +56,7 @@ export const useMapGeneration = ({
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (invalidKeyPattern.test(errorMessage)) {
-                addLog("Invalid API key. Reconnect a valid Gemini key in AI Configuration.", "error");
+                addLog("Invalid API key. Reconnect a valid key in AI Configuration.", "error");
                 onConnectApi();
             } else {
                 addLog(`Failed to build theme: ${errorMessage}`, "error");
@@ -121,7 +121,7 @@ export const useMapGeneration = ({
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (invalidKeyPattern.test(errorMessage)) {
-                addLog("Invalid API key. Reconnect a valid Gemini key in AI Configuration.", "error");
+                addLog("Invalid API key. Reconnect a valid key in AI Configuration.", "error");
             } else {
                 addLog(`Failed to generate icon: ${errorMessage}`, "error");
             }

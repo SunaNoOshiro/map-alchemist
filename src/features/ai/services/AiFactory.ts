@@ -1,5 +1,6 @@
 import { IAiService } from "@core/services/ai/IAiService";
 import { GeminiService } from "./GeminiService";
+import { OpenAIService } from "./OpenAIService";
 import { AiConfig } from "@/types";
 
 export class AiFactory {
@@ -20,6 +21,14 @@ export class AiFactory {
             switch (config.provider) {
                 case 'google-gemini':
                     this.instance = new GeminiService(
+                        config.apiKey,
+                        config.textModel,
+                        config.imageModel,
+                        config.iconGenerationMode
+                    );
+                    break;
+                case 'openai':
+                    this.instance = new OpenAIService(
                         config.apiKey,
                         config.textModel,
                         config.imageModel,

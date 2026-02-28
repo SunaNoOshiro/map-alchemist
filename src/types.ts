@@ -92,7 +92,7 @@ export enum AppStatus {
 }
 
 // AI Provider Types
-export type AiProvider = 'google-gemini';
+export type AiProvider = 'google-gemini' | 'openai';
 
 export interface AiConfig {
   provider: AiProvider;

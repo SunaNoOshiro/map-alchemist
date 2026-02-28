@@ -36,7 +36,7 @@ describe('useMapGeneration invalid API key handling', () => {
     });
 
     expect(addLog).toHaveBeenCalledWith(
-      'Invalid API key. Reconnect a valid Gemini key in AI Configuration.',
+      'Invalid API key. Reconnect a valid key in AI Configuration.',
       'error'
     );
     expect(onConnectApi).toHaveBeenCalledTimes(1);

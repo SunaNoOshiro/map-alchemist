@@ -2,7 +2,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import AiSettingsPanel from '@/shared/components/sidebar/left/AiSettingsPanel';
 import { AiConfig } from '@/types';
-import { ICON_GENERATION_MODE_DESCRIPTIONS } from '@/constants/aiConstants';
+import { getIconGenerationModeDescription } from '@/constants/aiConstants';
 
 const baseConfig: AiConfig = {
   provider: 'google-gemini',
@@ -49,6 +49,12 @@ describe('AiSettingsPanel', () => {
     expect(screen.queryByText('Gemini Pro')).not.toBeInTheDocument();
   });
 
+  it('shows OpenAI provider in provider dropdown', () => {
+    render(<AiSettingsPanel {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /^google gemini$/i }));
+    expect(screen.getByText('OpenAI')).toBeInTheDocument();
+  });
+
   it('shows hovered mode explanation while choosing icon generation mode', () => {
     render(<AiSettingsPanel {...defaultProps} />);
 
@@ -56,14 +62,14 @@ describe('AiSettingsPanel', () => {
     fireEvent.click(trigger);
 
     const description = screen.getByTestId('icon-generation-mode-description');
-    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS.auto);
+    expect(description).toHaveTextContent(getIconGenerationModeDescription('google-gemini', 'auto'));
 
     const batchOption = screen.getByTestId('icon-generation-mode-option-batch-async');
     fireEvent.mouseEnter(batchOption);
-    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS['batch-async']);
+    expect(description).toHaveTextContent(getIconGenerationModeDescription('google-gemini', 'batch-async'));
 
     const atlasOption = screen.getByTestId('icon-generation-mode-option-atlas');
     fireEvent.mouseEnter(atlasOption);
-    expect(description).toHaveTextContent(ICON_GENERATION_MODE_DESCRIPTIONS.atlas);
+    expect(description).toHaveTextContent(getIconGenerationModeDescription('google-gemini', 'atlas'));
   });
 });

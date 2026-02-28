@@ -2,7 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, ArrowRight, ShieldCheck, Eye, ChevronDown, Key, BrainCircuit } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
-import { ICON_GENERATION_MODE_LABELS } from '@/constants/aiConstants';
+import {
+  AI_PROVIDERS,
+  getDefaultIconGenerationMode,
+  getAvailableImageModels,
+  getIconGenerationModeDescription,
+  getSupportedIconGenerationModes,
+  getAvailableTextModels,
+  getProviderDisplayName,
+  ICON_GENERATION_MODE_LABELS
+} from '@/constants/aiConstants';
 
 interface AuthScreenProps {
   onConnect: () => void;
@@ -33,6 +42,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const currentTextModel = aiConfig.textModel || Object.keys(availableTextModels)[0] || '';
   const currentImageModel = aiConfig.imageModel || Object.keys(availableImageModels)[0] || '';
+  const supportedIconModes = getSupportedIconGenerationModes(aiConfig.provider);
+  const currentIconMode = supportedIconModes.includes(aiConfig.iconGenerationMode)
+    ? aiConfig.iconGenerationMode
+    : getDefaultIconGenerationMode(aiConfig.provider);
 
   useEffect(() => {
     if (!isProviderDropdownOpen && !isTextModelDropdownOpen && !isImageModelDropdownOpen && !isModeDropdownOpen) {
@@ -90,9 +103,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
   }, [isModeDropdownOpen, isTextModelDropdownOpen, isImageModelDropdownOpen, isProviderDropdownOpen]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
-    const nextTextModel = Object.keys(availableTextModels)[0] || currentTextModel || 'gemini-2.5-flash';
-    const nextImageModel = Object.keys(availableImageModels)[0] || currentImageModel || nextTextModel;
-    onUpdateAiConfig({ provider, textModel: nextTextModel, imageModel: nextImageModel });
+    const nextTextModels = getAvailableTextModels(provider);
+    const nextImageModels = getAvailableImageModels(provider);
+    const nextIconModes = getSupportedIconGenerationModes(provider);
+    const nextTextModel = Object.keys(nextTextModels)[0] || currentTextModel || aiConfig.textModel;
+    const nextImageModel = Object.keys(nextImageModels)[0] || currentImageModel || aiConfig.imageModel;
+    const nextIconMode = nextIconModes.includes(aiConfig.iconGenerationMode)
+      ? aiConfig.iconGenerationMode
+      : getDefaultIconGenerationMode(provider);
+    onUpdateAiConfig({
+      provider,
+      textModel: nextTextModel,
+      imageModel: nextImageModel,
+      iconGenerationMode: nextIconMode
+    });
     setIsProviderDropdownOpen(false);
   };
 
@@ -215,19 +239,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
                 onClick={handleProviderToggle}
                 className={UI_CONTROLS.dropdownTrigger}
               >
-                <span className="truncate">Google Gemini</span>
+                <span className="truncate">{getProviderDisplayName(aiConfig.provider)}</span>
                 <ChevronDown className="w-4 h-4 text-gray-400" />
               </button>
 
               {isProviderDropdownOpen && (
                 <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden">
-                  <div
-                    onClick={() => handleProviderSelect('google-gemini')}
-                    className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
-                  >
-                    <span className="text-blue-400">●</span>
-                    Google Gemini
-                  </div>
+                  {(Object.keys(AI_PROVIDERS) as AiConfig['provider'][]).map((provider) => (
+                    <div
+                      key={provider}
+                      onClick={() => handleProviderSelect(provider)}
+                      className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
+                    >
+                      {aiConfig.provider === provider && <span className="text-blue-400">●</span>}
+                      {getProviderDisplayName(provider)}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -307,26 +334,29 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
                 data-testid="icon-generation-mode-trigger"
                 aria-label="Icon generation mode"
               >
-                <span className="truncate">{ICON_GENERATION_MODE_LABELS[aiConfig.iconGenerationMode]}</span>
+                <span className="truncate">{ICON_GENERATION_MODE_LABELS[currentIconMode]}</span>
                 <ChevronDown className="w-4 h-4 text-gray-400" />
               </button>
 
               {isModeDropdownOpen && (
                 <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden">
-                  {(Object.keys(ICON_GENERATION_MODE_LABELS) as Array<AiConfig['iconGenerationMode']>).map((mode) => (
+                  {supportedIconModes.map((mode) => (
                     <div
                       key={mode}
                       onClick={() => handleModeSelect(mode)}
                       className={uiClass('px-3 py-2 hover:bg-gray-600 cursor-pointer flex items-center gap-2 font-medium', UI_TYPOGRAPHY.compact)}
                       data-testid={`icon-generation-mode-option-${mode}`}
                     >
-                      {aiConfig.iconGenerationMode === mode && <span className="text-blue-400">●</span>}
+                      {currentIconMode === mode && <span className="text-blue-400">●</span>}
                       {ICON_GENERATION_MODE_LABELS[mode]}
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            <p className={uiClass(UI_TYPOGRAPHY.tiny, 'mt-1 text-cyan-200')} data-testid="icon-generation-mode-description">
+              {getIconGenerationModeDescription(aiConfig.provider, currentIconMode)}
+            </p>
           </div>
 
           {/* API Key Input */}

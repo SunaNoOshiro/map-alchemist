@@ -1,6 +1,8 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { vi } from 'vitest';
 import AuthScreen from '@/features/auth/components/AuthScreen';
+import { getIconGenerationModeDescription } from '@/constants/aiConstants';
 
 describe('AuthScreen', () => {
   const defaultProps = {
@@ -43,5 +45,20 @@ describe('AuthScreen', () => {
 
     fireEvent.pointerDown(document.body);
     expect(screen.queryByText('Gemini Pro')).not.toBeInTheDocument();
+  });
+
+  it('shows OpenAI provider in provider dropdown', () => {
+    render(<AuthScreen {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: /^google gemini$/i }));
+    expect(screen.getByText('OpenAI')).toBeInTheDocument();
+  });
+
+  it('shows provider-aware icon generation description', () => {
+    const onUpdateAiConfig = vi.fn();
+    render(<AuthScreen {...defaultProps} onUpdateAiConfig={onUpdateAiConfig} />);
+
+    expect(screen.getByTestId('icon-generation-mode-description')).toHaveTextContent(
+      getIconGenerationModeDescription('google-gemini', 'auto')
+    );
   });
 });

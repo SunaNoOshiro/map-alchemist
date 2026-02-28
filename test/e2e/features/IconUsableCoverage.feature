@@ -65,3 +65,66 @@ Feature: Icon Usable Coverage Recovery
     When I generate a theme with prompt "Coverage batch create fail"
     Then theme generation should complete
     And usable icon summary should report zero coverage
+
+  Scenario: OpenAI atlas mode success reaches full usable coverage
+    Given OpenAI API calls are mocked with atlas behavior "success"
+    And I open the app with provider "openai" and icon generation mode "Atlas only"
+    When I generate a theme with prompt "Coverage openai atlas success"
+    Then theme generation should complete
+    And usable icon summary should report full coverage
+
+  Scenario: OpenAI atlas mode hard failures result in zero usable coverage
+    Given OpenAI API calls are mocked with atlas behavior "error"
+    And I open the app with provider "openai" and icon generation mode "Atlas only"
+    When I generate a theme with prompt "Coverage openai atlas error"
+    Then theme generation should complete
+    And usable icon summary should report zero coverage
+
+  Scenario: OpenAI atlas mode transient rate-limit still reaches full coverage
+    Given OpenAI API calls are mocked with atlas behavior "rate-limit-once"
+    And I open the app with provider "openai" and icon generation mode "Atlas only"
+    When I generate a theme with prompt "Coverage openai atlas transient rate limit"
+    Then theme generation should complete
+    And usable icon summary should report full coverage
+
+  Scenario: OpenAI auto mode recovers full coverage after complete primary-pass failure
+    Given OpenAI API calls are mocked with atlas behavior "primary-pass-error"
+    And I open the app with provider "openai" and icon generation mode "Auto (HQ Atlas 4x4 + Repair)"
+    When I generate a theme with prompt "Coverage openai auto primary fail"
+    Then theme generation should complete
+    And usable icon summary should report full coverage
+
+  Scenario: OpenAI auto mode recovers full coverage after partial primary-pass failures
+    Given OpenAI API calls are mocked with atlas behavior "primary-pass-partial"
+    And I open the app with provider "openai" and icon generation mode "Auto (HQ Atlas 4x4 + Repair)"
+    When I generate a theme with prompt "Coverage openai auto primary partial"
+    Then theme generation should complete
+    And usable icon summary should report full coverage
+
+  Scenario: OpenAI auto mode remains partial when the same subset fails both passes
+    Given OpenAI API calls are mocked with atlas behavior "primary-pass-partial-repair-error"
+    And I open the app with provider "openai" and icon generation mode "Auto (HQ Atlas 4x4 + Repair)"
+    When I generate a theme with prompt "Coverage openai auto partial persists"
+    Then theme generation should complete
+    And usable icon summary should report partial coverage
+
+  Scenario: OpenAI auto mode hard failures across both passes result in zero usable coverage
+    Given OpenAI API calls are mocked with atlas behavior "error"
+    And I open the app with provider "openai" and icon generation mode "Auto (HQ Atlas 4x4 + Repair)"
+    When I generate a theme with prompt "Coverage openai auto hard failure"
+    Then theme generation should complete
+    And usable icon summary should report zero coverage
+
+  Scenario: OpenAI batch API success reaches full usable coverage
+    Given OpenAI API calls are mocked with atlas behavior "success"
+    And I open the app with provider "openai" and icon generation mode "Batch API (Async, Cheap)"
+    When I generate a theme with prompt "Coverage openai batch success"
+    Then theme generation should complete
+    And usable icon summary should report full coverage
+
+  Scenario: OpenAI batch API create failures result in zero usable coverage
+    Given OpenAI API calls are mocked with atlas behavior "error"
+    And I open the app with provider "openai" and icon generation mode "Batch API (Async, Cheap)"
+    When I generate a theme with prompt "Coverage openai batch create fail"
+    Then theme generation should complete
+    And usable icon summary should report zero coverage

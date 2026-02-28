@@ -1,5 +1,290 @@
 # Implementation Plan
 
+## Phase 8 Plan: Full Provider BDD Matrix for Icon Modes (2026-02-28)
+
+### Goal
+Close the remaining end-to-end coverage gaps so Gemini and OpenAI icon generation modes are exercised across success, hard-failure, transient retry, repair, and usable-coverage scenarios.
+
+### Proposed Changes
+1. Expand invocation-accounting BDD scenarios.
+   - Files:
+     - `test/e2e/features/IconGenerationModes.feature`
+     - `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Add the missing OpenAI cases:
+     - atlas hard failure without per-icon fallback,
+     - atlas transient 429 retry,
+     - auto full repair pass,
+     - auto partial repair pass,
+     - auto persistent partial failure,
+     - batch create failure.
+   - Align OpenAI route mocks so async batch creation failures can be simulated deterministically.
+
+2. Expand usable-coverage BDD scenarios.
+   - Files:
+     - `test/e2e/features/IconUsableCoverage.feature`
+     - `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Mirror the recovery/coverage matrix for OpenAI:
+     - atlas success/error/rate-limit,
+     - auto full recovery / partial recovery / persistent partial / hard failure,
+     - batch success / batch create failure.
+
+### Verification Plan
+1. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting|Icon Usable Coverage Recovery"`
+
+## Phase 7 Plan: True OpenAI Batch Transport + Provider-Aware Mode UX (2026-02-26)
+
+### Goal
+Replace OpenAI pseudo-batch with true OpenAI Batch API transport for icon generation and make icon generation mode UX provider-aware with explicit behavior/cost descriptions.
+
+### Proposed Changes
+1. OpenAI true async batch transport.
+   - Files:
+     - `src/features/ai/services/openai/openaiBatchTransport.ts`
+     - `src/features/ai/services/OpenAIService.ts`
+   - Implement real `/v1/files` upload + `/v1/batches` create + `/v1/batches/{id}` polling + `/v1/files/{id}/content` output parsing.
+   - Keep shared orchestration in `AbstractAiService`; provider service only wires transport and error adapters.
+
+2. Provider-aware icon mode configuration and descriptions.
+   - Files:
+     - `src/constants/aiConstants.ts`
+     - `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+     - `src/features/auth/components/AuthScreen.tsx`
+   - Add provider-supported icon mode list helper.
+   - Show only supported modes in dropdown.
+   - Show provider-specific “how it works + cost” descriptions.
+
+3. Test coverage updates.
+   - Files:
+     - `test/e2e/features/IconGenerationModes.feature`
+     - `test/e2e/steps/IconGenerationMode.steps.ts`
+     - `test/constants/aiConstants.test.ts`
+     - `test/shared/components/AiSettingsPanel.test.tsx`
+     - `test/features/auth/components/AuthScreen.test.tsx`
+   - Extend OpenAI BDD mocks and assertions for true batch calls.
+   - Verify provider-aware description rendering.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/OpenAIService.test.ts test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts test/constants/aiConstants.test.ts test/shared/components/AiSettingsPanel.test.tsx test/features/auth/components/AuthScreen.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+
+## Phase 5 Plan: Thin Provider Services via Shared Chunk Orchestration (2026-02-26)
+
+### Goal
+Reduce provider-service size and duplication by moving remaining reusable chunk processing into `AbstractAiService` so `GeminiService` and `OpenAIService` only wire provider transport/error adapters.
+
+### User Review Required
+1. Provider boundary:
+   - Keep provider services focused on provider APIs, error parsing, and adapter wiring.
+2. Shared behavior:
+   - Keep async chunk polling/waiting/retry mapping and sequential fallback chunk behavior centralized in abstract base logic.
+
+### Proposed Changes
+1. Add shared chunk helpers in abstract base.
+   - File: `src/features/ai/services/AbstractAiService.ts`
+   - Add reusable helpers for:
+     - async transport chunk execution + response-to-icon mapping,
+     - sequential per-icon chunk fallback with shared cooldown handling.
+
+2. Thin OpenAI async chunk fallback.
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - Replace local sequential chunk loop with shared abstract helper call.
+
+3. Thin Gemini service and extract provider adapters.
+   - Files:
+     - `src/features/ai/services/GeminiService.ts`
+     - `src/features/ai/services/gemini/geminiErrors.ts` (new)
+     - `src/features/ai/services/gemini/geminiBatchTransport.ts` (new)
+   - Move Gemini error parsing and batch transport mapping out of service file.
+   - Use shared abstract async transport chunk helper in Gemini mode config.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/GeminiService.test.ts test/features/ai/services/OpenAIService.test.ts test/features/ai/services/AiFactory.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+
+## Phase 6 Plan: OpenAI Mode-Config Parity + Scenario Matrix (2026-02-26)
+
+### Goal
+Align OpenAI icon pipeline config shape and execution path with Gemini so both providers use the same abstract orchestration for async icon chunks, atlas async batching, retries, and repair flows.
+
+### Proposed Changes
+1. OpenAI provider adapter parity.
+   - Files:
+     - `src/features/ai/services/OpenAIService.ts`
+     - `src/features/ai/services/openai/openaiErrors.ts` (new)
+     - `src/features/ai/services/openai/openaiBatchTransport.ts` (new)
+   - Add OpenAI `toUserFacingError` adapter.
+   - Add transport-backed `asyncIconChunk` path via shared abstract runner.
+   - Add `asyncAtlas` config path and keep retry/cooldown knobs aligned.
+   - Keep provider-only responsibilities to HTTP request/response adapters.
+
+2. BDD parity coverage for OpenAI modes.
+   - Files:
+     - `test/e2e/features/IconGenerationModes.feature`
+     - `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Add mode scenarios for OpenAI (`atlas`, `auto`, `batch-async`) and classify OpenAI image invocations by atlas vs per-icon prompts.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/OpenAIService.test.ts test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+
+## Phase 3 Plan: Shared Image Transport Policy in Abstract Service (2026-02-25)
+
+### Goal
+Remove remaining provider duplication around image pacing, retry/backoff, and cooldown circuit-breaker behavior by centralizing this policy in `AbstractAiService`, while keeping provider-specific API transport implementations separate.
+
+### Proposed Changes
+1. Add shared image transport policy helpers.
+   - File: `src/features/ai/services/AbstractAiService.ts`
+   - Add reusable methods for:
+     - image request pacing (`waitForImageRequestSlot`),
+     - cooldown state (`isImageRateLimited`, `getImageRateLimitRemainingMs`, `activateImageRateLimitCooldown`),
+     - retry backoff (`computeRateLimitBackoffMs`),
+     - unified rate-limit retry executor (`runWithImageRateLimitRetries`).
+
+2. Migrate OpenAI service to shared policy.
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - Remove local duplicate pacing/cooldown/backoff fields and helpers.
+   - Route `generateImageDataUrl` through abstract retry executor.
+   - Keep OpenAI-specific auth handling and payload parsing in provider methods.
+
+3. Migrate Gemini service to shared policy.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Remove local duplicate pacing/cooldown/backoff fields and helpers.
+   - Route image and async-batch creation retries through abstract retry executor.
+   - Keep Gemini-specific error envelope parsing and async batch polling transport logic provider-side.
+
+4. Validation.
+   - Re-run focused AI service unit tests plus icon-mode BDD accounting suite to confirm behavior parity.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/OpenAIService.test.ts test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. `npm run build`
+
+## Phase 4 Plan: Provider Adapter Architecture (2026-02-25)
+
+### Goal
+Enforce clean provider boundaries so provider services implement only transport adapters (text/image/batch), while shared orchestration (retry, cooldown, chunking, atlas repair, async-batch waiting/polling) lives in `AbstractAiService`.
+
+### Proposed Changes
+1. Add normalized provider async-batch contract in abstract service.
+   - File: `src/features/ai/services/AbstractAiService.ts`
+   - Introduce normalized async batch types and a shared `runProviderAsyncImageBatch(...)` method handling:
+     - create with shared retry/cooldown policy,
+     - polling loop and timeout,
+     - rate-limit aware poll backoff,
+     - terminal state handling,
+     - cleanup in `finally`.
+
+2. Rewire Gemini batch paths to shared batch runner.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Replace local batch wait/poll/cleanup loops with provider adapter functions that map Gemini batch payloads to normalized state/response shapes.
+   - Keep only Gemini-specific API calls and response extraction in provider code.
+
+3. Keep OpenAI adapter boundary explicit.
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - No behavior change; ensure OpenAI remains transport-only for text/image and uses shared orchestration path.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/OpenAIService.test.ts test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. `npm run build`
+
+## Parity Plan: OpenAI Rate-Limit + Circuit Breaker Logic (2026-02-25)
+
+### Goal
+Bring OpenAI provider transport behavior to parity with Gemini for image generation resilience: pacing, retry/backoff, cooldown circuit breaker, and mode-level skip behavior when rate-limited.
+
+### Proposed Changes
+1. OpenAI image transport resilience:
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - Add request pacing, transient 429 retry with exponential backoff+jitter, cooldown activation after retry exhaustion, and cooldown checks before new image work.
+2. Mode handler parity for OpenAI:
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - Wire `isRateLimitActive`/`onRateLimitSkip` into shared mode engine so per-icon and batch-like chunk flow stop burning quota during cooldown windows.
+3. Add OpenAI service unit tests:
+   - File: `test/features/ai/services/OpenAIService.test.ts` (new)
+   - Cover invalid key, per-icon cap, transient 429 retry, and cooldown activation behavior.
+
+### Verification Plan
+1. `npm test -- --run test/features/ai/services/OpenAIService.test.ts test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. `npm run build`
+
+## Architecture Plan: Provider-Agnostic Mode Engine (2026-02-25)
+
+### Goal
+Ensure icon generation modes (`auto`, `batch-async`, `atlas`, `per-icon`) run through one shared orchestration path independent of provider so adding a new provider does not duplicate full service logic.
+
+### User Review Required
+1. Mode parity contract:
+   - Keep mode behavior/messages consistent across Gemini and OpenAI through shared orchestration.
+2. Provider boundary:
+   - Providers should implement transport/capability methods only (text/image + optional async batch transport), while the shared base controls mode flow.
+
+### Proposed Changes
+1. Shared mode pipeline in abstract base.
+   - File: `src/features/ai/services/AbstractAiService.ts`
+   - Add provider-agnostic icon mode orchestration helper:
+     - canonical category normalization,
+     - per-icon budget cap,
+     - mode routing (`auto`, `batch-async`, `atlas`, `per-icon`),
+     - fallback behavior for unsupported async batch,
+     - progress logging and icon finalization.
+
+2. Gemini service consumes shared mode engine.
+   - File: `src/features/ai/services/GeminiService.ts`
+   - Replace local mode branching in `generateMapTheme` with shared helper calls.
+   - Keep Gemini-specific batch transport and rate-limit circuit breaker logic as provider transport details.
+
+3. OpenAI service consumes shared mode engine.
+   - File: `src/features/ai/services/OpenAIService.ts`
+   - Replace local mode branching in `generateMapTheme` with shared helper calls.
+   - Add provider-side batch-mode transport implementation (chunked + retry) so `batch-async` path is handled through the same engine.
+
+4. Verification updates.
+   - Re-run unit and BDD suites that validate mode behavior and invocation accounting.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts test/features/ai/services/AiFactory.test.ts test/constants/aiConstants.test.ts test/features/auth/components/AuthScreen.test.tsx test/shared/components/AiSettingsPanel.test.tsx`
+2. BDD mode accounting suite:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. Build sanity:
+   - `npm run build`
+
+## Refactor Plan: Shared AI Base + OpenAI BDD Coverage (2026-02-25)
+
+### Goal
+Extract cross-provider AI service logic into a reusable abstract base so Gemini/OpenAI/future providers share one implementation path for theme JSON parsing, base style compilation, icon prompt construction, chunking, per-icon budgets, and background removal. Add BDD coverage to validate the new OpenAI provider runtime path.
+
+### User Review Required
+1. Refactor scope:
+   - Move shared behavior into `AbstractAiService` and make provider services consume inherited helpers.
+2. BDD scope:
+   - Add provider-level invocation coverage for OpenAI endpoints without changing existing Gemini invocation accounting scenarios.
+
+### Proposed Changes
+1. Service abstraction alignment.
+   - Files: `src/features/ai/services/AbstractAiService.ts`, `src/features/ai/services/GeminiService.ts`, `src/features/ai/services/OpenAIService.ts`
+   - Ensure Gemini and OpenAI both extend the abstract service and call inherited helper methods (`buildThemeSystemInstruction`, `tryParseJson`, `buildThemeVisualPackage`, prompt builders, chunking, per-icon budget, background removal).
+
+2. Provider BDD coverage for OpenAI.
+   - Files: `test/e2e/features/IconGenerationModes.feature`, `test/e2e/steps/IconGenerationMode.steps.ts`
+   - Add OpenAI API mocks (`/v1/chat/completions`, `/v1/images/generations`).
+   - Add scenario verifying generation completes and invocation counts match expected per selected mode.
+
+3. Keep backward safety around current modes.
+   - Ensure existing `auto` / `batch-async` / `atlas` / `per-icon` behavior and counters remain unchanged for Gemini scenarios.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/ai/services/AiFactory.test.ts test/features/ai/services/GeminiService.test.ts test/constants/aiConstants.test.ts test/features/auth/components/AuthScreen.test.tsx test/shared/components/AiSettingsPanel.test.tsx`
+2. BDD feature slice:
+   - `npm run test:e2e:bdd -- --grep "Icon Generation Mode Invocation Accounting"`
+3. Build sanity:
+   - `npm run build`
+
 ## Feature Plan: True Gemini Batch API + Icon Reliability + Cost Controls (2026-02-22)
 
 ### Goal
@@ -553,3 +838,26 @@ Improve clarity of icon generation modes by showing concise explanations for all
 ### Verification Plan
 1. Run targeted tests:
    - `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/constants/aiConstants.test.ts`
+
+## Provider Plan: Add OpenAI with Budget Models (2026-02-22)
+
+### Goal
+Add a second AI provider (`openai`) with a low-cost text model and `gpt-image-1-mini` image model, wired through configuration, UI provider selectors, and runtime service factory.
+
+### Proposed Changes
+1. Extend provider types/config:
+   - Files: `src/types.ts`, `src/constants/aiConstants.ts`
+   - Add `openai` provider entry, model lists, and sanitization compatibility.
+2. Update provider selectors in UI:
+   - Files: `src/features/auth/components/AuthScreen.tsx`, `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+   - Render providers dynamically (not hardcoded Gemini only).
+3. Add OpenAI runtime service:
+   - Files: `src/features/ai/services/OpenAIService.ts`, `src/features/ai/services/AiFactory.ts`
+   - Implement `IAiService` with OpenAI text + image generation using configured models.
+4. Update tests:
+   - Files: `test/constants/aiConstants.test.ts`, `test/features/auth/components/AuthScreen.test.tsx`, `test/shared/components/AiSettingsPanel.test.tsx`, `test/features/ai/services/AiFactory.test.ts` (new)
+   - Cover provider availability and factory routing.
+
+### Verification Plan
+1. Targeted tests:
+   - `npm test -- --run test/constants/aiConstants.test.ts test/features/auth/components/AuthScreen.test.tsx test/shared/components/AiSettingsPanel.test.tsx test/features/ai/services/AiFactory.test.ts`
