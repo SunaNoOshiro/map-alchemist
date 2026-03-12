@@ -26,6 +26,21 @@ const baseStyle = {
 const getLayerPaint = (style: any, layerId: string, paintProp: string) =>
   style.layers.find((layer: any) => layer.id === layerId)?.paint?.[paintProp];
 
+const getLuminance = (hexColor: string): number => {
+  const normalized = hexColor.replace('#', '');
+  const numeric = parseInt(normalized, 16);
+  const r = (numeric >> 16) & 255;
+  const g = (numeric >> 8) & 255;
+  const b = numeric & 255;
+  const toLinear = (channel: number) => {
+    const normalizedChannel = channel / 255;
+    return normalizedChannel <= 0.04045
+      ? normalizedChannel / 12.92
+      : ((normalizedChannel + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+};
+
 describe('styleCompiler', () => {
   it('compiles token colors across key layer groups and applies per-layer overrides', () => {
     const compiled = compileThemeStyle(baseStyle, {
@@ -68,7 +83,10 @@ describe('styleCompiler', () => {
     expect(getLayerPaint(compiled, 'park-fill', 'fill-color')).toBe('#226644');
     expect(getLayerPaint(compiled, 'building-fill', 'fill-color')).toBe('#334455');
     expect(getLayerPaint(compiled, 'poi-label', 'text-color')).toBe('#f5f5f5');
-    expect(getLayerPaint(compiled, 'poi-label', 'text-halo-color')).toBe('#111111');
+    const poiHalo = getLayerPaint(compiled, 'poi-label', 'text-halo-color');
+    const placeHalo = getLayerPaint(compiled, 'place-label', 'text-halo-color');
+    expect(typeof poiHalo).toBe('string');
+    expect(poiHalo).toBe(placeHalo);
     expect(getLayerPaint(compiled, 'place-label', 'text-color')).toBe('#123123');
   });
 
@@ -138,5 +156,29 @@ describe('styleCompiler', () => {
     expect(typeof roadLabelLayer?.paint).toBe('object');
     expect(typeof roadLabelLayer?.layout).toBe('object');
     expect(JSON.stringify(compiled.layers)).not.toContain("token('");
+  });
+
+  it('adapts harmonized halo brightness for dark vs bright themes', () => {
+    const darkThemeStyle = compileThemeStyle(baseStyle, {
+      tokens: {
+        background: '#0b1220',
+        land: '#1c2435',
+        textPrimary: '#f8fbff',
+      }
+    });
+    const brightThemeStyle = compileThemeStyle(baseStyle, {
+      tokens: {
+        background: '#f8fafc',
+        land: '#e2e8f0',
+        textPrimary: '#0f172a',
+      }
+    });
+
+    const darkHalo = getLayerPaint(darkThemeStyle, 'place-label', 'text-halo-color');
+    const brightHalo = getLayerPaint(brightThemeStyle, 'place-label', 'text-halo-color');
+
+    expect(typeof darkHalo).toBe('string');
+    expect(typeof brightHalo).toBe('string');
+    expect(getLuminance(darkHalo)).toBeLessThan(getLuminance(brightHalo));
   });
 });

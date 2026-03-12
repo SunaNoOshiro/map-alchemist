@@ -915,3 +915,34 @@ Prevent map crashes when icon generation is fully rate-limited or produces unusa
    - `npm test -- --run`
 3. Optional end-to-end smoke (if runtime/env allows):
    - `npm run test:e2e:bdd -- --grep "Icon Usable Coverage Recovery"`
+
+## Phase 10 Plan: Adaptive Label Halo Harmony + Export Consistency (2026-03-12)
+
+### Goal
+Make label border/halo rendering visually unified for a selected theme by deriving one complementary halo color from the generated style (light-theme vs dark-theme aware), and ensure the same behavior appears in exported style/snippet outputs.
+
+### Proposed Changes
+1. Add adaptive halo derivation from theme tokens.
+   - File: `src/features/map/services/styleCompiler.ts`
+   - Compute a harmonized halo color from text + surface luminance and apply it to all text/icon halo properties in compiled styles.
+
+2. Align runtime POI label halo behavior with theme harmony.
+   - File: `src/features/map/services/PoiService.ts`
+   - Replace per-feature contrasting halo selection with one style-aware halo derived from current palette/popup context.
+
+3. Keep export/snippet parity.
+   - Files:
+     - `src/features/styles/services/MapStyleExportService.ts` (behavior verification path)
+     - `src/features/styles/services/MaputnikExportService.ts` (behavior verification path)
+   - Ensure exported style JSON retains harmonized halo values for the selected style.
+
+4. Add regression tests.
+   - Files:
+     - `test/features/map/services/styleCompiler.test.ts`
+     - `test/features/map/services/PoiService.test.ts`
+   - Validate dark vs bright style adaptive halo choice and consistent halo usage.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/styleCompiler.test.ts test/features/map/services/PoiService.test.ts`
+2. `npm test -- --run`
+3. `npm run build`

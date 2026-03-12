@@ -4,76 +4,12 @@ import { IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 import { resolvePoiIconKey, resolvePoiTaxonomy } from './poiIconResolver';
 import { extractPoiSymbolSources } from './styleCatalog';
+import { deriveHarmonizedHaloFromPalette, normalizeHexColor } from './colorHarmony';
 
 const logger = createLogger('PoiService');
 
 const DEFAULT_CATEGORY_GROUP_COLOR = getCategoryColor('__unknown_category__');
 const POI_REFRESH_SIGNATURE_BY_MAP = new WeakMap<IMapController, string>();
-
-const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-
-const normalizeHexColor = (color?: string): string | null => {
-    if (!color) return null;
-
-    const trimmed = color.trim();
-    if (!HEX_COLOR_PATTERN.test(trimmed)) return null;
-
-    if (trimmed.length === 4) {
-        const [, r, g, b] = trimmed;
-        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-    }
-
-    return trimmed.toLowerCase();
-};
-
-const toLinearSrgb = (channel: number): number => {
-    const normalized = channel / 255;
-    return normalized <= 0.04045
-        ? normalized / 12.92
-        : Math.pow((normalized + 0.055) / 1.055, 2.4);
-};
-
-const getRelativeLuminance = (color: string): number => {
-    const normalized = normalizeHexColor(color);
-    if (!normalized) return 0;
-
-    const colorValue = parseInt(normalized.slice(1), 16);
-    const r = toLinearSrgb((colorValue >> 16) & 255);
-    const g = toLinearSrgb((colorValue >> 8) & 255);
-    const b = toLinearSrgb(colorValue & 255);
-
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-
-const getContrastRatio = (foreground: string, background: string): number => {
-    const foregroundLuminance = getRelativeLuminance(foreground);
-    const backgroundLuminance = getRelativeLuminance(background);
-    const lighter = Math.max(foregroundLuminance, backgroundLuminance);
-    const darker = Math.min(foregroundLuminance, backgroundLuminance);
-
-    return (lighter + 0.05) / (darker + 0.05);
-};
-
-const getMostContrastingColor = (textColor: string, candidates: Array<string | undefined>): string => {
-    const normalizedText = normalizeHexColor(textColor);
-    const normalizedCandidates = candidates
-        .map(normalizeHexColor)
-        .filter((candidate): candidate is string => Boolean(candidate));
-
-    if (normalizedCandidates.length === 0) {
-        return '#ffffff';
-    }
-
-    if (!normalizedText) {
-        return normalizedCandidates[0];
-    }
-
-    return normalizedCandidates.reduce((bestCandidate, currentCandidate) =>
-        getContrastRatio(normalizedText, currentCandidate) > getContrastRatio(normalizedText, bestCandidate)
-            ? currentCandidate
-            : bestCandidate
-    );
-};
 
 const toDisplayCase = (value?: string): string | null => {
     if (!value) return null;
@@ -217,6 +153,7 @@ export class PoiService {
         const byId = new Map<string, any>();
         poiSources.forEach(({ source, sourceLayer }) => {
             const rendered = map.querySourceFeatures(source, { sourceLayer });
+            const harmonizedHaloColor = deriveHarmonizedLabelHaloColor(palette, popupStyle);
             rendered.forEach((feature) => {
                 const props = feature.properties || {} as any;
                 const name = props.name || props['name:en'];
@@ -240,11 +177,7 @@ export class PoiService {
                 const fallbackTextColor = palette.text || popupStyle.textColor || '#202124';
                 const categoryColor = resolveCategoryGroupColor(subcategory, category);
                 const labelColor = categoryColor || fallbackTextColor;
-                const haloColor = getMostContrastingColor(labelColor, [
-                    palette.land,
-                    popupStyle.backgroundColor,
-                    '#ffffff'
-                ]);
+                const haloColor = harmonizedHaloColor;
 
                 byId.set(fid, {
                     type: 'Feature',
@@ -291,3 +224,18 @@ export class PoiService {
         logger.debug(`Updated places source with ${features.length} features`);
     }
 }
+
+const deriveHarmonizedLabelHaloColor = (
+    palette: Record<string, string>,
+    popupStyle: PopupStyle
+): string => {
+    const normalizedPalette: Record<string, string> = {};
+    Object.entries(palette || {}).forEach(([key, value]) => {
+        const normalized = normalizeHexColor(value);
+        if (normalized) {
+            normalizedPalette[key] = normalized;
+        }
+    });
+
+    return deriveHarmonizedHaloFromPalette(normalizedPalette, popupStyle);
+};

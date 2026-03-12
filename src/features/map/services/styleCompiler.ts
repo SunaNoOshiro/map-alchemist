@@ -9,6 +9,7 @@ import {
   StyleCatalog,
   StyleColorTarget
 } from './styleCatalog';
+import { deriveHarmonizedHaloFromThemeTokens, normalizeHexColor } from './colorHarmony';
 
 export type { MapLibreLayer, MapLibreStyle } from './styleCatalog';
 
@@ -18,7 +19,6 @@ type LayerTargetGroup = {
   layout: string[];
 };
 
-const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const TOKEN_REFERENCE_PATTERN = /^token\(\s*["']?([^"')]+)["']?\s*\)$/i;
 
 const TOKEN_ALIASES: Record<string, keyof ThemeColorTokens> = {
@@ -58,16 +58,6 @@ const cloneStyle = (style: MapLibreStyle): MapLibreStyle => {
   return JSON.parse(JSON.stringify(style));
 };
 
-const normalizeColorHex = (value: string): string | null => {
-  const trimmed = value.trim();
-  if (!HEX_COLOR_PATTERN.test(trimmed)) return null;
-  if (trimmed.length === 4) {
-    const [, r, g, b] = trimmed;
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-  return trimmed.toLowerCase();
-};
-
 const normalizeTokenAlias = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 const resolveTokenAlias = (rawToken: string, tokens: ThemeColorTokens): string | null => {
@@ -90,7 +80,7 @@ const resolveColorReference = (
   value: string,
   tokens: ThemeColorTokens
 ): { color: string | null; isTokenReference: boolean } => {
-  const normalizedHex = normalizeColorHex(value);
+  const normalizedHex = normalizeHexColor(value);
   if (normalizedHex) {
     return { color: normalizedHex, isTokenReference: false };
   }
@@ -113,9 +103,7 @@ const toObjectSection = (value: unknown): Record<string, unknown> => {
 
 const resolveTokenColor = (role: LayerSemanticRole, propertyName: string, tokens: ThemeColorTokens): string | null => {
   if (propertyName === 'text-halo-color' || propertyName === 'icon-halo-color') {
-    if (role === 'poi') return tokens.poiHalo;
-    if (role === 'labelSecondary') return tokens.haloSecondary;
-    return tokens.haloPrimary;
+    return deriveHarmonizedHaloFromThemeTokens(tokens);
   }
 
   if (propertyName === 'text-color' || propertyName === 'icon-color') {
@@ -261,7 +249,17 @@ const sanitizeSectionColorReferences = (
   const next: Record<string, unknown> = { ...section };
 
   Object.entries(next).forEach(([propertyName, propertyValue]) => {
-    if (!shouldApplyColorProperty(propertyName) || typeof propertyValue !== 'string') return;
+    if (!shouldApplyColorProperty(propertyName)) return;
+
+    if (propertyName === 'text-halo-color' || propertyName === 'icon-halo-color') {
+      const harmonized = resolveTokenColor(role, propertyName, tokens);
+      if (harmonized) {
+        next[propertyName] = harmonized;
+      }
+      return;
+    }
+
+    if (typeof propertyValue !== 'string') return;
 
     const { color, isTokenReference } = resolveColorReference(propertyValue, tokens);
     if (color) {

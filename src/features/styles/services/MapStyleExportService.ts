@@ -2,7 +2,7 @@ import { DEFAULT_STYLE_URL } from '@/constants';
 import { MapStyleExportPackage, MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { derivePalette, normalizePopupStyle } from '@core/services/defaultThemes';
 import { createLogger } from '@core/logger';
-import { extractPaletteFromCompiledStyle, isMapLibreStyleJson } from '@features/map/services/styleCompiler';
+import { extractPaletteFromCompiledStyle, isMapLibreStyleJson, sanitizeMapLibreStyleForRuntime } from '@features/map/services/styleCompiler';
 
 const logger = createLogger('MapStyleExportService');
 
@@ -178,6 +178,8 @@ export const MapStyleExportService = {
       cloned = ensureStyleShape(cloneStyleJson(baseStyleJson));
       applyPaletteToStyle(cloned, palette);
     }
+
+    cloned = sanitizeMapLibreStyleForRuntime(cloned) || cloned;
 
     ensurePlacesSource(cloned);
     ensurePoiLayer(cloned);

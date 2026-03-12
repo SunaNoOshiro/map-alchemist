@@ -52,6 +52,12 @@ const getFirstOutputFeature = (setGeoJsonSourceData: ReturnType<typeof vi.fn>) =
     return payload.features[0];
 };
 
+const getOutputFeatures = (setGeoJsonSourceData: ReturnType<typeof vi.fn>) => {
+    expect(setGeoJsonSourceData).toHaveBeenCalledTimes(1);
+    const [, payload] = setGeoJsonSourceData.mock.calls[0] as [string, { features: Array<{ properties: Record<string, string> }> }];
+    return payload.features;
+};
+
 describe('PoiService.refreshData label colors', () => {
     it('prefers mapped category group color for textColor', () => {
         const palette = { text: '#123456', land: '#0f172a' };
@@ -61,7 +67,7 @@ describe('PoiService.refreshData label colors', () => {
 
         const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
         expect(outputFeature.properties.textColor).toBe(getCategoryColor('Cafe'));
-        expect([palette.land, DEFAULT_POPUP_STYLE.backgroundColor]).toContain(outputFeature.properties.haloColor);
+        expect(outputFeature.properties.haloColor).toMatch(/^#[0-9a-f]{6}$/);
     });
 
     it('falls back to palette text color when no category group color is found', () => {
@@ -74,16 +80,21 @@ describe('PoiService.refreshData label colors', () => {
         expect(outputFeature.properties.textColor).toBe(palette.text);
     });
 
-    it('uses the more contrasting palette/background color for haloColor', () => {
+    it('uses one harmonized halo color for all POI labels in a refresh pass', () => {
         const palette = { text: '#345678', land: '#f97316' };
         const popupStyle = { ...DEFAULT_POPUP_STYLE, backgroundColor: '#ffffff' };
-        const { map, setGeoJsonSourceData } = createMockMap([createPoiFeature({ subclass: 'cafe' })]);
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({ id: 1, subclass: 'cafe' }),
+            createPoiFeature({ id: 2, subclass: 'unknown_poi_kind', name: 'Other Place' })
+        ]);
 
         PoiService.refreshData(map, {}, palette, popupStyle);
 
-        const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
-        expect(outputFeature.properties.textColor).toBe('#f97316');
-        expect(outputFeature.properties.haloColor).toBe(popupStyle.backgroundColor);
+        const outputFeatures = getOutputFeatures(setGeoJsonSourceData);
+        expect(outputFeatures).toHaveLength(2);
+        const uniqueHalos = new Set(outputFeatures.map((feature) => feature.properties.haloColor));
+        expect(uniqueHalos.size).toBe(1);
+        expect([...uniqueHalos][0]).toMatch(/^#[0-9a-f]{6}$/);
     });
 
     it('uses normalized raw subcategory names to resolve a group color before palette fallback', () => {
