@@ -1,5 +1,14 @@
 import { ThemeColorTokens, ThemeLayerOverrideEntry, ThemeSpec, normalizeThemeSpec, toLegacyPalette } from '@features/ai/services/themeSpec';
-import { buildStyleCatalog, LayerSemanticRole, MapLibreLayer, MapLibreStyle, StyleCatalog, StyleColorTarget } from './styleCatalog';
+import {
+  buildStyleCatalog,
+  classifyLayerRole,
+  LayerSemanticRole,
+  MapLibreLayer,
+  MapLibreStyle,
+  shouldApplyColorProperty,
+  StyleCatalog,
+  StyleColorTarget
+} from './styleCatalog';
 
 export type { MapLibreLayer, MapLibreStyle } from './styleCatalog';
 
@@ -9,11 +18,97 @@ type LayerTargetGroup = {
   layout: string[];
 };
 
+const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+const TOKEN_REFERENCE_PATTERN = /^token\(\s*["']?([^"')]+)["']?\s*\)$/i;
+
+const TOKEN_ALIASES: Record<string, keyof ThemeColorTokens> = {
+  background: 'background',
+  land: 'land',
+  park: 'park',
+  industrial: 'industrial',
+  residential: 'residential',
+  building: 'building',
+  water: 'water',
+  waterline: 'waterLine',
+  motorway: 'motorway',
+  primaryroad: 'primaryRoad',
+  primary: 'primaryRoad',
+  secondaryroad: 'secondaryRoad',
+  secondary: 'secondaryRoad',
+  localroad: 'localRoad',
+  local: 'localRoad',
+  roadcasing: 'roadCasing',
+  road: 'primaryRoad',
+  boundary: 'boundary',
+  admin: 'admin',
+  poiaccent: 'poiAccent',
+  poitext: 'poiText',
+  poihalo: 'poiHalo',
+  text: 'textPrimary',
+  textprimary: 'textPrimary',
+  textsecondary: 'textSecondary',
+  haloprimary: 'haloPrimary',
+  halosecondary: 'haloSecondary'
+};
+
 const cloneStyle = (style: MapLibreStyle): MapLibreStyle => {
   if (typeof structuredClone === 'function') {
     return structuredClone(style);
   }
   return JSON.parse(JSON.stringify(style));
+};
+
+const normalizeColorHex = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (!HEX_COLOR_PATTERN.test(trimmed)) return null;
+  if (trimmed.length === 4) {
+    const [, r, g, b] = trimmed;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return trimmed.toLowerCase();
+};
+
+const normalizeTokenAlias = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const resolveTokenAlias = (rawToken: string, tokens: ThemeColorTokens): string | null => {
+  const normalizedToken = normalizeTokenAlias(rawToken);
+  const tokenKey = TOKEN_ALIASES[normalizedToken];
+  if (!tokenKey) return null;
+  return tokens[tokenKey];
+};
+
+const parseTokenReference = (value: string): { tokenName: string; isTokenReference: boolean } => {
+  const trimmed = value.trim();
+  const tokenMatch = trimmed.match(TOKEN_REFERENCE_PATTERN);
+  if (tokenMatch?.[1]) {
+    return { tokenName: tokenMatch[1], isTokenReference: true };
+  }
+  return { tokenName: trimmed, isTokenReference: false };
+};
+
+const resolveColorReference = (
+  value: string,
+  tokens: ThemeColorTokens
+): { color: string | null; isTokenReference: boolean } => {
+  const normalizedHex = normalizeColorHex(value);
+  if (normalizedHex) {
+    return { color: normalizedHex, isTokenReference: false };
+  }
+
+  const { tokenName, isTokenReference } = parseTokenReference(value);
+  const aliasMatch = resolveTokenAlias(tokenName, tokens);
+  if (aliasMatch) {
+    return { color: aliasMatch, isTokenReference: isTokenReference || normalizeTokenAlias(tokenName) in TOKEN_ALIASES };
+  }
+
+  return { color: null, isTokenReference };
+};
+
+const toObjectSection = (value: unknown): Record<string, unknown> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { ...(value as Record<string, unknown>) };
+  }
+  return {};
 };
 
 const resolveTokenColor = (role: LayerSemanticRole, propertyName: string, tokens: ThemeColorTokens): string | null => {
@@ -79,11 +174,38 @@ const resolveTokenColor = (role: LayerSemanticRole, propertyName: string, tokens
   }
 };
 
-const applyOverrideMap = (target: Record<string, unknown> | undefined, override: Record<string, string> | undefined) => {
+const applyOverrideMap = (
+  target: Record<string, unknown>,
+  override: Record<string, string> | undefined,
+  section: 'paint' | 'layout',
+  role: LayerSemanticRole,
+  tokens: ThemeColorTokens
+) => {
   if (!override) return target;
-  const next = { ...(target || {}) };
+  const next = { ...target };
   Object.entries(override).forEach(([key, value]) => {
     if (typeof value !== 'string' || value.trim().length === 0) return;
+    if (shouldApplyColorProperty(key)) {
+      if (section === 'layout') {
+        // Layout properties do not support style colors directly.
+        return;
+      }
+
+      const { color, isTokenReference } = resolveColorReference(value, tokens);
+      if (color) {
+        next[key] = color;
+        return;
+      }
+
+      if (isTokenReference) {
+        const fallback = resolveTokenColor(role, key, tokens);
+        if (fallback) {
+          next[key] = fallback;
+        }
+      }
+      return;
+    }
+
     next[key] = value.trim();
   });
   return next;
@@ -114,12 +236,11 @@ const buildLayerTargetIndex = (catalog: StyleCatalog): Map<string, LayerTargetGr
 };
 
 const applySectionTargets = (
-  section: Record<string, unknown> | undefined,
+  section: Record<string, unknown>,
   targetProperties: string[],
   role: LayerSemanticRole,
   tokens: ThemeColorTokens
-): Record<string, unknown> | undefined => {
-  if (!section || typeof section !== 'object') return section;
+): Record<string, unknown> => {
   if (targetProperties.length === 0) return section;
 
   const next: Record<string, unknown> = { ...section };
@@ -132,23 +253,79 @@ const applySectionTargets = (
   return next;
 };
 
+const sanitizeSectionColorReferences = (
+  section: Record<string, unknown>,
+  role: LayerSemanticRole,
+  tokens: ThemeColorTokens
+): Record<string, unknown> => {
+  const next: Record<string, unknown> = { ...section };
+
+  Object.entries(next).forEach(([propertyName, propertyValue]) => {
+    if (!shouldApplyColorProperty(propertyName) || typeof propertyValue !== 'string') return;
+
+    const { color, isTokenReference } = resolveColorReference(propertyValue, tokens);
+    if (color) {
+      next[propertyName] = color;
+      return;
+    }
+
+    if (isTokenReference) {
+      const fallback = resolveTokenColor(role, propertyName, tokens);
+      if (fallback) {
+        next[propertyName] = fallback;
+      }
+    }
+  });
+
+  return next;
+};
+
+const stripUndefinedProperties = <T extends Record<string, unknown>>(value: T): T => {
+  const entries = Object.entries(value).filter(([, propertyValue]) => propertyValue !== undefined);
+  return Object.fromEntries(entries) as T;
+};
+
+const getThemeTokensFromStyleMetadata = (style: MapLibreStyle): ThemeColorTokens => {
+  const metadata = style.metadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return normalizeThemeSpec().tokens;
+  }
+
+  const mapAlchemist = (metadata as Record<string, unknown>).mapAlchemist;
+  if (!mapAlchemist || typeof mapAlchemist !== 'object') {
+    return normalizeThemeSpec().tokens;
+  }
+
+  const themeTokens = (mapAlchemist as Record<string, unknown>).themeTokens;
+  if (!themeTokens || typeof themeTokens !== 'object') {
+    return normalizeThemeSpec().tokens;
+  }
+
+  return normalizeThemeSpec({ tokens: themeTokens }).tokens;
+};
+
 const applyLayerTheme = (
   layer: MapLibreLayer,
   tokens: ThemeColorTokens,
   override: ThemeLayerOverrideEntry | undefined,
-  targets: LayerTargetGroup | undefined
+  targets: LayerTargetGroup | undefined,
+  role: LayerSemanticRole
 ): MapLibreLayer => {
-  const nextLayer: MapLibreLayer = { ...layer };
+  const effectiveRole = targets?.role ?? role;
+  const paintBase = toObjectSection(layer.paint);
+  const layoutBase = toObjectSection(layer.layout);
+  const themedPaint = applySectionTargets(paintBase, targets?.paint || [], effectiveRole, tokens);
+  const themedLayout = applySectionTargets(layoutBase, targets?.layout || [], effectiveRole, tokens);
+  const overridePaint = applyOverrideMap(themedPaint, override?.paint, 'paint', effectiveRole, tokens);
+  const overrideLayout = applyOverrideMap(themedLayout, override?.layout, 'layout', effectiveRole, tokens);
+  const sanitizedPaint = sanitizeSectionColorReferences(overridePaint, effectiveRole, tokens);
+  const sanitizedLayout = sanitizeSectionColorReferences(overrideLayout, effectiveRole, tokens);
 
-  if (targets) {
-    nextLayer.paint = applySectionTargets(layer.paint as Record<string, unknown> | undefined, targets.paint, targets.role, tokens);
-    nextLayer.layout = applySectionTargets(layer.layout as Record<string, unknown> | undefined, targets.layout, targets.role, tokens);
-  }
-
-  nextLayer.paint = applyOverrideMap(nextLayer.paint as Record<string, unknown> | undefined, override?.paint);
-  nextLayer.layout = applyOverrideMap(nextLayer.layout as Record<string, unknown> | undefined, override?.layout);
-
-  return nextLayer;
+  return stripUndefinedProperties({
+    ...layer,
+    paint: sanitizedPaint,
+    layout: sanitizedLayout,
+  });
 };
 
 export const isMapLibreStyleJson = (value: unknown): value is MapLibreStyle => {
@@ -194,7 +371,8 @@ export const compileThemeStyle = (
   compiled.layers = compiled.layers.map((layer) => {
     const override = themeSpec.layerOverrides?.[layer.id];
     const targets = layerTargets.get(layer.id);
-    return applyLayerTheme(layer, themeSpec.tokens, override, targets);
+    const role = catalog.layerRoles[layer.id] || classifyLayerRole(layer);
+    return applyLayerTheme(layer, themeSpec.tokens, override, targets, role);
   });
 
   const palette = toLegacyPalette(themeSpec.tokens);
@@ -223,5 +401,30 @@ export const compileThemeStyle = (
     },
   };
 
-  return compiled;
+  return sanitizeMapLibreStyleForRuntime(compiled) || compiled;
+};
+
+export const sanitizeMapLibreStyleForRuntime = (styleInput: unknown): MapLibreStyle | null => {
+  if (!isMapLibreStyleJson(styleInput)) return null;
+
+  const style = cloneStyle(styleInput);
+  if (!Array.isArray(style.layers)) style.layers = [];
+  if (!style.sources || typeof style.sources !== 'object') style.sources = {};
+  if (!style.version) style.version = 8;
+
+  const tokens = getThemeTokensFromStyleMetadata(style);
+  const catalog = buildStyleCatalog(style);
+
+  style.layers = style.layers.map((layer) => {
+    const role = catalog.layerRoles[layer.id] || classifyLayerRole(layer);
+    const paint = sanitizeSectionColorReferences(toObjectSection(layer.paint), role, tokens);
+    const layout = sanitizeSectionColorReferences(toObjectSection(layer.layout), role, tokens);
+    return stripUndefinedProperties({
+      ...layer,
+      paint,
+      layout
+    });
+  });
+
+  return style;
 };

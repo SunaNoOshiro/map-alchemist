@@ -144,6 +144,57 @@ describe('GeminiService invalid key handling', () => {
     expect(generateContentMock).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves token-style layer override colors to concrete hex values', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'water', type: 'fill', source: 'openfreemap', 'source-layer': 'water', paint: { 'fill-color': '#000000' } },
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            background: '#111827'
+          },
+          layerOverrides: {
+            water: {
+              paint: {
+                'fill-color': "token('water')"
+              }
+            }
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Token override check'
+      })
+    });
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+    const preset = await service.generateMapTheme('Token safety test', []);
+
+    const waterLayer = preset.mapStyleJson.layers.find((layer: any) => layer.id === 'water');
+    expect(waterLayer.paint['fill-color']).toBe('#0a84ff');
+    expect(JSON.stringify(preset.mapStyleJson.layers)).not.toContain("token('");
+  });
+
   it('caps per-icon mode requests to keep API usage bounded', async () => {
     const baseStyle = {
       version: 8,

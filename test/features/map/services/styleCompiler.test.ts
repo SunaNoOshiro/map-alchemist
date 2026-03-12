@@ -99,4 +99,44 @@ describe('styleCompiler', () => {
     expect(catalogMetadata?.colorTargetCount).toBeGreaterThan(0);
     expect(catalogMetadata?.iconKeyCount).toBeGreaterThanOrEqual(0);
   });
+
+  it('normalizes token-based color overrides and always emits object paint/layout sections', () => {
+    const styleWithSparseSections = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } },
+        { id: 'water', type: 'fill', source: 'openfreemap', 'source-layer': 'water', paint: { 'fill-color': '#111111' } },
+        // Intentionally omits both layout and paint to mirror real-world sparse layer objects.
+        { id: 'road-label', type: 'symbol', source: 'openfreemap', 'source-layer': 'transportation_name' },
+      ]
+    };
+
+    const compiled = compileThemeStyle(styleWithSparseSections, {
+      tokens: {
+        water: '#0a84ff',
+        textPrimary: '#f8fbff',
+        haloPrimary: '#11182b',
+      },
+      layerOverrides: {
+        water: {
+          paint: {
+            'fill-color': "token('water')",
+          }
+        },
+      }
+    });
+
+    const waterLayer = compiled.layers.find((layer: any) => layer.id === 'water');
+    const roadLabelLayer = compiled.layers.find((layer: any) => layer.id === 'road-label');
+
+    expect(waterLayer?.paint?.['fill-color']).toBe('#0a84ff');
+    expect(typeof waterLayer?.paint).toBe('object');
+    expect(typeof waterLayer?.layout).toBe('object');
+    expect(typeof roadLabelLayer?.paint).toBe('object');
+    expect(typeof roadLabelLayer?.layout).toBe('object');
+    expect(JSON.stringify(compiled.layers)).not.toContain("token('");
+  });
 });

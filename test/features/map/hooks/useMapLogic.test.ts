@@ -207,7 +207,11 @@ describe('compiled style render mode', () => {
     };
 
     expect(shouldApplyPaletteOverrides(emptyPlaceholderStyle)).toBe(true);
-    expect(resolveRenderStyle(emptyPlaceholderStyle, baseStyle)).toEqual(baseStyle);
+    const resolved = resolveRenderStyle(emptyPlaceholderStyle, baseStyle);
+    expect(resolved.version).toBe(8);
+    expect(resolved.sources).toEqual(baseStyle.sources);
+    expect(resolved.layers[0].id).toBe('background');
+    expect(resolved.layers[0].paint['background-color']).toBe('#010203');
   });
 
   it('uses base style fallback for legacy palette-style objects', () => {
@@ -219,6 +223,47 @@ describe('compiled style render mode', () => {
     };
 
     expect(shouldApplyPaletteOverrides(legacyStyle)).toBe(true);
-    expect(resolveRenderStyle(legacyStyle, baseStyle)).toEqual(baseStyle);
+    const resolved = resolveRenderStyle(legacyStyle, baseStyle);
+    expect(resolved.version).toBe(8);
+    expect(resolved.sources).toEqual(baseStyle.sources);
+    expect(resolved.layers[0].id).toBe('background');
+    expect(resolved.layers[0].paint['background-color']).toBe('#010203');
+  });
+
+  it('sanitizes unresolved token colors and sparse sections before render apply', () => {
+    const styleWithTokens = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      metadata: {
+        mapAlchemist: {
+          themeTokens: {
+            water: '#0a84ff',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b',
+          }
+        }
+      },
+      layers: [
+        {
+          id: 'water',
+          type: 'fill',
+          source: 'openfreemap',
+          'source-layer': 'water',
+          paint: { 'fill-color': "token('water')" },
+          layout: undefined,
+        },
+      ],
+    };
+    const fallbackBaseStyle = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#010203' } }],
+    };
+
+    const resolved = resolveRenderStyle(styleWithTokens, fallbackBaseStyle);
+
+    expect(resolved.layers[0].paint['fill-color']).toBe('#0a84ff');
+    expect(typeof resolved.layers[0].layout).toBe('object');
+    expect(typeof resolved.layers[0].paint).toBe('object');
   });
 });

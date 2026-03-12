@@ -861,3 +861,57 @@ Add a second AI provider (`openai`) with a low-cost text model and `gpt-image-1-
 ### Verification Plan
 1. Targeted tests:
    - `npm test -- --run test/constants/aiConstants.test.ts test/features/auth/components/AuthScreen.test.tsx test/shared/components/AiSettingsPanel.test.tsx test/features/ai/services/AiFactory.test.ts`
+
+## Phase 9 Plan: Rate-Limit Safe Theme Finalization + MapLibre Style Sanitization (2026-03-12)
+
+### Goal
+Prevent map crashes when icon generation is fully rate-limited or produces unusable assets by guaranteeing that finalized styles are always MapLibre-valid (no unresolved theme tokens, no missing `layout`/`paint` objects) and by applying a safe fallback path when usable icon count is zero.
+
+### User Review Required
+1. Fallback behavior choice when icons are unavailable:
+   - Keep generated palette/theme intent, but force symbol layers to built-in/default marker icons.
+2. Validation strictness:
+   - Sanitize generated styles before `setStyle`, and if still invalid, fall back to the last known-good style instead of applying a broken style.
+
+### Proposed Changes
+1. Harden style compilation/sanitization for MapLibre invariants.
+   - Files (expected):
+     - `src/features/map/services/styleCompiler.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+   - Ensure each emitted layer has valid object defaults:
+     - `layout: {}` when omitted.
+     - `paint: {}` when required by layer type or when paint keys are merged.
+   - Resolve or strip unresolved `token('...')` values before final style emission.
+
+2. Add explicit zero-usable-icons fallback in AI pipeline.
+   - Files (expected):
+     - `src/features/ai/services/AbstractAiService.ts`
+     - `src/features/ai/services/themeSpec.ts` (if token normalization lives there)
+   - When `usableIconCount === 0`:
+     - mark icon assets as unavailable,
+     - compile style using default icon strategy (no missing sprite references),
+     - emit a clearer user-facing progress/warn message explaining fallback.
+
+3. Guard style application in map logic.
+   - Files (expected):
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Validate/sanitize style payload immediately before `map.setStyle`.
+   - If invalid after sanitization, preserve current style and surface actionable log message.
+
+4. Regression tests.
+   - Files (expected):
+     - `test/features/ai/services/GeminiService.test.ts`
+     - `test/features/map/services/styleCompiler.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+   - Add/extend tests for:
+     - full 429 icon failure -> theme finalization still returns valid style,
+     - unresolved token input -> compiled output has concrete color values,
+     - layers without explicit layout/paint are normalized to valid objects.
+
+### Verification Plan
+1. Targeted regression tests:
+   - `npm test -- --run test/features/ai/services/GeminiService.test.ts test/features/map/services/styleCompiler.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. Full unit suite sanity:
+   - `npm test -- --run`
+3. Optional end-to-end smoke (if runtime/env allows):
+   - `npm run test:e2e:bdd -- --grep "Icon Usable Coverage Recovery"`

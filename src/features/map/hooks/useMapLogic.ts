@@ -8,7 +8,7 @@ import { derivePalette } from '@core/services/defaultThemes';
 import { DEFAULT_STYLE_URL, MAP_CATEGORIES } from '@/constants';
 import { MapStylePreset, IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
-import { isMapLibreStyleJson } from '../services/styleCompiler';
+import { isMapLibreStyleJson, sanitizeMapLibreStyleForRuntime } from '../services/styleCompiler';
 
 const logger = createLogger('MapLogicHook');
 const NUMERIC_LAYOUT_PROPERTIES = new Set([
@@ -250,10 +250,15 @@ const hasRenderableStyleContent = (styleJson: any): boolean => {
 export const shouldApplyPaletteOverrides = (mapStyleJson: any): boolean => !hasRenderableStyleContent(mapStyleJson);
 
 export const resolveRenderStyle = (mapStyleJson: any, baseStyle: any): any => {
+    const sanitizeForRender = (style: any) => {
+        const runtimeSanitized = sanitizeMapLibreStyleForRuntime(style) || style;
+        return sanitizeMapStyleNumericExpressions(runtimeSanitized);
+    };
+
     if (hasRenderableStyleContent(mapStyleJson)) {
-        return sanitizeMapStyleNumericExpressions(mapStyleJson);
+        return sanitizeForRender(mapStyleJson);
     }
-    return sanitizeMapStyleNumericExpressions(baseStyle);
+    return sanitizeForRender(baseStyle);
 };
 
 // Helper for safe style loading (moved from MapView)
@@ -443,7 +448,12 @@ export const useMapLogic = ({
         if (!rawMap) return;
 
         const styleToApply = resolveRenderStyle(mapStyleJson, baseStyle);
-        controller.setStyle(styleToApply);
+        try {
+            controller.setStyle(styleToApply);
+        } catch (error) {
+            logger.error('Failed to apply generated style. Keeping current map style.', error);
+            return;
+        }
 
         const onStyleData = () => {
             if (!controller.getRawMap?.()) return;
