@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildIconSyncPlan,
+  computePopupViewportConstraints,
+  computePopupViewportPanDelta,
   resolveRenderStyle,
+  resolveRenderStyleForDisplay,
   sanitizeMapStyleNumericExpressions,
+  shouldDeferPopupViewportFit,
   shouldApplyPaletteOverrides
 } from '@/features/map/hooks/useMapLogic';
 import { IconDefinition } from '@/types';
@@ -55,6 +59,90 @@ describe('buildIconSyncPlan', () => {
       transport: 'https://cdn.example/transport.png',
     });
     expect(plan.staleKeys).toEqual(['shopping']);
+  });
+});
+
+describe('computePopupViewportPanDelta', () => {
+  it('returns a negative left-up pan when the popup overflows the top-left viewport edge', () => {
+    const delta = computePopupViewportPanDelta(
+      { top: 60, left: 40, right: 300, bottom: 260 },
+      { top: 100, left: 100, right: 700, bottom: 700 },
+      20
+    );
+
+    expect(delta).toEqual([-80, -60]);
+  });
+
+  it('returns a positive down-right pan when the popup overflows the bottom-right viewport edge', () => {
+    const delta = computePopupViewportPanDelta(
+      { top: 180, left: 420, right: 760, bottom: 760 },
+      { top: 100, left: 100, right: 700, bottom: 700 },
+      20
+    );
+
+    expect(delta).toEqual([80, 70]);
+  });
+
+  it('centers an oversized popup inside the safe viewport band', () => {
+    const delta = computePopupViewportPanDelta(
+      { top: 90, left: 120, right: 760, bottom: 760 },
+      { top: 100, left: 100, right: 700, bottom: 700 },
+      20
+    );
+
+    expect(delta).toEqual([40, 25]);
+  });
+
+  it('clamps absurd pan requests to the current viewport span', () => {
+    const delta = computePopupViewportPanDelta(
+      { top: -50000, left: -32000, right: -31700, bottom: -49700 },
+      { top: 100, left: 100, right: 700, bottom: 700 },
+      20
+    );
+
+    expect(delta).toEqual([-560, -560]);
+  });
+});
+
+describe('computePopupViewportConstraints', () => {
+  it('caps popup width to the safe space inside the map viewport', () => {
+    const constraints = computePopupViewportConstraints(
+      { top: 100, left: 50, right: 430, bottom: 620 },
+      10
+    );
+
+    expect(constraints.maxPopupWidth).toBe(346);
+    expect(constraints.maxContentHeight).toBe(474);
+  });
+
+  it('keeps popup sizing usable inside narrower map containers', () => {
+    const constraints = computePopupViewportConstraints(
+      { top: 0, left: 0, right: 280, bottom: 300 },
+      10
+    );
+
+    expect(constraints.maxPopupWidth).toBe(246);
+    expect(constraints.maxContentHeight).toBe(254);
+  });
+});
+
+describe('shouldDeferPopupViewportFit', () => {
+  it('defers viewport fitting while MapLibre still reports an offscreen placeholder rect', () => {
+    const shouldDefer = shouldDeferPopupViewportFit(
+      { top: -1204, left: -522, right: -122, bottom: -869 },
+      { top: 65, left: 320, right: 960, bottom: 720 }
+    );
+
+    expect(shouldDefer).toBe(true);
+  });
+
+  it('accepts a popup rect that is only slightly outside the current safe band', () => {
+    const shouldDefer = shouldDeferPopupViewportFit(
+      { top: 48, left: 332, right: 728, bottom: 438 },
+      { top: 65, left: 320, right: 960, bottom: 720 }
+    );
+
+    expect(shouldDefer).toBe(false);
   });
 });
 
@@ -228,6 +316,27 @@ describe('compiled style render mode', () => {
     expect(resolved.sources).toEqual(baseStyle.sources);
     expect(resolved.layers[0].id).toBe('background');
     expect(resolved.layers[0].paint['background-color']).toBe('#010203');
+  });
+
+  it('bakes palette overrides into the initial render style for legacy themes', () => {
+    const legacyStyle = { water: '#0a84ff', land: '#f4d03f', road: '#6b4f2b', text: '#1f2937' };
+    const baseStyle = {
+      version: 8,
+      sources: { openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' } },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#010203' } },
+        { id: 'water-fill', type: 'fill', paint: { 'fill-color': '#111111' } },
+        { id: 'main-road', type: 'line', paint: { 'line-color': '#222222' } },
+        { id: 'city-label', type: 'symbol', paint: { 'text-color': '#333333' } }
+      ]
+    };
+
+    const resolved = resolveRenderStyleForDisplay(legacyStyle, baseStyle, legacyStyle);
+
+    expect(resolved.layers[0].paint['background-color']).toBe('#f4d03f');
+    expect(resolved.layers[1].paint['fill-color']).toBe('#0a84ff');
+    expect(resolved.layers[2].paint['line-color']).toBe('#6b4f2b');
+    expect(resolved.layers[3].paint['text-color']).toBe('#1f2937');
   });
 
   it('sanitizes unresolved token colors and sparse sections before render apply', () => {

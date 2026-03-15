@@ -168,4 +168,36 @@ describe('PoiService.refreshData label colors', () => {
         expect(firstPayload.features[0].properties.textColor).toBe(basePalette.text);
         expect(secondPayload.features[0].properties.textColor).toBe(changedPalette.text);
     });
+
+    it('preserves OSM identifiers and free-detail source tags for popup enrichment', () => {
+        const palette = { text: '#123456', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({
+                osm_id: 4242,
+                osm_type: 'node',
+                website: 'example.com',
+                phone: '+1 415 555 0100',
+                opening_hours: 'Mo-Fr 08:00-18:00',
+                wikipedia: 'en:Test_Place',
+                wikidata: 'Q42',
+                image: 'https://images.example/test-place.jpg',
+                'addr:street': 'Main St',
+                'addr:housenumber': '12',
+                'addr:city': 'San Francisco'
+            })
+        ]);
+
+        PoiService.refreshData(map, {}, palette, DEFAULT_POPUP_STYLE);
+
+        const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
+        expect(outputFeature.properties.osm_id).toBe(4242);
+        expect(outputFeature.properties.osm_type).toBe('node');
+        expect(outputFeature.properties.address).toBe('Main St 12, San Francisco');
+        expect(outputFeature.properties.website).toBe('example.com');
+        expect(outputFeature.properties.phone).toBe('+1 415 555 0100');
+        expect(outputFeature.properties.opening_hours).toBe('Mo-Fr 08:00-18:00');
+        expect(outputFeature.properties.wikipedia).toBe('en:Test_Place');
+        expect(outputFeature.properties.wikidata).toBe('Q42');
+        expect(outputFeature.properties.image).toBe('https://images.example/test-place.jpg');
+    });
 });

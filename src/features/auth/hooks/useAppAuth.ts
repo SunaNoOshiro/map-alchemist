@@ -10,39 +10,70 @@ import { createLogger } from '@core/logger';
 
 const logger = createLogger('AuthHook');
 const AI_CONFIG_STORAGE_KEY = 'mapAlchemistAiConfig';
+const GUEST_MODE_STORAGE_KEY = 'mapAlchemistGuestMode';
 
 export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [hasApiKey, setHasApiKey] = useState<boolean>(false);
     const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
+    const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
     const [aiConfig, setAiConfig] = useState<AiConfig>(DEFAULT_AI_CONFIG);
     const [availableTextModels, setAvailableTextModels] = useState<Record<string, string>>({});
     const [availableImageModels, setAvailableImageModels] = useState<Record<string, string>>({});
 
     // Load AI config from storage on init
     useEffect(() => {
+        let cancelled = false;
+
         const loadConfig = () => {
             try {
                 const savedConfig = localStorage.getItem(AI_CONFIG_STORAGE_KEY);
                 if (savedConfig) {
                     const parsed = JSON.parse(savedConfig);
-                    setAiConfig(sanitizeAiConfig(parsed));
+                    if (!cancelled) {
+                        setAiConfig(sanitizeAiConfig(parsed));
+                    }
                 }
             } catch (e) {
                 logger.error("Failed to load AI config", e);
             }
+
+            try {
+                if (!cancelled) {
+                    setIsGuestMode(localStorage.getItem(GUEST_MODE_STORAGE_KEY) === 'true');
+                }
+            } catch (e) {
+                logger.error("Failed to load guest mode", e);
+            }
         };
 
         const checkApiKey = async () => {
-            if ((window as any).aistudio) {
-                const has = await (window as any).aistudio.hasSelectedApiKey();
-                setHasApiKey(has);
-            } else {
-                setHasApiKey(false);
+            try {
+                if ((window as any).aistudio) {
+                    const has = await (window as any).aistudio.hasSelectedApiKey();
+                    if (!cancelled) {
+                        setHasApiKey(has);
+                    }
+                } else if (!cancelled) {
+                    setHasApiKey(false);
+                }
+            } catch (e) {
+                logger.error("Failed to check API key", e);
+                if (!cancelled) {
+                    setHasApiKey(false);
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsAuthReady(true);
+                }
             }
         };
 
         loadConfig();
         checkApiKey();
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // Update available models when provider changes
@@ -53,6 +84,19 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
         setAvailableImageModels(imageModels);
     }, [aiConfig.provider]);
 
+    const persistGuestMode = (value: boolean) => {
+        setIsGuestMode(value);
+        try {
+            if (value) {
+                localStorage.setItem(GUEST_MODE_STORAGE_KEY, 'true');
+            } else {
+                localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
+            }
+        } catch (e) {
+            logger.error("Failed to persist guest mode", e);
+        }
+    };
+
     const handleSelectKey = async () => {
         if ((window as any).aistudio) {
             try {
@@ -60,7 +104,7 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
                 const has = await (window as any).aistudio.hasSelectedApiKey();
                 if (has) {
                     setHasApiKey(true);
-                    setIsGuestMode(false);
+                    persistGuestMode(false);
                     addLog("API Key connected successfully.", "success");
                 }
             } catch (e) {
@@ -69,6 +113,7 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
             }
         } else {
             setHasApiKey(true);
+            persistGuestMode(false);
         }
     };
 
@@ -102,9 +147,10 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
     };
 
     return {
+        isAuthReady,
         hasApiKey,
         isGuestMode,
-        setIsGuestMode,
+        setIsGuestMode: persistGuestMode,
         handleSelectKey,
         aiConfig,
         availableTextModels,

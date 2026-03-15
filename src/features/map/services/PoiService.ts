@@ -49,6 +49,23 @@ const resolveCategoryGroupColor = (subcategory?: string, category?: string): str
 const isValidLngLat = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value);
 
+const buildAddress = (props: Record<string, any>): string => {
+    const line1 = [props['addr:street'], props['addr:housenumber']]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .join(' ')
+        .trim();
+
+    return [
+        line1,
+        props['addr:city'],
+        props['addr:state'],
+        props['addr:postcode'],
+        props['addr:country']
+    ]
+        .filter((value) => typeof value === 'string' && value.trim().length > 0)
+        .join(', ');
+};
+
 const extractPointCoordinates = (feature: any): [number, number] | null => {
     const geometry = feature?.geometry;
     if (!geometry) return null;
@@ -173,6 +190,8 @@ export class PoiService {
                     subcategory,
                     subclass
                 });
+                const address = buildAddress(props);
+                const description = props.description || props.operator || props.brand || (subcategory && subcategory !== category ? subcategory : '');
 
                 const fallbackTextColor = palette.text || popupStyle.textColor || '#202124';
                 const categoryColor = resolveCategoryGroupColor(subcategory, category);
@@ -181,19 +200,38 @@ export class PoiService {
 
                 byId.set(fid, {
                     type: 'Feature',
-                    properties: {
-                        id: fid,
-                        title: name,
-                        category,
-                        subcategory,
-                        class: props.class,
-                        subclass,
-                        maki: (props as any).maki,
-                        description: props['addr:street'] ? `${props['addr:street']} ${props['addr:housenumber'] || ''}` : '',
-                        iconKey,
-                        textColor: labelColor,
-                        haloColor
-                    },
+                        properties: {
+                            id: fid,
+                            title: name,
+                            category,
+                            subcategory,
+                            class: props.class,
+                            subclass,
+                            osm_id: props.osm_id,
+                            osm_type: props.osm_type,
+                            maki: (props as any).maki,
+                            description,
+                            address,
+                            website: props.website || props['contact:website'],
+                            phone: props.phone || props['contact:phone'],
+                            opening_hours: props.opening_hours || props['contact:opening_hours'],
+                            wikidata: props.wikidata,
+                            wikipedia: props.wikipedia,
+                            image: props.image,
+                            wikimedia_commons: props.wikimedia_commons,
+                            brand: props.brand,
+                            operator: props.operator,
+                            cuisine: props.cuisine,
+                            'addr:street': props['addr:street'],
+                            'addr:housenumber': props['addr:housenumber'],
+                            'addr:city': props['addr:city'],
+                            'addr:state': props['addr:state'],
+                            'addr:postcode': props['addr:postcode'],
+                            'addr:country': props['addr:country'],
+                            iconKey,
+                            textColor: labelColor,
+                            haloColor
+                        },
                     geometry: {
                         type: 'Point',
                         coordinates: coords

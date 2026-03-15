@@ -124,6 +124,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
             onClick={() => setIsStyleMenuOpen(!isStyleMenuOpen)}
             disabled={status !== AppStatus.IDLE}
             className={styleTriggerClass}
+            data-testid="active-style-trigger"
           >
             <span className="truncate">{activeStyle?.name || 'Select a style'}</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />

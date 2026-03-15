@@ -20,22 +20,33 @@ const resolveIconModeKey = (value: string): keyof typeof ICON_MODE_LABELS => {
 };
 
 const getVisibleModeTrigger = async (page: any) => {
-    const trigger = page.getByTestId('icon-generation-mode-trigger').first();
+    const trigger = page.locator('[data-testid="icon-generation-mode-trigger"]:visible').first();
+
+    const bootstrapShell = page.getByTestId('app-bootstrap-shell');
+    if (await bootstrapShell.count()) {
+        await bootstrapShell.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+            // Keep trying to locate the trigger even if the shell is extremely short-lived.
+        });
+    }
+
     if (await trigger.count()) {
         try {
-            await expect(trigger).toBeVisible({ timeout: 1500 });
+            await expect(trigger).toBeVisible({ timeout: 3000 });
             return trigger;
         } catch (_error) {
             // Keep falling back to section expansion.
         }
     }
 
-    const aiSectionHeader = page.getByText('AI Configuration', { exact: false }).first();
+    const aiSectionHeader = page.getByText('AI Configuration', { exact: true }).first();
     if (await aiSectionHeader.count()) {
-        await aiSectionHeader.click();
+        await aiSectionHeader.scrollIntoViewIfNeeded().catch(() => {
+            // Best effort only.
+        });
+        await aiSectionHeader.click({ force: true });
     }
 
-    await expect(trigger).toBeVisible({ timeout: 5000 });
+    await expect(trigger).toBeVisible({ timeout: 10000 });
     return trigger;
 };
 

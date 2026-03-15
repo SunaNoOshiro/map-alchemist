@@ -1,5 +1,731 @@
 # Implementation Plan
 
+## Phase 18 Plan: First-Load POI Visibility Without Zoom (2026-03-15)
+
+### Goal
+Ensure POIs appear on the initial settled map view right after the map loads, without requiring the user to zoom or otherwise move the camera first.
+
+### User Review Required
+1. Initial POI refresh trigger:
+   - Recommended default: keep the existing immediate POI refresh, but add one more startup refresh tied to the first stable map/style lifecycle event after the selected theme is painted.
+   - This is safer than relying on a single early refresh because the new smooth first-paint flow can resolve before all POI source data is queryable.
+2. Scope boundary:
+   - Keep this phase focused on startup POI visibility only.
+   - Do not change ongoing moveend/zoom refresh behavior unless needed to avoid duplicate work or flicker.
+
+### Proposed Changes
+1. Add a guaranteed post-initial-style POI refresh after first map/style readiness.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - possibly `src/features/map/services/MapLibreAdapter.ts`
+   - Preserve the current eager `PoiService.refreshData(...)` call.
+   - Add a second startup refresh on the first stable post-style event so POIs populate even when the first refresh runs before style/source queries are ready.
+   - Keep existing debounced `moveend` refresh behavior unchanged for subsequent navigation.
+
+2. Add a regression test for “POIs visible without zoom”.
+   - Files:
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - optionally `test/features/map/hooks/useMapLogic.test.ts`
+   - Cover the user path:
+     - open the app,
+     - wait for the map to finish booting,
+     - verify POI features populate without triggering zoom or map movement.
+   - Keep the test independent from popup interaction so it specifically guards initial POI visibility.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "POIs should appear without zooming after load|Switching styles and interacting with map features"`
+3. Manual sanity check:
+   - reload with a saved theme,
+   - wait without touching the map,
+   - confirm POI icons and labels appear on their own.
+
+## Phase 17 Plan: First-Paint Selected Theme + Smooth Map Reveal (2026-03-15)
+
+### Goal
+Remove the remaining visual style-swap on refresh where the map still paints a generic/base style first and only then switches to the saved theme.
+
+### User Review Required
+1. First-paint strategy:
+   - Recommended default: initialize MapLibre with the resolved selected render-style on the very first mount instead of always booting from the shared default base style and then calling `setStyle(...)`.
+   - This is the cleanest fix because it removes the visible style swap instead of trying to mask it afterward.
+2. Visual reveal strategy:
+   - Recommended default: keep a very short, neutral map veil over the canvas until the first intended style is loaded enough to render stably, then fade the veil out.
+   - This is a support layer, not the main fix.
+   - Recommendation: combine “correct first style” + “brief smooth reveal”, rather than relying on hiding the problem behind a long skeleton.
+3. Scope boundary:
+   - Keep map center/zoom persistence and POI behavior unchanged in this phase unless needed to avoid a secondary visual jump.
+   - Focus on style first paint and visual continuity only.
+
+### Proposed Changes
+1. Resolve the intended initial map style before creating the MapLibre instance.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - possibly `src/features/map/services/MapLibreAdapter.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+   - Load the shared base style only as an input for style resolution, not as the style the user actually sees on first paint.
+   - Build the initial renderable style from:
+     - saved/selected `mapStyleJson`,
+     - fallback base style when needed for incomplete styles,
+     - existing numeric/runtime sanitizers.
+   - Pass that resolved style directly into `controller.initialize(...)`.
+   - Avoid immediately calling `setStyle(...)` with the same style on first mount.
+
+2. Distinguish first style mount from later style switches.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+   - Track whether the current style application is:
+     - initial hydration,
+     - later user-driven style switch.
+   - Keep `setStyle(...)` for real style changes after the map already exists, but skip redundant “apply selected style again” work during the initial mount path.
+   - Preserve existing popup cleanup, POI infrastructure, and palette refresh behavior after style changes.
+
+3. Add a smooth reveal for the first correct style pass.
+   - Files:
+     - `src/features/map/components/MapView.tsx`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - possibly `src/shared/layouts/MainLayout.tsx`
+   - Expose a small readiness signal from map logic such as `isInitialVisualReady`.
+   - Keep the map canvas visually muted or covered by a neutral overlay until the first intended style has emitted the necessary load/style events.
+   - Fade that overlay away quickly so the user perceives one continuous reveal instead of a visible style replacement.
+
+4. Extend regression coverage for the refresh-time map style reveal.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add or update unit coverage to assert:
+     - initial map creation uses the resolved selected style,
+     - first mount does not perform an unnecessary immediate `setStyle(...)`,
+     - later style switches still do call `setStyle(...)`.
+   - Strengthen the reload-focused BDD path so it verifies:
+     - the saved theme is active after refresh,
+     - the auth shell does not flash,
+     - the map canvas only becomes visible once the intended theme is ready enough to show.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.test.ts test/App.bootstrap.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Restoring the selected theme cleanly after reload|Switching styles and interacting with map features"`
+3. Manual sanity check:
+   - save/select a non-default theme,
+   - refresh the page,
+   - confirm the map no longer visibly paints the generic style before the selected one,
+   - confirm the first reveal feels like one smooth load instead of a style swap.
+
+## Phase 16 Plan: Softer Popup Loading + Clean Refresh Rehydration (2026-03-14)
+
+### Goal
+Polish two visible UX rough edges:
+1. replace the current popup loading UI with a calmer, cleaner loading state that feels less noisy,
+2. remove the refresh-time flicker where the app briefly shows the start/auth screen or a default theme before the saved theme and POI labels are restored.
+
+### User Review Required
+1. Popup loading treatment:
+   - Recommended default: replace the current animated orbit + shimmer block with a quieter inline loading card built from subtle theme-colored skeleton rows and a compact status line.
+   - Avoid playful or decorative animation here, because it draws too much attention inside an already small popup.
+   - Recommendation: keep motion minimal and optional-looking, more like “content is filling in” than “loading widget”.
+2. Refresh bootstrap behavior:
+   - Recommended default: gate the main app render behind an explicit bootstrap-ready state that waits for:
+     - auth state to initialize,
+     - saved styles to load,
+     - the active style to resolve.
+   - During that short window, show either:
+     - nothing but the app background, or
+     - a neutral shell that matches the persisted app frame.
+   - Recommendation: do not render `AuthScreen` or the default map layout until initialization is complete, so users never see the wrong screen/theme flash first.
+3. Scope boundary:
+   - Keep this phase focused on bootstrap polish and popup loading.
+   - Do not change the actual saved-style selection behavior, map content generation flow, or auth capabilities unless needed to remove the visual flash.
+
+### Proposed Changes
+1. Replace the popup loading UI with a softer, less attention-grabbing placeholder.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Remove the current orbit + progress-bar style loading block.
+   - Introduce a simpler loading section with:
+     - concise copy,
+     - a subtle theme-aware accent,
+     - lightweight skeleton rows sized to the content that is about to appear.
+   - Preserve stable height as much as practical so the popup does not jump dramatically when details arrive.
+   - Update selectors/tests so they assert the new loading structure rather than the old orbit/shimmer markup.
+
+2. Add explicit bootstrap readiness for auth/config initialization.
+   - Files:
+     - `src/features/auth/hooks/useAppAuth.ts`
+     - `src/App.tsx`
+     - `test/features/auth/components/AuthScreen.test.tsx` only if prop or gating expectations change
+   - Add an `isAuthReady` or similarly named state that stays false until:
+     - AI config has been loaded from storage,
+     - host API-key availability check completes.
+   - Prevent `AuthScreen` from rendering while auth initialization is still in flight.
+   - Ensure the app only decides between auth screen and main layout after the auth layer is actually ready.
+
+3. Add explicit bootstrap readiness for style/theme rehydration.
+   - Files:
+     - `src/features/styles/hooks/useStyleManager.ts`
+     - `src/App.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+   - Add an `isStylesReady` or similarly named state that remains false until the saved styles / bundled defaults fallback path fully resolves.
+   - Avoid rendering `MainLayout` with an empty styles array and a transient default theme before the persisted style set is known.
+   - Ensure the active style is resolved once, then rendered once, instead of visually stepping through “default then saved”.
+   - If helpful, use a lightweight app shell during bootstrap that matches the final app chrome so refresh feels continuous instead of reset.
+
+4. Add regression coverage for the new loading and refresh behavior.
+   - Files:
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - `test/features/auth/components/AuthScreen.test.tsx` or a nearby hook test if the readiness logic is extracted
+   - Extend unit coverage to assert:
+     - the old popup loading widget is gone,
+     - the new loading block markup is present and stable,
+     - auth/style readiness guards prevent premature screen selection.
+   - Extend BDD to cover a refresh/bootstrap regression if practical in the current harness:
+     - restore a saved non-default theme,
+     - reload the page,
+     - verify the app does not visibly route through the auth/start screen or render the default style before the saved style appears.
+   - If a fully visual “no flash” assertion is too brittle for BDD, add deterministic guard assertions around the rendered bootstrap state and final selected theme state.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/auth/components/AuthScreen.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Dismissing popup when zooming the map"`
+3. Manual sanity check:
+   - open a POI popup and confirm the new loading state feels quieter and cleaner,
+   - refresh on a saved custom or bundled non-default theme,
+   - verify the app does not flash the auth/start screen,
+   - verify it does not briefly render the default theme before the saved theme and POI labels appear.
+
+## Phase 15 Plan: Keep Popups Fully Visible + Theme-Aware Loading Motion + Button Layout Refresh (2026-03-14)
+
+### Goal
+Improve popup usability in four connected ways:
+1. prevent newly opened POI popups from rendering partially outside the visible map viewport,
+2. make the loading state feel intentional and theme-aware instead of static text,
+3. revisit action-button sizing/layout so the popup reads cleaner across different content combinations and viewport sizes,
+4. improve popup photo presentation so image resolution, framing, and height feel more appropriate for both the available source image and the selected POI category.
+
+### User Review Required
+1. Popup visibility behavior:
+   - Recommended default: keep the popup open, but auto-pan the map just enough after render so the full popup frame fits inside the visible map canvas with a small safe margin.
+   - Alternative: dynamically shrink the popup more aggressively near edges, but that tends to hurt readability and still fails for tall content.
+   - Recommendation: prefer auto-pan/re-anchor over extra shrinking.
+2. Theme-aware loading animation style:
+   - Recommended default: use lightweight CSS-only motion derived from the active popup theme colors (for example shimmer / pulsing accent border / animated dots), not category-specific artwork or heavy animated assets.
+   - This keeps the effect consistent with every map theme while staying fast and easy to test.
+3. Button sizing/layout:
+   - Recommended default: slightly reduce button height, keep a responsive 2-column grid when space allows, and collapse to 1 column only when the popup width is genuinely constrained.
+   - Keep the Remix action visually distinct but not oversized relative to the link buttons.
+4. Photo treatment:
+   - Recommended default: make photo rendering category-aware and source-aware.
+   - Example direction:
+     - monuments / landmarks / parks / viewpoints can use a wider scenic crop,
+     - cafes / bars / shops / services should use a shorter hero area so actions and facts stay visible,
+     - low-resolution images should render smaller instead of being stretched into a blurry hero banner.
+   - Recommendation: adapt display size from both the POI category and the chosen image candidate's intrinsic resolution.
+
+### Proposed Changes
+1. Keep popups within the visible map viewport after open and after async content expansion.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - possibly `test/features/map/hooks/useMapLogic.test.ts` if a pure helper is extracted
+   - After the popup is rendered and after async details/photo fallbacks mutate its size, measure the popup frame relative to the actual map container.
+   - If the popup would be clipped by the top, left, right, or bottom edge, pan the map by the minimum required delta so the popup becomes fully visible.
+   - Harden the viewport-fit path so it only measures the currently active popup element from the adapter, not any stale MapLibre popup nodes that may still linger in the DOM after re-render.
+   - Treat popup-triggered `panBy` as an internal camera adjustment and suppress the corresponding `moveend` POI refresh so opening a popup does not feel like a map reload.
+   - Re-run that visibility correction after:
+     - the initial loading popup render,
+     - enriched details render,
+     - photo fallback swaps that can change popup height.
+   - Keep the existing zoom-dismiss behavior intact.
+
+2. Add theme-aware loading animation states to the popup.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - possibly `docs/features/poi-details-popup.md`
+   - Replace the current plain loading block with a lightweight animated treatment using inline/CSS-safe primitives already compatible with exported popup markup.
+   - Drive the animation appearance from the current popup theme colors so it harmonizes with bright, muted, dark, or novelty themes.
+   - Ensure loading remains readable and does not create layout jumps when replaced by details.
+
+3. Refresh popup action button sizing and responsiveness.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Rebalance button padding, min-heights, and grid widths so:
+     - buttons do not dominate the popup,
+     - labels fit more gracefully,
+     - the Remix button feels related but secondary to the navigation links.
+   - Verify the layout still works with:
+     - 2 links,
+     - 3 links,
+     - 4 links,
+     - loading/error states.
+
+4. Revisit popup photo resolution and framing by category and source quality.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/types.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Derive a small media-presentation strategy from:
+     - POI category,
+     - popup width / viewport constraints,
+     - image candidate intrinsic width/height when available,
+     - image source confidence / thumbnail size.
+   - Use that strategy to choose:
+     - hero height / aspect ratio,
+     - object-fit or object-position behavior,
+     - whether a low-resolution image should render in a more compact frame.
+   - Keep the behavior deterministic so test coverage stays practical.
+
+5. Add regression coverage for viewport-fit, loading/button UI, and image presentation.
+   - Files:
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+   - Extend BDD to cover:
+     - opening a popup near an edge and verifying it remains fully visible within the map viewport,
+     - the presence of animated loading UI before enriched details arrive,
+     - updated button sizing/layout expectations,
+     - photo frame behavior for at least one scenic category and one business-like category.
+   - Extend unit tests to assert:
+     - loading markup contains the new animation hooks,
+     - button grid markup and sizing constraints remain stable,
+     - optional sections do not break the revised layout,
+     - category-aware image sizing decisions stay stable for low-res vs high-res candidates.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Dismissing popup when zooming the map"`
+3. Manual sanity check:
+   - open a popup near the top edge of the map,
+   - confirm the map auto-pans so the popup is fully visible,
+   - confirm the loading state animates in a theme-consistent way,
+   - verify action buttons look balanced in both 2-link and 4-link cases,
+   - verify a scenic POI and a business-like POI produce appropriately different photo treatments,
+   - verify low-resolution photos are not stretched into oversized hero banners.
+
+## Phase 14 Plan: Dismiss or Reanchor Popup on Zoom + BDD Regression Coverage (2026-03-14)
+
+### Goal
+Fix the popup behavior when the map viewport changes after a POI has been opened, so the popup does not remain stranded in an incorrect visual position during zoom interactions.
+
+### User Review Required
+1. Desired UX on zoom:
+   - Preferred default: close the popup on zoom start / significant camera change, because the selected POI context becomes visually ambiguous once the viewport shifts dramatically.
+   - Alternative: keep the popup but explicitly re-anchor and revalidate the selected feature on every zoom/move change.
+2. Scope recommendation:
+   - Implement the simpler, more reliable behavior first: dismiss the popup when the user zooms the map.
+   - Add a BDD regression so this never comes back unnoticed.
+3. No product copy changes are needed in this phase unless we discover a need for a small hint or animation.
+
+### Proposed Changes
+1. Update map popup lifecycle logic for camera changes.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Review the popup binding and current MapLibre popup lifecycle.
+   - Listen for zoom-driven camera changes such as `zoomstart`, `movestart`, or a similarly appropriate event.
+   - Close the active popup when the viewport starts changing in a way that invalidates its current on-screen anchor.
+   - Ensure cleanup removes listeners correctly so we do not leak handlers across map re-renders or style switches.
+
+2. Preserve normal popup behavior outside zoom interactions.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - possibly `src/features/map/services/PopupGenerator.ts` only if a tiny integration hook is needed
+   - Confirm the popup still:
+     - opens on POI click,
+     - loads async details,
+     - closes from the explicit close button,
+     - survives unrelated operations that should not dismiss it.
+
+3. Add BDD coverage for the zoom regression.
+   - Files:
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Extend the existing popup scenario with:
+     - opening a popup,
+     - zooming the map,
+     - asserting the popup is dismissed or no longer visible.
+   - Prefer reusing the existing map-interaction helpers rather than introducing duplicate step logic.
+
+4. Add targeted logic/unit coverage if the implementation extracts a reusable helper.
+   - Files:
+     - `test/features/map/services/*.test.ts` only if a pure helper is introduced
+   - If the fix remains entirely event-driven inside the hook, BDD coverage is the main regression guard.
+
+### Verification Plan
+1. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+2. `npm test -- --run test/features/map/services/PoiDetailsService.test.ts test/features/map/services/PopupGenerator.test.ts`
+3. Manual sanity check:
+   - open a POI popup,
+   - zoom the map,
+   - verify the popup no longer hangs in the old screen position.
+
+## Phase 13 Plan: Pinned Google Exact Location + Nearby Commons Photo Discovery (2026-03-14)
+
+### Goal
+Reduce two remaining UX gaps in POI popups:
+1. make `Open Exact Location` reliably open a pinned Google Maps coordinate instead of a bare map viewport with no obvious target,
+2. increase free photo coverage again by searching geotagged Wikimedia Commons files near the POI, not only Wikipedia article thumbnails.
+
+### User Review Required
+1. Exact-location semantics:
+   - Replace the current Google `map_action=map` URL with a coordinate-search URL so Google opens a pinned result for the exact latitude/longitude.
+   - Keep the existing `Search in Google Maps` button for place-card discovery by name/address.
+2. Photo confidence strategy:
+   - Add nearby Wikimedia Commons geotagged image discovery as a last-resort fallback after direct OSM/Wikidata/Wikipedia-linked images.
+   - Prefer conservative matching so we do not show a random nearby streetscape unless it is strongly tied to the POI by title or immediate proximity.
+3. Scope boundary:
+   - Keep this phase zero-key and browser-safe.
+   - Do not introduce Google APIs, Foursquare, Yelp, or any token-based media provider in this pass.
+
+### Proposed Changes
+1. Improve the Google exact-location URL.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/types.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Replace the current exact-location deeplink with a Google search URL that uses only `lat,lng`.
+   - Keep the button label explicit, but make the destination behave more like a pinned target and less like an unannotated map.
+   - Adjust tests so `Search in Google Maps` and `Open Exact Location` assert different query semantics.
+
+2. Add nearby Wikimedia Commons geotagged file discovery.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/types.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+   - When no direct or article-linked image exists, query Wikimedia Commons near the POI coordinates for geotagged file pages.
+   - Resolve candidate thumbnails through the Commons API and score them by:
+     - file title similarity to POI name,
+     - distance from POI,
+     - optional business/category hints where safe.
+   - Only promote nearby Commons images when confidence clears a conservative threshold.
+
+3. Improve photo fallback ordering and attribution.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - `docs/features/poi-details-popup.md`
+   - Insert Commons geotagged candidates after direct/linked sources but before giving up on photos.
+   - Preserve attribution to the exact Commons file page when a nearby file is selected.
+   - Document that business-photo coverage is still limited by open-data availability even after this added fallback.
+
+4. Expand verification for the new fallback layer.
+   - Files:
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add unit coverage for:
+     - exact-location link using coordinate search semantics,
+     - nearby Commons candidate acceptance and rejection,
+     - fallback ordering when Wikimedia Commons geotagged files beat “no photo”.
+   - Add BDD assertions for:
+     - Google exact-location href behavior,
+     - continued Google search behavior,
+     - popup photo rendering from a Commons geotagged fallback.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiDetailsService.test.ts test/features/map/services/PopupGenerator.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+3. `npm run build`
+
+## Phase 12 Plan: Honest Google UX + Zero-Key Nearby Wiki Photo Discovery (2026-03-14)
+
+### Goal
+Address the two remaining usability gaps in POI popups:
+1. make the Google fallback honest and less misleading when we cannot guarantee a specific Google place card without a Google Place ID,
+2. increase free photo coverage for POIs by discovering nearby Wikimedia/Wikipedia article images using coordinates, without introducing Google APIs or any new third-party token requirement.
+
+### User Review Required
+1. Google fallback semantics:
+   - Replace the current implication of "open exact details in Google" with two explicit actions:
+     - `Search in Google Maps` for best-effort place lookup,
+     - `Open exact location` for a guaranteed map point by coordinates.
+   - This is more truthful than pretending the current search URL targets a definitive place card.
+2. Photo confidence strategy:
+   - Use nearby Wikipedia article discovery only when the article is geographically close and name/category similarity is reasonable.
+   - Prefer no photo over a clearly unrelated photo.
+3. Scope boundary:
+   - Keep this phase zero-key.
+   - Do not add Mapillary or other token-backed providers in this pass.
+
+### Proposed Changes
+1. Split Google fallback into two explicit intents.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/types.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Keep the current Google search URL, but relabel it to `Search in Google Maps`.
+   - Add a separate exact-point URL using Google Maps `map_action=map` with `center=lat,lng` and zoom.
+   - Render the two actions distinctly so users understand:
+     - one is search-based and may land on partial matches,
+     - one is coordinate-accurate but may not show a business details card.
+
+2. Add zero-key nearby Wikipedia image discovery.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+   - When direct POI-linked photos are missing, call Wikipedia `geosearch` around the POI coordinates.
+   - For the top nearby pages, resolve page thumbnails via `PageImages`.
+   - Score candidates using:
+     - distance from POI,
+     - title similarity to POI name,
+     - category/class hints (for example, monuments/parks/schools are better candidates than random nearby neighborhoods).
+   - Only promote a nearby article photo when the confidence clears a conservative threshold.
+
+3. Improve UI wording and fallback prioritization.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `docs/features/poi-details-popup.md`
+   - Update action labels to reduce false expectations.
+   - Keep photo attribution aligned with whichever nearby wiki/commons candidate is selected.
+   - Document that broad image coverage for commercial POIs remains structurally limited in open data.
+
+4. Expand coverage for the new behavior.
+   - Files:
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add unit coverage for:
+     - Google search URL vs exact-location URL,
+     - nearby geosearch promotion when title/distance are a good match,
+     - nearby geosearch rejection when the article is too generic or too far away.
+   - Add BDD assertions for:
+     - `Search in Google Maps`,
+     - `Open exact location`,
+     - popup photo appearing from nearby wiki discovery when direct POI photos are absent.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiDetailsService.test.ts test/features/map/services/PopupGenerator.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+3. `npm run build`
+
+## Phase 11 Plan: Best-Effort Free Photo Enrichment + More Precise Google Fallback (2026-03-14)
+
+### Goal
+Maximize relevant POI photos using only free/open sources, eliminate broken-image popup states, and make the Google fallback open the most specific place view possible without relying on Google Places API or paid Google place IDs.
+
+### User Review Required
+1. Photo sourcing strategy:
+   - Prioritize POI-linked factual sources first (`image`, `wikimedia_commons`, `wikidata`, `wikipedia` thumbnails, `mapillary`) before any generic search-style imagery source.
+   - Avoid speculative stock-photo search by default if it cannot be tied to the exact POI with high confidence.
+2. Google fallback strategy:
+   - Keep Google as a best-effort fallback only.
+   - Prefer a more specific query built from exact address and coordinates, but do not introduce any Google API dependency or key.
+3. Popup behavior:
+   - Hide failed images and transparently fall back to the next candidate image instead of rendering a broken image frame.
+
+### Proposed Changes
+1. Expand POI photo candidate pipeline with ranked free sources.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/types.ts`
+   - Replace the single `photoUrl` approach with a ranked list of photo candidates and a resolved primary image.
+   - Add candidate extraction in this order:
+     - direct `image` URL from OSM tags,
+     - Wikimedia Commons file from `wikimedia_commons`,
+     - Wikipedia summary thumbnail,
+     - Wikidata `P18` image,
+     - OSM `mapillary` / `contact:mapillary` identifiers when present,
+     - optional nearby Mapillary imagery fallback by coordinates if a POI-specific image is still missing.
+   - Normalize attribution/source metadata per candidate so the UI can credit the selected image correctly.
+
+2. Make Wikimedia image resolution more robust.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+   - Stop relying only on raw Commons `Special:FilePath`.
+   - Resolve Commons images through a thumbnail-friendly API path when possible, preserving a stable file-page attribution link.
+   - Validate and sanitize candidate URLs so obviously broken or unsupported URLs are skipped before rendering.
+
+3. Improve popup image resilience and presentation.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Render the best current photo candidate only if it is valid.
+   - Add runtime fallback behavior so a failed image load automatically swaps to the next candidate or removes the image block.
+   - Keep the popup compact while ensuring attribution still maps to the active image source.
+
+4. Tighten Google Maps fallback links without using Google APIs.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Build a more precise details-search URL from:
+     - POI title,
+     - normalized street address,
+     - exact coordinates appended to the query,
+     - consistent UTM markers for debugging.
+   - Add a second exact-location fallback URL when search confidence is low, so users can still land on the precise map point.
+   - Keep the existing button label user-friendly while ensuring tests verify the richer URL structure.
+
+5. Add coverage for photo-source combinations and failure handling.
+   - Files:
+     - `test/features/map/services/PoiDetailsService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add unit cases for:
+     - Wikimedia candidate selection,
+     - Wikipedia thumbnail fallback,
+     - Wikidata image fallback,
+     - Mapillary-linked image fallback,
+     - broken-primary-image to next-candidate behavior,
+     - no-valid-image behavior.
+   - Extend BDD with representative states:
+     - POI with valid wiki photo,
+     - POI with broken primary photo and successful fallback,
+     - POI with no photo but valid external links,
+     - Google link built from normalized address plus coordinates.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiDetailsService.test.ts test/features/map/services/PopupGenerator.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+3. `npm run build`
+
+## Phase 10 Plan: Compact Popup Layout + Exhaustive Field-Combination Coverage (2026-03-14)
+
+### Goal
+Reduce POI popup footprint so long summaries/photos do not overwhelm the map, while adding strong automated coverage for popup field presence/absence combinations and the resulting rendered layout.
+
+### User Review Required
+1. Compactness strategy:
+   - Prefer a bounded popup width with tighter spacing, summary truncation, and a capped photo height instead of allowing the card to grow with content.
+2. Coverage strategy:
+   - Cover all optional field combinations at the renderer/model level with generated matrix tests, and keep end-to-end visual checks focused on representative compact/expanded states.
+
+### Proposed Changes
+1. Compact popup layout rules.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+   - Constrain popup width to a mobile/desktop-friendly maximum.
+   - Reduce spacing and image footprint.
+   - Clamp long summary content to a small number of lines by default.
+   - Limit photo height and avoid oversized action rows.
+   - Preserve accessibility and link behavior.
+
+2. Extract popup section/view derivation for exhaustive testing.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - Add a small pure helper that derives which popup sections should render from feature/details inputs.
+   - Use generated tests to verify all presence/absence combinations of optional sections:
+     - summary,
+     - photo,
+     - address,
+     - hours,
+     - cuisine,
+     - brand,
+     - operator,
+     - phone,
+     - website,
+     - Wikipedia link,
+     - OSM link,
+     - loading state,
+     - error state.
+   - Assert both section visibility and key compact-layout markers in rendered HTML.
+
+3. Add representative UI/BDD coverage for view states.
+   - Files:
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add mocked popup states for:
+     - minimal factual popup,
+     - photo + summary popup,
+     - loading state,
+     - error/fallback state.
+   - Add explicit BDD assertions for external action links:
+     - `Open in Google Maps`,
+     - `OpenStreetMap`,
+     - `Wikipedia` when available,
+     - absence of `Wikipedia` when no wiki source exists.
+   - Verify popup remains compact enough and only shows controls/rows relevant to the current state.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/map/services/PoiDetailsService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Map Style Interaction"`
+3. `npm run build`
+
+## Phase 9 Plan: Free POI Details Enrichment + Google Fallback (2026-03-14)
+
+### Goal
+Enrich POI popups with as much free factual metadata as possible from OpenStreetMap-related sources, plus optional Wikimedia imagery/encyclopedic context, while providing a reliable Google Maps fallback link for ratings, reviews, and richer photo galleries that are not available in open data.
+
+### User Review Required
+1. Public API usage:
+   - Use public Nominatim lookups only on explicit popup open, with in-memory caching and request throttling, so we stay within low-volume usage expectations.
+2. Data expectations:
+   - Ratings/reviews will not be shown inline unless a free factual source exists for a given POI; the popup will instead expose a clear `Open in Google Maps` action for those details.
+3. Popup behavior:
+   - Show the current lightweight popup immediately, then progressively hydrate it with fetched details and photos when available.
+
+### Proposed Changes
+1. Add a POI details enrichment service and free-source adapters.
+   - Files:
+     - `src/features/map/services/PoiDetailsService.ts` (new)
+     - `src/features/map/services/PoiService.ts`
+     - `src/types.ts`
+   - Preserve more source identity in `places` features (`osm_id`, `osm_type`, class/subclass, address fragments, contact tags when present).
+   - Add a details service that:
+     - prefers Nominatim `lookup` when `osm_id/osm_type` is available,
+     - falls back to reverse/details by coordinates when identity is incomplete,
+     - requests `addressdetails`, `namedetails`, and `extratags`,
+     - extracts website, phone, opening hours, Wikipedia/Wikidata/image hints,
+     - builds a normalized popup-details model,
+     - caches results per POI and throttles Nominatim requests.
+   - Add free image enrichment from Wikimedia when `image`, `wikimedia_commons`, or `wikidata` references are available.
+
+2. Upgrade popup rendering to support progressive details and external links.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Render richer popup sections for:
+     - formatted address,
+     - phone / website / opening hours,
+     - factual source links (OSM / Wikipedia when available),
+     - photo preview when a free image is available,
+     - loading / unavailable states for async enrichment.
+   - Re-render the active popup after enrichment completes without breaking close/remix behavior.
+   - Add a robust Google Maps deep-link builder that tries the most specific query possible from the POI name, address, and coordinates.
+
+3. Cover behavior with focused tests and documentation.
+   - Files:
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - `docs/features/poi-details-popup.md` (new)
+   - Add unit coverage for normalized details extraction, popup rendering with enriched metadata, and Google fallback link generation.
+   - Extend popup BDD expectations so the UI verifies enriched details blocks/links in a mocked scenario.
+   - Document the feature, free-data limitations, and fallback behavior.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Map popup functionality"`
+3. `npm run build`
+
 ## Phase 8 Plan: Full Provider BDD Matrix for Icon Modes (2026-02-28)
 
 ### Goal

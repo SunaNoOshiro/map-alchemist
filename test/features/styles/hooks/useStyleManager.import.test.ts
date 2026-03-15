@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractImportableStyles, mergeImportedStyles } from '@/features/styles/hooks/useStyleManager';
+import { extractImportableStyles, mergeImportedStyles, resolveInitialActiveStyleId } from '@/features/styles/hooks/useStyleManager';
 import { MapStylePreset } from '@/types';
 
 const createStyle = (id: string, name = `Style ${id}`): MapStylePreset => ({
@@ -45,5 +45,16 @@ describe('useStyleManager import helpers', () => {
     expect(merged.mergedStyles.map((style) => style.id)).toEqual(['a', 'b', 'c', 'd']);
     expect(merged.importedCount).toBe(2);
     expect(merged.skippedCount).toBe(1);
+  });
+
+  it('restores the preferred active style when it still exists', () => {
+    const styles = [createStyle('a'), createStyle('b'), createStyle('c')];
+    expect(resolveInitialActiveStyleId(styles, 'b')).toBe('b');
+  });
+
+  it('falls back to the first style when the preferred active style is missing', () => {
+    const styles = [createStyle('a'), createStyle('b')];
+    expect(resolveInitialActiveStyleId(styles, 'missing-style')).toBe('a');
+    expect(resolveInitialActiveStyleId([], 'missing-style')).toBeNull();
   });
 });

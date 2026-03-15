@@ -108,9 +108,18 @@ export class MapLibreAdapter implements IMapController {
         this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
         this.map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
 
-        this.map.on('load', () => {
+        let didNotifyReady = false;
+        const notifyReady = () => {
+            if (didNotifyReady) return;
+            didNotifyReady = true;
             if (onLoad) onLoad();
-        });
+        };
+
+        // `load` can lag behind the first correct style paint for remote styles.
+        // `styledata` lets the app reveal the selected theme sooner while `load`
+        // still acts as a safety net if the style pipeline behaves differently.
+        this.map.once('styledata', notifyReady);
+        this.map.once('load', notifyReady);
 
         // Fallback image handler
         this.map.on('styleimagemissing', (e) => {
@@ -198,6 +207,10 @@ export class MapLibreAdapter implements IMapController {
             this.popup.remove();
             this.popup = null;
         }
+    }
+
+    getPopupElement(): HTMLElement | null {
+        return this.popup?.getElement() || null;
     }
 
     on(event: string, callback: MapEventHandler, layerId?: string): void {

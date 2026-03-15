@@ -11,6 +11,7 @@ import { buildEmbedSnippet, buildRuntimeUrlFromStyleUrl } from '@features/styles
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('StyleManagerHook');
+const ACTIVE_STYLE_STORAGE_KEY = 'mapAlchemistActiveStyleId';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,11 +65,23 @@ export const mergeImportedStyles = (
     };
 };
 
+export const resolveInitialActiveStyleId = (
+    availableStyles: MapStylePreset[],
+    preferredStyleId: string | null | undefined
+): string | null => {
+    if (availableStyles.length === 0) return null;
+    if (preferredStyleId && availableStyles.some((style) => style.id === preferredStyleId)) {
+        return preferredStyleId;
+    }
+    return availableStyles[0].id;
+};
+
 export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [styles, setStyles] = useState<MapStylePreset[]>([]);
     const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
     const [defaultThemes, setDefaultThemes] = useState<MapStylePreset[]>([DEFAULT_STYLE_PRESET]);
     const [defaultThemeIds, setDefaultThemeIds] = useState<string[]>([DEFAULT_STYLE_PRESET.id]);
+    const [isStylesReady, setIsStylesReady] = useState<boolean>(false);
     const [maputnikPublishStage, setMaputnikPublishStage] = useState<'idle' | 'pre' | 'publishing' | 'done' | 'error'>('idle');
     const [maputnikPublishInfo, setMaputnikPublishInfo] = useState<{
         styleUrl: string;
@@ -81,47 +94,72 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
 
     // Load Data
     useEffect(() => {
-        const loadData = async () => {
-            const savedStyles = await storageService.getStyles();
-            if (savedStyles && savedStyles.length > 0) {
-                setStyles(savedStyles);
-                setActiveStyleId(savedStyles[0].id);
+        let cancelled = false;
 
-                const bundled = savedStyles.filter(s => s.isBundledDefault);
-                if (bundled.length > 0) {
-                    setDefaultThemes(bundled);
-                    setDefaultThemeIds(bundled.map(s => s.id));
+        const loadData = async () => {
+            try {
+                const preferredStyleId =
+                    typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_STYLE_STORAGE_KEY) : null;
+                const savedStyles = await storageService.getStyles();
+                if (cancelled) return;
+
+                if (savedStyles && savedStyles.length > 0) {
+                    setStyles(savedStyles);
+                    setActiveStyleId(resolveInitialActiveStyleId(savedStyles, preferredStyleId));
+
+                    const bundled = savedStyles.filter(s => s.isBundledDefault);
+                    if (bundled.length > 0) {
+                        setDefaultThemes(bundled);
+                        setDefaultThemeIds(bundled.map(s => s.id));
+                    }
+
+                    addLog("Loaded existing styles.", "info");
+                    return;
                 }
 
-                addLog("Loaded existing styles.", "info");
-                return;
-            }
+                const { themes, defaultIds } = await fetchDefaultThemes();
+                if (cancelled) return;
 
-            const { themes, defaultIds } = await fetchDefaultThemes();
-            if (themes.length > 0) {
-                setStyles(themes);
-                setActiveStyleId(themes[0].id);
-                setDefaultThemes(themes);
-                setDefaultThemeIds(defaultIds);
-                addLog("Bundled default themes loaded.", "info");
-                return;
-            }
+                if (themes.length > 0) {
+                    setStyles(themes);
+                    setActiveStyleId(resolveInitialActiveStyleId(themes, preferredStyleId));
+                    setDefaultThemes(themes);
+                    setDefaultThemeIds(defaultIds);
+                    addLog("Bundled default themes loaded.", "info");
+                    return;
+                }
 
-            setStyles([DEFAULT_STYLE_PRESET]);
-            setActiveStyleId(DEFAULT_STYLE_PRESET.id);
-            setDefaultThemes([DEFAULT_STYLE_PRESET]);
-            setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
-            addLog("Standard theme loaded.", "info");
+                setStyles([DEFAULT_STYLE_PRESET]);
+                setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+                setDefaultThemes([DEFAULT_STYLE_PRESET]);
+                setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
+                addLog("Standard theme loaded.", "info");
+            } finally {
+                if (!cancelled) {
+                    setIsStylesReady(true);
+                }
+            }
         };
         loadData();
-    }, []);
+        return () => {
+            cancelled = true;
+        };
+    }, [addLog]);
 
     // Save Data
     useEffect(() => {
-        if (styles.length > 0) {
+        if (isStylesReady && styles.length > 0) {
             storageService.saveStyles(styles);
         }
-    }, [styles]);
+    }, [isStylesReady, styles]);
+
+    useEffect(() => {
+        if (!isStylesReady || !activeStyleId || typeof window === 'undefined') {
+            return;
+        }
+
+        localStorage.setItem(ACTIVE_STYLE_STORAGE_KEY, activeStyleId);
+    }, [activeStyleId, isStylesReady]);
 
     const handleExport = () => {
         const customStyles = styles.filter(s => !defaultThemeIds.includes(s.id));
@@ -486,6 +524,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         setStyles,
         activeStyleId,
         setActiveStyleId,
+        isStylesReady,
         defaultThemeIds,
         maputnikPublishStage,
         maputnikPublishInfo,

@@ -14,9 +14,29 @@ const VALID_ICON_KEYS = Array.from(
         MAP_CATEGORIES.map((category) => normalizeCategoryKey(category))
     )
 );
+let lastClickedPoiTitle: string | null = null;
+let rememberedMapView: { lng: number; lat: number; zoom: number } | null = null;
+
+async function waitForGuestOrMap(page: Page): Promise<'guest' | 'map'> {
+    await expect.poll(async () => {
+        const guestVisible = await page.getByRole('button', { name: /Continue as Guest/i }).isVisible().catch(() => false);
+        if (guestVisible) return 'guest';
+
+        const mapVisible = await page.locator('.maplibregl-canvas').isVisible().catch(() => false);
+        if (mapVisible) return 'map';
+
+        return 'boot';
+    }, {
+        timeout: 30000,
+        message: 'Application did not finish bootstrapping into either auth screen or map view.'
+    }).not.toBe('boot');
+
+    const guestVisible = await page.getByRole('button', { name: /Continue as Guest/i }).isVisible().catch(() => false);
+    return guestVisible ? 'guest' : 'map';
+}
 
 // Helper: Find and click a visible POI with a likely icon (copied from original spec)
-async function clickVisiblePOI(page: Page) {
+async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 'default') {
     console.log('[E2E] Waiting for POI features to be available in source...');
     // Ensure we are at street level zoom where POIs are rendered
     await page.evaluate(() => {
@@ -54,10 +74,10 @@ async function clickVisiblePOI(page: Page) {
         timeout: 30000
     }).toBeTruthy();
 
-    let points: Array<{ x: number; y: number }> | null = null;
+    let points: Array<{ x: number; y: number; title: string }> | null = null;
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        points = await page.evaluate((validIconKeys) => {
+        points = await page.evaluate(({ validIconKeys, pointPreference }) => {
             const map = (window as any).__map;
             if (!map) return null;
             const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
@@ -106,7 +126,19 @@ async function clickVisiblePOI(page: Page) {
                 return [];
             }
 
-            return visibleFeatures.slice(0, 5).map((feature: any) => {
+            const rankedVisibleFeatures = [...visibleFeatures].sort((left: any, right: any) => {
+                const leftPixel = map.project(left.geometry.coordinates);
+                const rightPixel = map.project(right.geometry.coordinates);
+                if (pointPreference === 'top-edge') {
+                    if (leftPixel.y !== rightPixel.y) return leftPixel.y - rightPixel.y;
+                    return Math.abs(leftPixel.x - width / 2) - Math.abs(rightPixel.x - width / 2);
+                }
+                const leftCenterDistance = Math.abs(leftPixel.x - width / 2) + Math.abs(leftPixel.y - height / 2);
+                const rightCenterDistance = Math.abs(rightPixel.x - width / 2) + Math.abs(rightPixel.y - height / 2);
+                return leftCenterDistance - rightCenterDistance;
+            });
+
+            return rankedVisibleFeatures.slice(0, 5).map((feature: any) => {
                 const pixel = map.project(feature.geometry.coordinates);
                 const candidates = [
                     { x: pixel.x, y: pixel.y },
@@ -120,13 +152,19 @@ async function clickVisiblePOI(page: Page) {
                     if (!inBounds(candidate)) continue;
                     const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: ['unclustered-point'] });
                     if (hits && hits.length > 0) {
-                        return candidate;
+                        return {
+                            ...candidate,
+                            title: String(feature.properties?.title || '')
+                        };
                     }
                 }
 
-                return candidates.find(inBounds) || candidates[0];
+                return {
+                    ...(candidates.find(inBounds) || candidates[0]),
+                    title: String(feature.properties?.title || '')
+                };
             });
-        }, VALID_ICON_KEYS);
+        }, { validIconKeys: VALID_ICON_KEYS, pointPreference: preference });
 
         if (points && points.length > 0) break;
         await page.waitForTimeout(1000);
@@ -139,6 +177,7 @@ async function clickVisiblePOI(page: Page) {
     const popup = page.locator('.maplibregl-popup-content');
 
     for (const point of points) {
+        lastClickedPoiTitle = point.title || null;
         const triggeredViaMapEvent = await page.evaluate((candidate) => {
             const map = (window as any).__map;
             if (!map) return false;
@@ -183,6 +222,8 @@ async function clickVisiblePOI(page: Page) {
 }
 
 Given('I am on the home page', async ({ page }) => {
+    lastClickedPoiTitle = null;
+    rememberedMapView = null;
     const errors: string[] = [];
 
     // Capture console logs and collect errors to fail the test later
@@ -221,21 +262,156 @@ Given('I am on the home page', async ({ page }) => {
 
     await page.goto('/');
 
+    const landingState = await waitForGuestOrMap(page);
+
     // Check if any errors occurred during load
     if (errors.length > 0) {
         throw new Error(`Test failed due to browser errors:\n${errors.join('\n')}`);
     }
 
     // New: Explicitly check that the app reports themes are loaded
-    // Only if NOT on Auth Screen (Guest button visible)
-    const guestBtn = page.getByRole('button', { name: /Continue as Guest/i });
-    if (!(await guestBtn.isVisible())) {
+    if (landingState === 'map') {
         const logConsole = page.locator('body');
         // Large JSON files might take time to parse on some systems, increase timeout to 30s
         await expect(logConsole, 'Application log did not show bundled themes as loaded.').toContainText(/Bundled default themes loaded|Loaded existing styles|Standard theme loaded/, {
             timeout: 30000
         });
     }
+});
+
+Given('external POI detail APIs are mocked', async ({ page }) => {
+    const delayedFulfill = async (route: any, payload: unknown, contentType = 'application/json') => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await route.fulfill({
+            status: 200,
+            contentType,
+            body: contentType.startsWith('image/')
+                ? payload as Buffer
+                : JSON.stringify(payload)
+        });
+    };
+
+    await page.route('https://nominatim.openstreetmap.org/**', async (route) => {
+        const url = route.request().url();
+        const payload = url.includes('/lookup?')
+            ? [{
+                osm_id: 42,
+                osm_type: 'node',
+                display_name: 'Cafe Aurora, 123 Market St, San Francisco, California, 94103, United States',
+                address: {
+                    house_number: '123',
+                    road: 'Market St',
+                    city: 'San Francisco',
+                    state: 'California',
+                    postcode: '94103',
+                    country: 'United States'
+                },
+                extratags: {
+                    website: 'https://aurora.example',
+                    phone: '+1 415 555 0100',
+                    opening_hours: 'Mo-Su 07:00-20:00',
+                    image: 'https://images.example.com/broken-cafe-aurora.jpg',
+                    wikipedia: 'en:Cafe_Aurora'
+                }
+            }]
+            : {
+                display_name: 'Cafe Aurora, 123 Market St, San Francisco, California, 94103, United States',
+                address: {
+                    house_number: '123',
+                    road: 'Market St',
+                    city: 'San Francisco',
+                    state: 'California',
+                    postcode: '94103',
+                    country: 'United States'
+                },
+                extratags: {
+                    website: 'https://aurora.example',
+                    phone: '+1 415 555 0100',
+                    opening_hours: 'Mo-Su 07:00-20:00',
+                    image: 'https://images.example.com/broken-cafe-aurora.jpg',
+                    wikipedia: 'en:Cafe_Aurora'
+                }
+            };
+
+        await delayedFulfill(route, payload);
+    });
+
+    await page.route('https://en.wikipedia.org/api/rest_v1/page/summary/**', async (route) => {
+        await delayedFulfill(route, {
+            extract: 'Cafe Aurora is a historic cafe with an all-day menu, community events, seasonal drinks, long-running neighborhood traditions, and a beloved corner patio that attracts visitors throughout the day.'
+        });
+    });
+
+    await page.route('https://en.wikipedia.org/w/api.php**', async (route) => {
+        const url = route.request().url();
+        const payload = url.includes('list=geosearch')
+            ? {
+                query: {
+                    geosearch: []
+                }
+            }
+            : {
+                query: {
+                    pages: [
+                        {
+                            title: 'Cafe Aurora'
+                        }
+                    ]
+                }
+            };
+
+        await delayedFulfill(route, payload);
+    });
+
+    await page.route('https://commons.wikimedia.org/w/api.php**', async (route) => {
+        const url = route.request().url();
+        const matchedTitle = (lastClickedPoiTitle || 'Cafe Aurora').replace(/[_]+/g, ' ').trim();
+        const fileTitle = `File:${matchedTitle} San Francisco.jpg`;
+        const payload = url.includes('list=geosearch')
+            ? {
+                query: {
+                    geosearch: [
+                        {
+                            pageid: 201,
+                            title: fileTitle,
+                            dist: 18
+                        }
+                    ]
+                }
+            }
+            : {
+                query: {
+                    pages: [
+                        {
+                            title: fileTitle,
+                            imageinfo: [
+                                {
+                                    thumburl: 'https://upload.wikimedia.org/fake-cafe-aurora-commons-thumb.jpg',
+                                    url: 'https://upload.wikimedia.org/fake-cafe-aurora-commons.jpg',
+                                    descriptionurl: `https://commons.wikimedia.org/wiki/${encodeURIComponent(fileTitle).replace(/%3A/g, ':').replace(/%20/g, '_')}`,
+                                    mime: 'image/jpeg'
+                                }
+                            ]
+                        }
+                    ]
+                }
+            };
+
+        await delayedFulfill(route, payload);
+    });
+
+    await page.route('https://images.example.com/**', async (route) => {
+        await route.fulfill({
+            status: 404,
+            contentType: 'text/plain',
+            body: 'missing'
+        });
+    });
+
+    const tinyPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKw66AAAAABJRU5ErkJggg==';
+    await page.route('https://upload.wikimedia.org/**', async (route) => {
+        await delayedFulfill(route, Buffer.from(tinyPng, 'base64'), 'image/png');
+    });
 });
 
 Given('I have custom {string} and {string} themes injected', async ({ page }, theme1, theme2) => {
@@ -320,9 +496,9 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
     await page.reload({ waitUntil: 'domcontentloaded' });
     console.log('[E2E] Page reloaded (DOM loaded), waiting for map canvas...');
 
-    // If reload reset auth state, we might need to re-enter guest mode
-    const guestBtnReload = page.getByRole('button', { name: /Continue as Guest/i });
-    if (await guestBtnReload.isVisible()) {
+    const reloadState = await waitForGuestOrMap(page);
+    if (reloadState === 'guest') {
+        const guestBtnReload = page.getByRole('button', { name: /Continue as Guest/i });
         console.log('[E2E] Auth screen detected after reload, re-clicking Guest Mode...');
         await guestBtnReload.click();
     }
@@ -346,15 +522,67 @@ Then('the map should be visible', async ({ page }) => {
     await expect(mapCanvas).toBeVisible();
 });
 
+Then('POIs should appear without zooming after load', async ({ page }) => {
+    await expect.poll(async () => {
+        return await page.evaluate(() => {
+            const map = (window as any).__map;
+            if (!map) return false;
+
+            const placesSource = map.getSource?.('places');
+            const sourceData = (placesSource as any)?._data;
+            const sourceCount = Array.isArray(sourceData?.features) ? sourceData.features.length : 0;
+            const renderedCount = map.queryRenderedFeatures({ layers: ['unclustered-point'] })?.length || 0;
+
+            return sourceCount > 0 && renderedCount > 0;
+        });
+    }, {
+        timeout: 15000,
+        message: 'POIs did not appear after initial load without zooming.'
+    }).toBe(true);
+
+    const counts = await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (!map) return { sourceCount: 0, renderedCount: 0 };
+
+        const placesSource = map.getSource?.('places');
+        const sourceData = (placesSource as any)?._data;
+        return {
+            sourceCount: Array.isArray(sourceData?.features) ? sourceData.features.length : 0,
+            renderedCount: map.queryRenderedFeatures({ layers: ['unclustered-point'] })?.length || 0
+        };
+    });
+
+    expect(counts.sourceCount).toBeGreaterThan(0);
+    expect(counts.renderedCount).toBeGreaterThan(0);
+});
+
 Then('the style {string} should be active', async ({ page }, styleName) => {
-    // Current app implementation doesn't have an "active" class on the heading that is easily selectable,
-    // but the selection itself implies activity if it doesn't error.
-    // For more robust check, we could check internal state, but let's stick to visibility of the item.
-    await expect(page.getByRole('heading', { name: styleName })).toBeVisible();
+    await expect(page.getByTestId('active-style-trigger')).toContainText(styleName);
 });
 
 When('I click on a visible POI on the map', async ({ page }) => {
     await clickVisiblePOI(page);
+});
+
+When('I click on a visible POI near the top edge of the map', async ({ page }) => {
+    await clickVisiblePOI(page, 'top-edge');
+});
+
+When('I remember the current map view', async ({ page }) => {
+    rememberedMapView = await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (!map) return null;
+        const center = map.getCenter();
+        return {
+            lng: Number(center.lng),
+            lat: Number(center.lat),
+            zoom: Number(map.getZoom())
+        };
+    });
+
+    if (!rememberedMapView) {
+        throw new Error('Unable to capture the current map view.');
+    }
 });
 
 Then('a popup should be visible', async ({ page }) => {
@@ -365,8 +593,157 @@ Then('a popup should be visible', async ({ page }) => {
     await expect(popup).toBeVisible({ timeout: 10000 });
 });
 
+Then('the popup should stay compact', async ({ page }) => {
+    const popup = page.locator('.maplibregl-popup:visible [data-testid="poi-popup"]').last();
+    await expect(popup).toBeVisible({ timeout: 10000 });
+
+    const box = await popup.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+            width: rect.width,
+            height: rect.height
+        };
+    });
+
+    expect(box.width).toBeLessThanOrEqual(440);
+    expect(box.height).toBeLessThanOrEqual(480);
+});
+
+Then('the popup should remain inside the map viewport', async ({ page }) => {
+    await expect.poll(async () => {
+        const metrics = await page.evaluate(() => {
+            const mapContainer = document.querySelector('[data-testid="map-container"]') as HTMLElement | null;
+            const containerRect = mapContainer?.getBoundingClientRect();
+            if (!containerRect) {
+                return { isWithin: false, reason: 'missing-container' };
+            }
+
+            const activePopup = Array.from(document.querySelectorAll('.maplibregl-popup'))
+                .map((element) => {
+                    const popupRoot = element.querySelector('[data-testid="poi-popup"]') as HTMLElement | null;
+                    if (!popupRoot) return null;
+
+                    const popupRect = popupRoot.getBoundingClientRect();
+                    const closeButton = popupRoot.querySelector('#popup-close-btn') as HTMLElement | null;
+                    const closeRect = closeButton?.getBoundingClientRect();
+                    const combined = closeRect
+                        ? {
+                            top: Math.min(popupRect.top, closeRect.top),
+                            right: Math.max(popupRect.right, closeRect.right),
+                            bottom: Math.max(popupRect.bottom, closeRect.bottom),
+                            left: Math.min(popupRect.left, closeRect.left)
+                        }
+                        : popupRect;
+                    const intersectionWidth = Math.max(
+                        0,
+                        Math.min(combined.right, containerRect.right) - Math.max(combined.left, containerRect.left)
+                    );
+                    const intersectionHeight = Math.max(
+                        0,
+                        Math.min(combined.bottom, containerRect.bottom) - Math.max(combined.top, containerRect.top)
+                    );
+                    const intersectionArea = intersectionWidth * intersectionHeight;
+                    const style = window.getComputedStyle(element as Element);
+
+                    return {
+                        popupRect,
+                        combined,
+                        intersectionArea,
+                        isRendered:
+                            style.display !== 'none' &&
+                            style.visibility !== 'hidden' &&
+                            popupRect.width > 0 &&
+                            popupRect.height > 0
+                    };
+                })
+                .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+                .filter((candidate) => candidate.isRendered)
+                .sort((left, right) => right.intersectionArea - left.intersectionArea)[0];
+
+            if (!activePopup) {
+                return { isWithin: false, reason: 'missing-popup' };
+            }
+
+            const margin = 10;
+            const epsilon = 1.5;
+            const intersectionWidth = Math.max(
+                0,
+                Math.min(activePopup.combined.right, containerRect.right) - Math.max(activePopup.combined.left, containerRect.left)
+            );
+            const intersectionHeight = Math.max(
+                0,
+                Math.min(activePopup.combined.bottom, containerRect.bottom) - Math.max(activePopup.combined.top, containerRect.top)
+            );
+            const intersectionArea = intersectionWidth * intersectionHeight;
+
+            return {
+                isWithin: (
+                    intersectionArea > 0 &&
+                    activePopup.combined.left >= containerRect.left + margin - epsilon &&
+                    activePopup.combined.right <= containerRect.right - margin + epsilon &&
+                    activePopup.combined.top >= containerRect.top + margin - epsilon &&
+                    activePopup.combined.bottom <= containerRect.bottom - margin + epsilon
+                ),
+                popupRect: {
+                    top: Math.round(activePopup.popupRect.top),
+                    right: Math.round(activePopup.popupRect.right),
+                    bottom: Math.round(activePopup.popupRect.bottom),
+                    left: Math.round(activePopup.popupRect.left)
+                },
+                combinedRect: {
+                    top: Math.round(activePopup.combined.top),
+                    right: Math.round(activePopup.combined.right),
+                    bottom: Math.round(activePopup.combined.bottom),
+                    left: Math.round(activePopup.combined.left)
+                },
+                containerRect: {
+                    top: Math.round(containerRect.top),
+                    right: Math.round(containerRect.right),
+                    bottom: Math.round(containerRect.bottom),
+                    left: Math.round(containerRect.left)
+                },
+                intersectionArea: Math.round(intersectionArea)
+            };
+        });
+        return metrics.isWithin;
+    }, { timeout: 10000 }).toBe(true);
+});
+
+Then('the map view should remain stable after opening the popup', async ({ page }) => {
+    if (!rememberedMapView) {
+        throw new Error('No remembered map view is available for comparison.');
+    }
+
+    const currentMapView = await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (!map) return null;
+        const center = map.getCenter();
+        return {
+            lng: Number(center.lng),
+            lat: Number(center.lat),
+            zoom: Number(map.getZoom())
+        };
+    });
+
+    if (!currentMapView) {
+        throw new Error('Unable to read the current map view.');
+    }
+
+    expect(Math.abs(currentMapView.zoom - rememberedMapView.zoom)).toBeLessThan(0.01);
+    expect(Math.abs(currentMapView.lng - rememberedMapView.lng)).toBeLessThan(0.01);
+    expect(Math.abs(currentMapView.lat - rememberedMapView.lat)).toBeLessThan(0.01);
+});
+
+Then('the popup should show a themed loading state before enriched details arrive', async ({ page }) => {
+    const loadingBlock = page.locator('[data-testid="poi-popup-loading"]');
+    await expect(loadingBlock).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('[data-testid="poi-popup-loading-status"]')).toBeVisible();
+    await expect(page.locator('[data-testid="poi-popup-loading-line-primary"]')).toBeVisible();
+    await expect(page.locator('[data-testid="poi-popup-loading-line-secondary"]')).toBeVisible();
+});
+
 Then('the popup should contain an image', async ({ page }) => {
-    const popupImg = page.locator('.maplibregl-popup-content img');
+    const popupImg = page.locator('.maplibregl-popup-content img').first();
     await expect(popupImg).toBeVisible();
 });
 
@@ -380,6 +757,157 @@ Then('the popup should contain location details text', async ({ page }) => {
     await expect(popup).toBeVisible();
     const popupText = (await popup.textContent()) || '';
     expect(popupText.trim().length).toBeGreaterThan(10);
+});
+
+Then('the popup should contain enriched place details', async ({ page }) => {
+    const popup = page.locator('.maplibregl-popup-content');
+    await expect(popup).toContainText('Market St 123', { timeout: 10000 });
+    await expect(popup).toContainText('Mo-Su 07:00-20:00');
+});
+
+Then('the popup should contain a Google Maps search link', async ({ page }) => {
+    const googleLink = page.locator('#popup-google-maps-link');
+    await expect(googleLink).toBeVisible({ timeout: 10000 });
+    await expect(googleLink).toHaveAttribute('href', /google\.com\/maps\/search/);
+
+    const href = await googleLink.getAttribute('href');
+    const query = decodeURIComponent(new URL(href || '').searchParams.get('query') || '');
+    expect(query).toContain('123 Market St');
+    expect(query).not.toMatch(/-?\d+\.\d{6},-?\d+\.\d{6}/);
+});
+
+Then('the popup should contain an exact location link', async ({ page }) => {
+    const exactLink = page.locator('#popup-google-maps-exact-link');
+    await expect(exactLink).toBeVisible({ timeout: 10000 });
+    await expect(exactLink).toHaveAttribute('href', /google\.com\/maps\/search/);
+
+    const href = await exactLink.getAttribute('href');
+    const url = new URL(href || '');
+    const query = decodeURIComponent(url.searchParams.get('query') || '');
+    expect(query).toMatch(/-?\d+\.\d{6},-?\d+\.\d{6}/);
+    expect(query).not.toContain('Market St');
+});
+
+Then('the popup should contain an OpenStreetMap link', async ({ page }) => {
+    const osmLink = page.locator('#popup-osm-link');
+    await expect(osmLink).toBeVisible({ timeout: 10000 });
+    await expect(osmLink).toHaveAttribute('href', /openstreetmap\.org/);
+});
+
+Then('the popup should contain a Wikipedia link', async ({ page }) => {
+    const wikiLink = page.locator('#popup-wikipedia-link');
+    await expect(wikiLink).toBeVisible({ timeout: 10000 });
+    await expect(wikiLink).toHaveAttribute('href', /wikipedia\.org/);
+});
+
+Then('the popup photo should fall back to the next available source', async ({ page }) => {
+    const photo = page.locator('#poi-popup-photo-img');
+    await expect(photo).toBeVisible({ timeout: 10000 });
+    await expect(photo).toHaveAttribute('src', /fake-cafe-aurora-commons-thumb\.jpg/);
+    await expect(photo).not.toHaveAttribute('src', /broken-cafe-aurora\.jpg/);
+});
+
+Then('the popup action buttons should use balanced sizing', async ({ page }) => {
+    const metrics = await page.locator('[data-testid="poi-popup-actions"]').evaluate((element) => {
+        const links = Array.from(element.querySelectorAll('a')) as HTMLAnchorElement[];
+        const boxes = links.map((link) => link.getBoundingClientRect());
+        return {
+            count: links.length,
+            heights: boxes.map((box) => Math.round(box.height)),
+            widths: boxes.map((box) => Math.round(box.width))
+        };
+    });
+
+    expect(metrics.count).toBeGreaterThanOrEqual(3);
+    metrics.heights.forEach((height) => {
+        expect(height).toBeGreaterThanOrEqual(38);
+        expect(height).toBeLessThanOrEqual(50);
+    });
+    metrics.widths.forEach((width) => {
+        expect(width).toBeGreaterThanOrEqual(145);
+    });
+});
+
+When('I start tracking bootstrap behavior across a reload', async ({ page }) => {
+    await page.addInitScript(() => {
+        const win = window as typeof window & {
+            __mapAlchemistReloadTelemetry?: {
+                authSeen: boolean;
+                styleTriggerTexts: string[];
+            };
+            __mapAlchemistReloadTrackerInstalled?: boolean;
+        };
+
+        win.__mapAlchemistReloadTelemetry = {
+            authSeen: false,
+            styleTriggerTexts: []
+        };
+
+        const capture = () => {
+            const telemetry = win.__mapAlchemistReloadTelemetry;
+            if (!telemetry) return;
+
+            const guestButton = Array.from(document.querySelectorAll('button')).find((button) =>
+                /continue as guest/i.test(button.textContent || '')
+            ) as HTMLElement | undefined;
+
+            if (guestButton) {
+                const computed = window.getComputedStyle(guestButton);
+                const isVisible =
+                    computed.display !== 'none' &&
+                    computed.visibility !== 'hidden' &&
+                    guestButton.offsetParent !== null;
+
+                if (isVisible) {
+                    telemetry.authSeen = true;
+                }
+            }
+
+            const styleTrigger = document.querySelector('[data-testid="active-style-trigger"]') as HTMLElement | null;
+            const styleText = styleTrigger?.textContent?.trim();
+            if (styleText && telemetry.styleTriggerTexts[telemetry.styleTriggerTexts.length - 1] !== styleText) {
+                telemetry.styleTriggerTexts.push(styleText);
+            }
+        };
+
+        if (!win.__mapAlchemistReloadTrackerInstalled) {
+            win.__mapAlchemistReloadTrackerInstalled = true;
+            new MutationObserver(capture).observe(document.documentElement, {
+                subtree: true,
+                childList: true,
+                characterData: true
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            capture();
+            window.requestAnimationFrame(capture);
+            window.setTimeout(capture, 60);
+            window.setTimeout(capture, 240);
+            window.setTimeout(capture, 650);
+        });
+    });
+});
+
+Then('the auth start screen should not flash during reload', async ({ page }) => {
+    const telemetry = await page.evaluate(() => {
+        return (window as any).__mapAlchemistReloadTelemetry || null;
+    });
+
+    expect(telemetry).not.toBeNull();
+    expect(telemetry.authSeen).toBe(false);
+});
+
+Then('the active map theme should restore directly to {string}', async ({ page }, styleName) => {
+    const trigger = page.getByTestId('active-style-trigger');
+    await expect(trigger).toContainText(styleName);
+    await expect(trigger).not.toContainText('Select a style');
+    await expect(trigger).not.toContainText('Standard Light');
+});
+
+Then('the initial map reveal veil should be dismissed', async ({ page }) => {
+    await expect(page.getByTestId('map-initial-veil')).toHaveAttribute('data-visible', 'false', { timeout: 10000 });
+    await expect(page.getByTestId('map-visual-shell')).toHaveAttribute('data-map-visual-ready', 'true', { timeout: 10000 });
 });
 
 Then('POI labels should read text color from feature properties', async ({ page }) => {
@@ -426,6 +954,23 @@ When('I have a popup open for a POI', async ({ page }) => {
     await expect(popup).toBeVisible({ timeout: 10000 });
 });
 
+When('I zoom the map', async ({ page }) => {
+    await page.evaluate(async () => {
+        const map = (window as any).__map;
+        if (!map) return;
+
+        await new Promise<void>((resolve) => {
+            const handleZoomEnd = () => {
+                map.off('zoomend', handleZoomEnd);
+                resolve();
+            };
+
+            map.on('zoomend', handleZoomEnd);
+            map.zoomTo(map.getZoom() + 1, { duration: 0 });
+        });
+    });
+});
+
 When('I switch to the {string} style', async ({ page }, styleName) => {
     console.log(`[E2E] Switching to style: ${styleName}`);
     await page.getByRole('heading', { name: styleName }).click();
@@ -440,6 +985,11 @@ Then('the popup should still be visible or accessible', async ({ page }) => {
         await clickVisiblePOI(page);
     }
     await expect(popup).toBeVisible({ timeout: 10000 });
+});
+
+Then('the popup should be dismissed', async ({ page }) => {
+    await expect(page.locator('.maplibregl-popup')).toHaveCount(0, { timeout: 10000 });
+    await expect(page.locator('.maplibregl-popup-content')).toHaveCount(0, { timeout: 10000 });
 });
 
 When('I click the Remix button in the popup', async ({ page }) => {

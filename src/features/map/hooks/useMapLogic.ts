@@ -4,9 +4,10 @@ import { MapLibreAdapter } from '../services/MapLibreAdapter';
 import { PopupGenerator } from '../services/PopupGenerator';
 import { PaletteService } from '../services/PaletteService';
 import { PoiService } from '../services/PoiService';
+import { PoiDetailsService } from '../services/PoiDetailsService';
 import { derivePalette } from '@core/services/defaultThemes';
 import { DEFAULT_STYLE_URL, MAP_CATEGORIES } from '@/constants';
-import { MapStylePreset, IconDefinition, PopupStyle } from '@/types';
+import { MapStylePreset, IconDefinition, PoiPopupDetails, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 import { isMapLibreStyleJson, sanitizeMapLibreStyleForRuntime } from '../services/styleCompiler';
 
@@ -261,6 +262,19 @@ export const resolveRenderStyle = (mapStyleJson: any, baseStyle: any): any => {
     return sanitizeForRender(baseStyle);
 };
 
+export const resolveRenderStyleForDisplay = (
+    mapStyleJson: any,
+    baseStyle: any,
+    palette?: Record<string, string>
+): any => {
+    const resolvedStyle = resolveRenderStyle(mapStyleJson, baseStyle);
+    if (!shouldApplyPaletteOverrides(mapStyleJson) || !palette) {
+        return resolvedStyle;
+    }
+
+    return PaletteService.buildPaletteStyledStyle(resolvedStyle, palette);
+};
+
 // Helper for safe style loading (moved from MapView)
 const loadSafeStyle = async (styleUrl: string) => {
     try {
@@ -304,6 +318,102 @@ export const buildIconSyncPlan = (
     return { desiredIconUrls, staleKeys };
 };
 
+type RectLike = {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+};
+
+type PopupViewportConstraints = {
+    maxPopupWidth: number;
+    maxContentHeight: number;
+};
+
+const POPUP_VIEWPORT_MARGIN = 10;
+const POPUP_CLOSE_BUTTON_OVERHANG = 14;
+const POPUP_ARROW_HEIGHT = 12;
+
+export const computePopupViewportPanDelta = (
+    popupRect: RectLike,
+    viewportRect: RectLike,
+    margin = 20
+): [number, number] => {
+    const safeLeft = viewportRect.left + margin;
+    const safeTop = viewportRect.top + margin;
+    const safeRight = viewportRect.right - margin;
+    const safeBottom = viewportRect.bottom - margin;
+    const popupWidth = popupRect.right - popupRect.left;
+    const popupHeight = popupRect.bottom - popupRect.top;
+    const safeWidth = Math.max(0, safeRight - safeLeft);
+    const safeHeight = Math.max(0, safeBottom - safeTop);
+
+    let deltaX = 0;
+    if (popupWidth > safeWidth) {
+        deltaX = Math.round(((popupRect.left + popupRect.right) / 2) - ((safeLeft + safeRight) / 2));
+    } else if (popupRect.left < safeLeft) {
+        deltaX = -Math.round(safeLeft - popupRect.left);
+    } else if (popupRect.right > safeRight) {
+        deltaX = Math.round(popupRect.right - safeRight);
+    }
+
+    let deltaY = 0;
+    if (popupHeight > safeHeight) {
+        deltaY = Math.round(((popupRect.top + popupRect.bottom) / 2) - ((safeTop + safeBottom) / 2));
+    } else if (popupRect.top < safeTop) {
+        deltaY = -Math.round(safeTop - popupRect.top);
+    } else if (popupRect.bottom > safeBottom) {
+        deltaY = Math.round(popupRect.bottom - safeBottom);
+    }
+
+    const maxDeltaX = Math.max(0, Math.round(safeWidth || (viewportRect.right - viewportRect.left)));
+    const maxDeltaY = Math.max(0, Math.round(safeHeight || (viewportRect.bottom - viewportRect.top)));
+
+    return [
+        Math.max(-maxDeltaX, Math.min(maxDeltaX, deltaX)),
+        Math.max(-maxDeltaY, Math.min(maxDeltaY, deltaY))
+    ];
+};
+
+export const computePopupViewportConstraints = (
+    viewportRect: RectLike,
+    margin = POPUP_VIEWPORT_MARGIN
+): PopupViewportConstraints => {
+    const viewportWidth = Math.max(0, viewportRect.right - viewportRect.left);
+    const viewportHeight = Math.max(0, viewportRect.bottom - viewportRect.top);
+    const availableWidth = Math.max(180, Math.floor(viewportWidth - (margin * 2) - POPUP_CLOSE_BUTTON_OVERHANG));
+    const availableContentHeight = Math.max(
+        160,
+        Math.floor(viewportHeight - (margin * 2) - POPUP_CLOSE_BUTTON_OVERHANG - POPUP_ARROW_HEIGHT)
+    );
+
+    return {
+        maxPopupWidth: Math.min(400, availableWidth),
+        maxContentHeight: availableContentHeight
+    };
+};
+
+export const shouldDeferPopupViewportFit = (
+    popupRect: RectLike,
+    viewportRect: RectLike
+): boolean => {
+    const popupWidth = popupRect.right - popupRect.left;
+    const popupHeight = popupRect.bottom - popupRect.top;
+    if (!Number.isFinite(popupWidth) || !Number.isFinite(popupHeight) || popupWidth <= 0 || popupHeight <= 0) {
+        return true;
+    }
+
+    const viewportWidth = Math.max(0, viewportRect.right - viewportRect.left);
+    const viewportHeight = Math.max(0, viewportRect.bottom - viewportRect.top);
+
+    return (
+        popupRect.right < viewportRect.left - viewportWidth ||
+        popupRect.left > viewportRect.right + viewportWidth ||
+        popupRect.bottom < viewportRect.top - viewportHeight ||
+        popupRect.top > viewportRect.bottom + viewportHeight
+    );
+};
+
 export const useMapLogic = ({
     containerRef,
     mapStyleJson,
@@ -317,9 +427,18 @@ export const useMapLogic = ({
 }: UseMapLogicProps) => {
     const mapController = useRef<IMapController | null>(null);
     const [loaded, setLoaded] = useState(false);
+    const [isInitialVisualReady, setIsInitialVisualReady] = useState(false);
     const [baseStyle, setBaseStyle] = useState<any>(null);
     const loadedIconUrls = useRef<Record<string, string>>({});
     const activeStyleRef = useRef<string | null | undefined>(styleId);
+    const popupRequestSequence = useRef(0);
+    const suppressedMoveendRefreshCount = useRef(0);
+    const skipNextStyleApplyRef = useRef(false);
+
+    const palette = useMemo(() => {
+        if (paletteProp) return paletteProp;
+        return derivePalette(mapStyleJson);
+    }, [mapStyleJson, paletteProp]);
 
     const ensurePoiInfrastructure = useCallback((controller: IMapController) => {
         const rawMap = controller.getRawMap?.();
@@ -385,6 +504,7 @@ export const useMapLogic = ({
         if (!containerRef.current) return;
 
         let active = true;
+        setIsInitialVisualReady(false);
 
         const init = async () => {
             // In a real DI system, we'd get this from a context/provider
@@ -401,11 +521,21 @@ export const useMapLogic = ({
 
             setBaseStyle(safeBase);
 
-            controller.initialize(containerRef.current!, safeBase, () => {
+            const initialRenderStyle = resolveRenderStyleForDisplay(mapStyleJson, safeBase, palette);
+            skipNextStyleApplyRef.current = true;
+
+            controller.initialize(containerRef.current!, initialRenderStyle, () => {
                 if (!active) return;
                 ensurePoiInfrastructure(controller);
 
                 setLoaded(true);
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (active) {
+                            setIsInitialVisualReady(true);
+                        }
+                    });
+                });
                 // Expose for testing
                 (window as any).__map = controller.getRawMap?.();
 
@@ -447,7 +577,12 @@ export const useMapLogic = ({
         const rawMap = controller.getRawMap?.();
         if (!rawMap) return;
 
-        const styleToApply = resolveRenderStyle(mapStyleJson, baseStyle);
+        const styleToApply = resolveRenderStyleForDisplay(mapStyleJson, baseStyle, palette);
+        if (skipNextStyleApplyRef.current) {
+            skipNextStyleApplyRef.current = false;
+            return;
+        }
+
         try {
             controller.setStyle(styleToApply);
         } catch (error) {
@@ -456,9 +591,17 @@ export const useMapLogic = ({
         }
 
         const onStyleData = () => {
-            if (!controller.getRawMap?.()) return;
+            const nextMap = controller.getRawMap?.();
+            if (!nextMap) return;
             ensurePoiInfrastructure(controller);
             PoiService.refreshData(controller, activeIcons, paletteProp || derivePalette(mapStyleJson), popupStyle);
+
+            const onIdleRefresh = () => {
+                PoiService.refreshData(controller, activeIcons, paletteProp || derivePalette(mapStyleJson), popupStyle);
+                nextMap.off?.('idle', onIdleRefresh);
+            };
+
+            nextMap.on?.('idle', onIdleRefresh);
         };
 
         rawMap.once('styledata', onStyleData);
@@ -467,14 +610,9 @@ export const useMapLogic = ({
         styleId,
         mapStyleJson,
         baseStyle,
+        palette,
         ensurePoiInfrastructure
     ]);
-
-    // 2. Derive Palette
-    const palette = useMemo(() => {
-        if (paletteProp) return paletteProp;
-        return derivePalette(mapStyleJson);
-    }, [mapStyleJson, paletteProp]);
 
     // 3. Apply Palette Logic
     useEffect(() => {
@@ -503,6 +641,7 @@ export const useMapLogic = ({
         }
 
         if (activeStyleRef.current !== styleId) {
+            popupRequestSequence.current += 1;
             mapController.current.removePopup();
             activeStyleRef.current = styleId;
         }
@@ -615,42 +754,106 @@ export const useMapLogic = ({
                     candidate.properties?.category
                 ))
             ) || e.features[0];
-            const coords = (feature.geometry as any).coordinates.slice();
+            const clickedLng = Number(e.lngLat?.lng);
+            const clickedLat = Number(e.lngLat?.lat);
+            const featureCoords = (feature.geometry as any).coordinates.slice() as [number, number];
+            const coords: [number, number] = Number.isFinite(clickedLng) && Number.isFinite(clickedLat)
+                ? [clickedLng, clickedLat]
+                : featureCoords;
             const state = latestState.current;
             const editTarget = resolveEditCategory(
                 feature.properties?.iconKey,
                 feature.properties?.subcategory,
                 feature.properties?.category
             );
+            const popupRequestId = ++popupRequestSequence.current;
+            const rawMap = controller.getRawMap?.();
 
-            const html = PopupGenerator.generateHtml(
-                feature,
-                state.popupStyle,
-                state.palette,
-                state.activeIcons,
-                state.isDefaultTheme
-            );
+            const bindPopupActions = (
+                detailStatus: PoiPopupDetails = PoiDetailsService.buildInitialDetails(feature),
+                attempt = 0
+            ) => {
+                const popupElement = controller.getPopupElement?.();
+                const popupRoot = popupElement?.querySelector('[data-testid="poi-popup"]') as HTMLElement | null;
+                const mapContainer = rawMap?.getContainer?.() as HTMLElement | null;
 
-            controller.showPopup(coords, html);
-
-            const bindPopupActions = (attempt = 0) => {
-                const popupRoot = document.querySelector(
-                    '.maplibregl-popup .maplibregl-popup-content [data-testid="poi-popup"]'
-                ) as HTMLElement | null;
-
-                if (!popupRoot) {
+                if (!popupElement?.isConnected || !popupRoot?.isConnected) {
                     if (attempt < 10) {
-                        window.setTimeout(() => bindPopupActions(attempt + 1), 30);
+                        window.setTimeout(() => bindPopupActions(detailStatus, attempt + 1), 30);
                     }
                     return;
                 }
 
-                PopupGenerator.syncFrameGeometry(popupRoot);
-                requestAnimationFrame(() => PopupGenerator.syncFrameGeometry(popupRoot));
+                if (mapContainer) {
+                    const containerRect = mapContainer.getBoundingClientRect();
+                    const popupRect = popupRoot.getBoundingClientRect();
+                    if (shouldDeferPopupViewportFit(popupRect, containerRect)) {
+                        if (attempt < 10) {
+                            window.setTimeout(() => bindPopupActions(detailStatus, attempt + 1), 30);
+                        }
+                        return;
+                    }
+                }
 
+                const fitPopupIntoViewport = () => {
+                    if (!rawMap || !mapContainer || typeof rawMap.panBy !== 'function') return;
+
+                    const containerRect = mapContainer.getBoundingClientRect();
+                    const popupContent = popupRoot.querySelector('[data-mapalchemist-popup-content="true"]') as HTMLDivElement | null;
+                    const { maxPopupWidth, maxContentHeight } = computePopupViewportConstraints(
+                        containerRect,
+                        POPUP_VIEWPORT_MARGIN
+                    );
+
+                    popupRoot.style.width = `${maxPopupWidth}px`;
+                    popupRoot.style.maxWidth = `${maxPopupWidth}px`;
+                    popupRoot.style.minWidth = `${Math.min(260, maxPopupWidth)}px`;
+                    if (popupContent) {
+                        popupContent.style.maxHeight = `${maxContentHeight}px`;
+                    }
+
+                    PopupGenerator.syncFrameGeometry(popupRoot);
+                    const popupRect = popupRoot.getBoundingClientRect();
+                    if (shouldDeferPopupViewportFit(popupRect, containerRect)) {
+                        if (attempt < 10) {
+                            window.setTimeout(() => bindPopupActions(detailStatus, attempt + 1), 30);
+                        }
+                        return;
+                    }
+                    const closeButton = popupRoot.querySelector('#popup-close-btn') as HTMLButtonElement | null;
+                    const closeRect = closeButton?.getBoundingClientRect();
+                    const popupChromeRect = closeRect
+                        ? {
+                            top: Math.min(popupRect.top, closeRect.top),
+                            right: Math.max(popupRect.right, closeRect.right),
+                            bottom: Math.max(popupRect.bottom, closeRect.bottom),
+                            left: Math.min(popupRect.left, closeRect.left)
+                        }
+                        : popupRect;
+                    const [deltaX, deltaY] = computePopupViewportPanDelta(
+                        popupChromeRect,
+                        containerRect,
+                        POPUP_VIEWPORT_MARGIN
+                    );
+
+                    if (deltaX !== 0 || deltaY !== 0) {
+                        suppressedMoveendRefreshCount.current += 1;
+                        rawMap.panBy([deltaX, deltaY], { duration: 0, animate: false });
+                    }
+                };
+                const syncFrameAndViewport = () => {
+                    PopupGenerator.syncFrameGeometry(popupRoot);
+                    requestAnimationFrame(() => {
+                        PopupGenerator.syncFrameGeometry(popupRoot);
+                        fitPopupIntoViewport();
+                        requestAnimationFrame(() => fitPopupIntoViewport());
+                    });
+                };
+
+                syncFrameAndViewport();
                 const btn = popupRoot.querySelector('#popup-edit-btn') as HTMLButtonElement | null;
                 if (!btn && attempt < 10) {
-                    window.setTimeout(() => bindPopupActions(attempt + 1), 30);
+                    window.setTimeout(() => bindPopupActions(detailStatus, attempt + 1), 30);
                     return;
                 }
 
@@ -667,21 +870,157 @@ export const useMapLogic = ({
 
                 const closeBtn = popupRoot.querySelector('#popup-close-btn') as HTMLButtonElement | null;
                 if (closeBtn) {
-                    closeBtn.onclick = () => controller.removePopup();
+                    closeBtn.onclick = () => {
+                        popupRequestSequence.current += 1;
+                        controller.removePopup();
+                    };
+                }
+
+                const photoCandidates = detailStatus.photoCandidates || [];
+                const photoBlock = popupRoot.querySelector('#poi-popup-photo-block') as HTMLDivElement | null;
+                const photoImg = popupRoot.querySelector('#poi-popup-photo-img') as HTMLImageElement | null;
+                const photoAttribution = popupRoot.querySelector('#poi-popup-photo-attribution') as HTMLDivElement | null;
+                const photoAttributionLink = popupRoot.querySelector('#poi-popup-photo-attribution-link') as HTMLAnchorElement | null;
+
+                if (photoBlock && photoImg && photoCandidates.length > 0) {
+                    const initialIndex = Math.max(
+                        0,
+                        photoCandidates.findIndex((candidate) => candidate.url === detailStatus.photoUrl)
+                    );
+                    let activeIndex = initialIndex;
+
+                    const syncPhotoFrame = () => {
+                        syncFrameAndViewport();
+                    };
+
+                    const applyResolvedPhotoPresentation = (candidate = photoCandidates[activeIndex]) => {
+                        const presentation = PopupGenerator.derivePhotoPresentation(
+                            feature,
+                            {
+                                ...detailStatus,
+                                photoUrl: candidate?.url || detailStatus.photoUrl,
+                                photoCandidates
+                            },
+                            {
+                                naturalWidth: photoImg.naturalWidth || candidate?.width,
+                                naturalHeight: photoImg.naturalHeight || candidate?.height,
+                                popupWidth: popupRoot.getBoundingClientRect().width
+                            }
+                        );
+
+                        photoBlock.dataset.photoCategoryProfile = presentation.categoryProfile;
+                        photoBlock.dataset.photoResolutionBand = presentation.resolutionBand;
+                        photoImg.style.height = `${presentation.frameHeight}px`;
+                        photoImg.style.objectFit = presentation.objectFit;
+                        photoImg.style.objectPosition = presentation.objectPosition;
+                        photoImg.style.background = presentation.surfaceColor;
+                        syncPhotoFrame();
+                    };
+
+                    const applyPhotoCandidate = (index: number) => {
+                        const candidate = photoCandidates[index];
+                        if (!candidate) {
+                            photoBlock.remove();
+                            syncPhotoFrame();
+                            return false;
+                        }
+
+                        activeIndex = index;
+                        photoImg.src = candidate.url;
+                        photoImg.alt = `${feature.properties?.title || 'Place'} photo`;
+
+                        if (photoAttribution && photoAttributionLink && candidate.attributionText && candidate.attributionUrl) {
+                            photoAttribution.style.display = '';
+                            photoAttributionLink.textContent = candidate.attributionText;
+                            photoAttributionLink.href = candidate.attributionUrl;
+                        } else if (photoAttribution) {
+                            photoAttribution.style.display = 'none';
+                        }
+
+                        if (candidate.width && candidate.height) {
+                            applyResolvedPhotoPresentation(candidate);
+                        } else {
+                            syncPhotoFrame();
+                        }
+                        return true;
+                    };
+
+                    const advancePhotoCandidate = () => {
+                        for (let nextIndex = activeIndex + 1; nextIndex < photoCandidates.length; nextIndex += 1) {
+                            if (applyPhotoCandidate(nextIndex)) {
+                                return;
+                            }
+                        }
+
+                        photoBlock.remove();
+                        syncPhotoFrame();
+                    };
+
+                    photoImg.onerror = () => {
+                        advancePhotoCandidate();
+                    };
+                    photoImg.onload = () => {
+                        applyResolvedPhotoPresentation(photoCandidates[activeIndex]);
+                    };
+
+                    if (!photoImg.getAttribute('src') && photoCandidates[initialIndex]) {
+                        applyPhotoCandidate(initialIndex);
+                    } else if (photoImg.complete && photoImg.naturalWidth > 0) {
+                        applyResolvedPhotoPresentation(photoCandidates[activeIndex]);
+                    } else if (photoImg.complete && photoImg.naturalWidth === 0) {
+                        advancePhotoCandidate();
+                    }
                 }
             };
 
-            // Re-bind popup actions after DOM insertion
-            window.setTimeout(() => bindPopupActions(), 0);
+            const renderPopup = (detailStatus = PoiDetailsService.buildInitialDetails(feature)) => {
+                const html = PopupGenerator.generateHtml(
+                    feature,
+                    state.popupStyle,
+                    state.palette,
+                    state.activeIcons,
+                    state.isDefaultTheme,
+                    detailStatus
+                );
+
+                controller.showPopup(coords, html);
+                window.setTimeout(() => bindPopupActions(detailStatus), 0);
+            };
+
+            renderPopup({
+                ...PoiDetailsService.buildInitialDetails(feature),
+                status: 'loading'
+            });
+
+            void PoiDetailsService.getDetails(feature)
+                .then((details) => {
+                    if (popupRequestId !== popupRequestSequence.current) return;
+                    renderPopup(details);
+                })
+                .catch((error) => {
+                    logger.warn('Failed to load popup details', error);
+                    if (popupRequestId !== popupRequestSequence.current) return;
+                    renderPopup({
+                        ...PoiDetailsService.buildInitialDetails(feature),
+                        status: 'error'
+                    });
+                });
+        };
+
+        const dismissPopupOnZoomStart = () => {
+            popupRequestSequence.current += 1;
+            controller.removePopup();
         };
 
         controller.on('click', onPointClick, 'unclustered-point');
+        controller.on('zoomstart', dismissPopupOnZoomStart);
         // Mouse cursor logic
         controller.on('mouseenter', () => { document.body.style.cursor = 'pointer'; }, 'unclustered-point');
         controller.on('mouseleave', () => { document.body.style.cursor = ''; }, 'unclustered-point');
 
         return () => {
             controller.off('click', onPointClick, 'unclustered-point');
+            controller.off('zoomstart', dismissPopupOnZoomStart);
         };
 
     }, [loaded]);
@@ -691,6 +1030,7 @@ export const useMapLogic = ({
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
         let moveendRefreshTimer: number | null = null;
+        let removedInitialIdleListener = false;
 
         // Map click handler (removed undefined handleMapClick)
 
@@ -708,6 +1048,11 @@ export const useMapLogic = ({
 
         // Set up moveend listener for POI refresh
         const moveendHandler = () => {
+            if (suppressedMoveendRefreshCount.current > 0) {
+                suppressedMoveendRefreshCount.current -= 1;
+                return;
+            }
+
             if (moveendRefreshTimer !== null) {
                 window.clearTimeout(moveendRefreshTimer);
             }
@@ -724,6 +1069,16 @@ export const useMapLogic = ({
         // Initial POI load
         PoiService.refreshData(controller, activeIcons, palette, popupStyle);
 
+        const initialIdleRefresh = () => {
+            PoiService.refreshData(controller, activeIcons, palette, popupStyle);
+            if (!removedInitialIdleListener) {
+                rawMap?.off?.('idle', initialIdleRefresh);
+                removedInitialIdleListener = true;
+            }
+        };
+
+        rawMap?.on?.('idle', initialIdleRefresh);
+
         return () => {
             if (mapController.current) {
                 // mapController.current.off('click', handleClick); // Removed undefined handleClick
@@ -736,6 +1091,7 @@ export const useMapLogic = ({
                 // Clean up cursor event listeners
                 const rawMap = mapController.current.getRawMap?.();
                 if (rawMap) {
+                    rawMap.off('idle', initialIdleRefresh);
                     rawMap.off('mouseenter', 'unclustered-point');
                     rawMap.off('mouseleave', 'unclustered-point');
                 }
@@ -743,5 +1099,5 @@ export const useMapLogic = ({
         };
     }, [loaded, activeIcons, palette, popupStyle]);
 
-    return { loaded };
+    return { loaded, isInitialVisualReady };
 };
