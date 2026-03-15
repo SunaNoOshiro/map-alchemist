@@ -51,6 +51,7 @@ export interface IMapController {
      */
     showPopup(coordinates: [number, number], htmlContent: string, options?: any): void;
     removePopup(): void;
+    getPopupElement?(): HTMLElement | null;
 
     /**
      * Query rendered features from the map.

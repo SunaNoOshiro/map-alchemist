@@ -15,7 +15,7 @@ Feature: Remix Sidebar Focus
     When I scroll the icon list by 300
     Then the icon list scroll position should be greater than 0
     When I scroll the icon list by -200
-    Then the icon list scroll position should be less than 300
+    Then the icon list scroll position should be lower than before
 
   Scenario: Mobile remix focus opens the icon list and aligns the selected icon
     Given I am on the home page

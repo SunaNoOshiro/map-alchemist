@@ -3,6 +3,7 @@ import { MapStyleExportService } from './MapStyleExportService';
 import { SpriteLayout, SpriteLayoutEntry, buildSpriteLayout } from './spriteUtils';
 import { createLogger } from '@core/logger';
 import { CATEGORY_COLORS, getCategoryColor } from '@/constants';
+import { deriveHarmonizedHaloFromPalette } from '@features/map/services/colorHarmony';
 
 const logger = createLogger('MaputnikExportService');
 
@@ -247,7 +248,10 @@ export const injectDemoPois = (
   const zoom = recommendedZoom;
 
   const fallbackLabelColor = palette?.text ?? '#111827';
-  const haloColor = palette?.land ?? '#ffffff';
+  const haloColor = deriveHarmonizedHaloFromPalette(palette, {
+    backgroundColor: palette?.land || '#ffffff',
+    textColor: fallbackLabelColor
+  });
   const halfColumns = (columns - 1) / 2;
   const halfRows = (rows - 1) / 2;
 

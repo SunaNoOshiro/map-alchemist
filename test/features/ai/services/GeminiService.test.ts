@@ -1,0 +1,474 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const generateContentMock = vi.fn();
+const batchCreateMock = vi.fn();
+const batchGetMock = vi.fn();
+const batchDeleteMock = vi.fn();
+
+vi.mock('@google/genai', () => {
+  class GoogleGenAI {
+    models = {
+      generateContent: generateContentMock,
+    };
+    batches = {
+      create: batchCreateMock,
+      get: batchGetMock,
+      delete: batchDeleteMock,
+    };
+  }
+
+  const JobState = {
+    JOB_STATE_UNSPECIFIED: 'JOB_STATE_UNSPECIFIED',
+    JOB_STATE_RUNNING: 'JOB_STATE_RUNNING',
+    JOB_STATE_SUCCEEDED: 'JOB_STATE_SUCCEEDED',
+    JOB_STATE_PARTIALLY_SUCCEEDED: 'JOB_STATE_PARTIALLY_SUCCEEDED',
+    JOB_STATE_FAILED: 'JOB_STATE_FAILED',
+    JOB_STATE_CANCELLED: 'JOB_STATE_CANCELLED',
+    JOB_STATE_EXPIRED: 'JOB_STATE_EXPIRED',
+  };
+
+  return { GoogleGenAI, JobState };
+});
+
+import { GeminiService } from '@/features/ai/services/GeminiService';
+
+const invalidApiKeyError = new Error(JSON.stringify({
+  error: {
+    code: 400,
+    message: 'API key not valid. Please pass a valid API key.',
+    status: 'INVALID_ARGUMENT',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'API_KEY_INVALID',
+        domain: 'googleapis.com',
+      },
+    ],
+  },
+}));
+
+const rateLimitError = new Error(JSON.stringify({
+  error: {
+    code: 429,
+    message: 'Too many requests. Please try again later.',
+    status: 'RESOURCE_EXHAUSTED',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+        reason: 'RATE_LIMIT_EXCEEDED',
+        domain: 'googleapis.com',
+      },
+    ],
+  },
+}));
+
+describe('GeminiService invalid key handling', () => {
+  beforeEach(() => {
+    generateContentMock.mockReset();
+    batchCreateMock.mockReset();
+    batchGetMock.mockReset();
+    batchDeleteMock.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  it('fails fast on invalid API key and does not continue to icon generation', async () => {
+    generateContentMock.mockRejectedValueOnce(invalidApiKeyError);
+
+    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+
+    await expect(
+      service.generateMapTheme('pirates map of treasures', ['Restaurant', 'Cafe', 'Bar'])
+    ).rejects.toThrow('Invalid Gemini API key');
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws a user-facing error for single icon generation with invalid API key', async () => {
+    generateContentMock.mockRejectedValueOnce(invalidApiKeyError);
+
+    const service = new GeminiService('bad-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+
+    await expect(
+      service.generateIconImage('Bakery', 'cartoon style')
+    ).rejects.toThrow('Invalid Gemini API key');
+  });
+
+  it('compiles a full MapLibre style from a ThemeSpec response', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'water', type: 'fill', source: 'openfreemap', 'source-layer': 'water', paint: { 'fill-color': '#000000' } },
+        { id: 'road-primary', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['==', ['get', 'class'], 'primary'], paint: { 'line-color': '#000000' } },
+        { id: 'place-label', type: 'symbol', source: 'openfreemap', 'source-layer': 'place', layout: { 'text-field': ['get', 'name'] }, paint: { 'text-color': '#000000', 'text-halo-color': '#ffffff' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+        text: JSON.stringify({
+          themeSpec: {
+            tokens: {
+              water: '#0a84ff',
+              primaryRoad: '#ff6b3d',
+              textPrimary: '#f8fbff',
+              haloPrimary: '#11182b'
+            }
+          },
+          popupStyle: {
+            backgroundColor: '#101828',
+            textColor: '#f8fafc',
+            borderColor: '#334155',
+            borderRadius: '10px',
+            fontFamily: 'Fira Sans'
+          },
+          iconTheme: 'Neon tactical'
+        })
+      });
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+    const preset = await service.generateMapTheme('Cyber city pulse', []);
+
+    expect(preset.mapStyleJson.version).toBe(8);
+    expect(preset.mapStyleJson.layers.find((layer: any) => layer.id === 'water').paint['fill-color']).toBe('#0a84ff');
+    expect(preset.mapStyleJson.layers.find((layer: any) => layer.id === 'road-primary').paint['line-color']).toBe('#ff6b3d');
+    expect(preset.popupStyle.backgroundColor).toBe('#101828');
+    expect(preset.iconTheme).toBe('Neon tactical');
+    expect(preset.palette?.road).toBe('#ff6b3d');
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves token-style layer override colors to concrete hex values', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'water', type: 'fill', source: 'openfreemap', 'source-layer': 'water', paint: { 'fill-color': '#000000' } },
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            background: '#111827'
+          },
+          layerOverrides: {
+            water: {
+              paint: {
+                'fill-color': "token('water')"
+              }
+            }
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Token override check'
+      })
+    });
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+    const preset = await service.generateMapTheme('Token safety test', []);
+
+    const waterLayer = preset.mapStyleJson.layers.find((layer: any) => layer.id === 'water');
+    expect(waterLayer.paint['fill-color']).toBe('#0a84ff');
+    expect(JSON.stringify(preset.mapStyleJson.layers)).not.toContain("token('");
+  });
+
+  it('caps per-icon mode requests to keep API usage bounded', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            primaryRoad: '#ff6b3d',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b'
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Budget-safe icon theme'
+      })
+    });
+
+    const categories = Array.from({ length: 90 }, (_, index) => `Category ${index + 1}`);
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+    const generateIconImageSpy = vi
+      .spyOn(service, 'generateIconImage')
+      .mockResolvedValue('data:image/png;base64,abc');
+
+    const preset = await service.generateMapTheme('Budget safety test', categories);
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(generateIconImageSpy).toHaveBeenCalledTimes(32);
+    expect(Object.keys(preset.iconsByCategory).length).toBe(32);
+    expect(preset.iconsByCategory['Landmark']).toBeDefined();
+  });
+
+  it('retries icon atlas generation after transient 429 rate limits', async () => {
+    generateContentMock
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: 'image/png',
+                    data: 'ZmFrZS1pbWFnZS1kYXRh',
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+    const result = await service.generateIconAtlas(['Cafe', 'Bar'], 'Retro cartoon style', '1K');
+
+    expect(generateContentMock).toHaveBeenCalledTimes(2);
+    expect(result.atlasImageUrl).toContain('data:image/png;base64,ZmFrZS1pbWFnZS1kYXRh');
+    expect(Object.keys(result.entries)).toEqual(expect.arrayContaining(['Cafe', 'Bar']));
+  });
+
+  it('generates icons via true async batch mode', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            primaryRoad: '#ff6b3d',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b'
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Batch neon style'
+      })
+    });
+
+    batchCreateMock.mockResolvedValueOnce({ name: 'batches/mock-job-1' });
+    batchGetMock.mockResolvedValueOnce({
+      state: 'JOB_STATE_SUCCEEDED',
+      dest: {
+        inlinedResponses: [
+          { response: { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'ZmFrZS1pbWFnZS1kYXRh' } }] } }] } },
+        ]
+      }
+    });
+    batchDeleteMock.mockResolvedValue({});
+
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'batch-async');
+    const preset = await service.generateMapTheme('Batch style test', ['Landmark']);
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(batchCreateMock).toHaveBeenCalledTimes(1);
+    expect(batchGetMock).toHaveBeenCalledTimes(1);
+    expect(batchDeleteMock).toHaveBeenCalledTimes(1);
+    expect(Object.keys(preset.iconsByCategory)).toEqual(['Landmark']);
+  }, 10000);
+
+  it('auto mode runs atlas chunks via async batch and retries failed cells via async batch repair', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    generateContentMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        themeSpec: {
+          tokens: {
+            water: '#0a84ff',
+            primaryRoad: '#ff6b3d',
+            textPrimary: '#f8fbff',
+            haloPrimary: '#11182b'
+          }
+        },
+        popupStyle: {
+          backgroundColor: '#101828',
+          textColor: '#f8fafc',
+          borderColor: '#334155',
+          borderRadius: '10px',
+          fontFamily: 'Fira Sans'
+        },
+        iconTheme: 'Auto fallback style'
+      })
+    });
+
+    batchCreateMock
+      .mockResolvedValueOnce({ name: 'batches/mock-atlas-job-1' })
+      .mockResolvedValueOnce({ name: 'batches/mock-atlas-job-2' });
+    batchGetMock
+      .mockResolvedValueOnce({
+        state: 'JOB_STATE_SUCCEEDED',
+        dest: {
+          inlinedResponses: [
+            { error: { message: 'primary chunk 1 failed' } },
+            { error: { message: 'primary chunk 2 failed' } },
+            { error: { message: 'primary chunk 3 failed' } },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        state: 'JOB_STATE_SUCCEEDED',
+        dest: {
+          inlinedResponses: [
+            { error: { message: 'repair chunk 1 failed' } },
+            { error: { message: 'repair chunk 2 failed' } },
+            { error: { message: 'repair chunk 3 failed' } },
+          ],
+        },
+      });
+    batchDeleteMock.mockResolvedValue({});
+
+    const categories = Array.from({ length: 40 }, (_, index) => `Category ${index + 1}`);
+    const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'auto');
+    const generateIconAtlasSpy = vi.spyOn(service, 'generateIconAtlas');
+    const generateIconImageSpy = vi.spyOn(service, 'generateIconImage');
+
+    const preset = await service.generateMapTheme('Auto fallback atlas failure', categories);
+
+    expect(generateContentMock).toHaveBeenCalledTimes(1);
+    expect(generateIconAtlasSpy).toHaveBeenCalledTimes(0);
+    expect(generateIconImageSpy).toHaveBeenCalledTimes(0);
+    expect(batchCreateMock).toHaveBeenCalledTimes(2);
+    expect(batchGetMock).toHaveBeenCalledTimes(2);
+    expect(batchDeleteMock).toHaveBeenCalledTimes(2);
+    expect(Object.keys(preset.iconsByCategory).length).toBe(41);
+  }, 15000);
+
+  it('activates cooldown after repeated 429 errors and skips remaining icon requests', async () => {
+    const baseStyle = {
+      version: 8,
+      sources: {
+        openfreemap: { type: 'vector', url: 'https://tiles.openfreemap.org/v1/openfreemap' }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#000000' } }
+      ]
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => baseStyle,
+    }));
+
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      // Run retry/backoff waits immediately in tests.
+      .mockImplementation((handler: any) => {
+        if (typeof handler === 'function') {
+          handler();
+        }
+        return 0 as any;
+      });
+
+    try {
+      generateContentMock.mockResolvedValueOnce({
+        text: JSON.stringify({
+          themeSpec: {
+            tokens: {
+              water: '#0a84ff',
+              primaryRoad: '#ff6b3d',
+              textPrimary: '#f8fbff',
+              haloPrimary: '#11182b'
+            }
+          },
+          popupStyle: {
+            backgroundColor: '#101828',
+            textColor: '#f8fafc',
+            borderColor: '#334155',
+            borderRadius: '10px',
+            fontFamily: 'Fira Sans'
+          },
+          iconTheme: 'Rate limit stress test'
+        })
+      });
+      generateContentMock.mockRejectedValue(rateLimitError);
+
+      const service = new GeminiService('valid-key', 'gemini-2.5-flash', 'gemini-2.5-flash-image', 'per-icon');
+      const preset = await service.generateMapTheme('Rate limit stress', ['A', 'B', 'C', 'D']);
+
+      // 1 text request + up to 5 image retry attempts, then cooldown prevents further image calls.
+      expect(generateContentMock.mock.calls.length).toBeLessThanOrEqual(7);
+      expect(Object.keys(preset.iconsByCategory)).toEqual(expect.arrayContaining(['Landmark']));
+      expect(Object.values(preset.iconsByCategory).every((icon) => !icon.imageUrl)).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+});

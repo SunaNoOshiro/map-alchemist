@@ -19,6 +19,23 @@ View your app in AI Studio: https://ai.studio/apps/drive/1vLhztt7l7Qs_Qu10L2KmPF
 3. Run the app:
    `npm run dev`
 
+## Theme Generation Architecture
+
+Generated themes now follow a deterministic pipeline:
+
+1. Gemini returns a strict `ThemeSpec` (design tokens + optional layer overrides + popup style + icon art direction).
+2. Map Alchemist builds a style catalog from the current OpenFreeMap Liberty template:
+   - all color-capable layer properties,
+   - semantic layer roles,
+   - literal `icon-image` keys and POI source-layer references.
+3. The compiler applies `ThemeSpec` tokens across all catalog targets to produce a full MapLibre style JSON.
+4. POI icon generation uses the canonical app POI taxonomy with deterministic fallback icon resolution.
+5. Cost guardrails are enforced during icon generation:
+   - auto mode per-icon fallback is capped,
+   - per-icon mode is hard-capped per run to avoid runaway API spend.
+
+This keeps style output stable and makes full-style export/import behavior consistent across in-app usage, package export, and published runtime embeds.
+
 ## Export MapLibre packages
 
 You can export a generated style (colors + AI icons) as a reusable MapLibre package for use in other sites/projects.

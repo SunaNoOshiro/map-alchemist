@@ -1,56 +1,101 @@
 import { useState, useEffect } from 'react';
-import { LogEntry, AiConfig, AiProvider } from '@/types';
-import { DEFAULT_AI_CONFIG, getAvailableModels } from '@/constants/aiConstants';
+import { LogEntry, AiConfig } from '@/types';
+import {
+    DEFAULT_AI_CONFIG,
+    getAvailableImageModels,
+    getAvailableTextModels,
+    sanitizeAiConfig
+} from '@/constants/aiConstants';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('AuthHook');
 const AI_CONFIG_STORAGE_KEY = 'mapAlchemistAiConfig';
+const GUEST_MODE_STORAGE_KEY = 'mapAlchemistGuestMode';
 
 export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [hasApiKey, setHasApiKey] = useState<boolean>(false);
     const [isGuestMode, setIsGuestMode] = useState<boolean>(false);
+    const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
     const [aiConfig, setAiConfig] = useState<AiConfig>(DEFAULT_AI_CONFIG);
-    const [availableModels, setAvailableModels] = useState<Record<string, string>>({});
+    const [availableTextModels, setAvailableTextModels] = useState<Record<string, string>>({});
+    const [availableImageModels, setAvailableImageModels] = useState<Record<string, string>>({});
 
     // Load AI config from storage on init
     useEffect(() => {
+        let cancelled = false;
+
         const loadConfig = () => {
             try {
                 const savedConfig = localStorage.getItem(AI_CONFIG_STORAGE_KEY);
                 if (savedConfig) {
                     const parsed = JSON.parse(savedConfig);
-                    setAiConfig(prev => ({
-                        ...prev,
-                        ...parsed,
-                        // Ensure we have valid defaults
-                        provider: parsed.provider || DEFAULT_AI_CONFIG.provider,
-                        model: parsed.model || DEFAULT_AI_CONFIG.model,
-                        apiKey: parsed.apiKey || '',
-                        isCustomKey: parsed.isCustomKey || false
-                    }));
+                    if (!cancelled) {
+                        setAiConfig(sanitizeAiConfig(parsed));
+                    }
                 }
             } catch (e) {
                 logger.error("Failed to load AI config", e);
             }
+
+            try {
+                if (!cancelled) {
+                    setIsGuestMode(localStorage.getItem(GUEST_MODE_STORAGE_KEY) === 'true');
+                }
+            } catch (e) {
+                logger.error("Failed to load guest mode", e);
+            }
         };
 
         const checkApiKey = async () => {
-            if ((window as any).aistudio) {
-                const has = await (window as any).aistudio.hasSelectedApiKey();
-                setHasApiKey(has);
-            } else {
-                setHasApiKey(false);
+            try {
+                if ((window as any).aistudio) {
+                    const has = await (window as any).aistudio.hasSelectedApiKey();
+                    if (!cancelled) {
+                        setHasApiKey(has);
+                    }
+                } else if (!cancelled) {
+                    setHasApiKey(false);
+                }
+            } catch (e) {
+                logger.error("Failed to check API key", e);
+                if (!cancelled) {
+                    setHasApiKey(false);
+                }
+            } finally {
+                if (!cancelled) {
+                    setIsAuthReady(true);
+                }
             }
         };
 
         loadConfig();
         checkApiKey();
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // Update available models when provider changes
     useEffect(() => {
-        setAvailableModels(getAvailableModels(aiConfig.provider));
+        const textModels = getAvailableTextModels(aiConfig.provider);
+        const imageModels = getAvailableImageModels(aiConfig.provider);
+        setAvailableTextModels(textModels);
+        setAvailableImageModels(imageModels);
     }, [aiConfig.provider]);
+
+    const persistGuestMode = (value: boolean) => {
+        setIsGuestMode(value);
+        try {
+            if (value) {
+                localStorage.setItem(GUEST_MODE_STORAGE_KEY, 'true');
+            } else {
+                localStorage.removeItem(GUEST_MODE_STORAGE_KEY);
+            }
+        } catch (e) {
+            logger.error("Failed to persist guest mode", e);
+        }
+    };
 
     const handleSelectKey = async () => {
         if ((window as any).aistudio) {
@@ -59,7 +104,7 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
                 const has = await (window as any).aistudio.hasSelectedApiKey();
                 if (has) {
                     setHasApiKey(true);
-                    setIsGuestMode(false);
+                    persistGuestMode(false);
                     addLog("API Key connected successfully.", "success");
                 }
             } catch (e) {
@@ -68,17 +113,22 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
             }
         } else {
             setHasApiKey(true);
+            persistGuestMode(false);
         }
     };
 
     const updateAiConfig = (newConfig: Partial<AiConfig>) => {
-        const updatedConfig = { ...aiConfig, ...newConfig };
+        const mergedConfig: AiConfig = {
+            ...aiConfig,
+            ...newConfig,
+        };
 
         // If API key is provided and different from default, mark as custom
         if (newConfig.apiKey && newConfig.apiKey !== DEFAULT_AI_CONFIG.apiKey) {
-            updatedConfig.isCustomKey = true;
+            mergedConfig.isCustomKey = true;
         }
 
+        const updatedConfig = sanitizeAiConfig(mergedConfig);
         setAiConfig(updatedConfig);
 
         // Save to localStorage
@@ -97,12 +147,14 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
     };
 
     return {
+        isAuthReady,
         hasApiKey,
         isGuestMode,
-        setIsGuestMode,
+        setIsGuestMode: persistGuestMode,
         handleSelectKey,
         aiConfig,
-        availableModels,
+        availableTextModels,
+        availableImageModels,
         updateAiConfig,
         validateApiKey
     };

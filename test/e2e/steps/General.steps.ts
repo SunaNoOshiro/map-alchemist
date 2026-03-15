@@ -3,6 +3,53 @@ import { expect } from '@playwright/test';
 
 const { Given, When, Then } = createBdd();
 
+const ICON_MODE_LABELS = {
+    auto: 'Auto (HQ Atlas 4x4 + Repair)',
+    'batch-async': 'Batch API (Async, Cheap)',
+    atlas: 'Atlas only',
+    'per-icon': 'Per-icon only'
+} as const;
+
+const resolveIconModeKey = (value: string): keyof typeof ICON_MODE_LABELS => {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'auto' || normalized === 'auto (hq atlas 4x4 + repair)' || normalized === 'auto (batch + smart fallback)') return 'auto';
+    if (normalized === 'batch' || normalized === 'batch-async' || normalized === 'batch api (async, cheap)') return 'batch-async';
+    if (normalized === 'atlas' || normalized === 'atlas only') return 'atlas';
+    if (normalized === 'per-icon' || normalized === 'per icon' || normalized === 'per-icon only') return 'per-icon';
+    throw new Error(`Unsupported icon generation mode: ${value}`);
+};
+
+const getVisibleModeTrigger = async (page: any) => {
+    const trigger = page.locator('[data-testid="icon-generation-mode-trigger"]:visible').first();
+
+    const bootstrapShell = page.getByTestId('app-bootstrap-shell');
+    if (await bootstrapShell.count()) {
+        await bootstrapShell.waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+            // Keep trying to locate the trigger even if the shell is extremely short-lived.
+        });
+    }
+
+    if (await trigger.count()) {
+        try {
+            await expect(trigger).toBeVisible({ timeout: 3000 });
+            return trigger;
+        } catch (_error) {
+            // Keep falling back to section expansion.
+        }
+    }
+
+    const aiSectionHeader = page.getByText('AI Configuration', { exact: true }).first();
+    if (await aiSectionHeader.count()) {
+        await aiSectionHeader.scrollIntoViewIfNeeded().catch(() => {
+            // Best effort only.
+        });
+        await aiSectionHeader.click({ force: true });
+    }
+
+    await expect(trigger).toBeVisible({ timeout: 10000 });
+    return trigger;
+};
+
 When('I click the "Continue as Guest" button', async ({ page }) => {
     await page.getByRole('button', { name: /Continue as Guest/i }).click();
 });
@@ -61,4 +108,25 @@ Then('the category group {string} should be expanded', async ({ page }, category
     if (categoryName === 'Food & Drink') {
         await expect(page.getByText('Restaurant', { exact: true })).toBeVisible();
     }
+});
+
+When('I set icon generation mode to {string}', async ({ page }, modeLabel) => {
+    const modeKey = resolveIconModeKey(modeLabel);
+    const trigger = await getVisibleModeTrigger(page);
+    await trigger.click();
+
+    const option = page.getByTestId(`icon-generation-mode-option-${modeKey}`).first();
+    await expect(option).toBeVisible();
+    await option.click();
+});
+
+Then('icon generation mode should be {string}', async ({ page }, modeLabel) => {
+    const modeKey = resolveIconModeKey(modeLabel);
+    const expectedLabel = ICON_MODE_LABELS[modeKey];
+    const trigger = await getVisibleModeTrigger(page);
+    await expect(trigger).toContainText(expectedLabel);
+});
+
+When('I reload the page', async ({ page }) => {
+    await page.reload({ waitUntil: 'domcontentloaded' });
 });

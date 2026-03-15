@@ -11,12 +11,77 @@ import { buildEmbedSnippet, buildRuntimeUrlFromStyleUrl } from '@features/styles
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('StyleManagerHook');
+const ACTIVE_STYLE_STORAGE_KEY = 'mapAlchemistActiveStyleId';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isImportablePresetCandidate = (value: unknown): value is MapStylePreset => {
+    if (!isRecord(value)) return false;
+    return typeof value.id === 'string' &&
+        value.id.trim().length > 0 &&
+        typeof value.name === 'string' &&
+        value.name.trim().length > 0 &&
+        'mapStyleJson' in value;
+};
+
+export const extractImportableStyles = (
+    rawImport: unknown,
+    defaultThemeIds: string[]
+): MapStylePreset[] => {
+    if (!Array.isArray(rawImport)) return [];
+
+    const defaultIds = new Set(defaultThemeIds);
+    const seenImportIds = new Set<string>();
+    const styles: MapStylePreset[] = [];
+
+    rawImport.forEach((candidate) => {
+        if (!isImportablePresetCandidate(candidate)) return;
+        if (defaultIds.has(candidate.id)) return;
+        if (seenImportIds.has(candidate.id)) return;
+        seenImportIds.add(candidate.id);
+        styles.push(candidate);
+    });
+
+    return styles;
+};
+
+export const mergeImportedStyles = (
+    existingStyles: MapStylePreset[],
+    importedStyles: MapStylePreset[]
+): { mergedStyles: MapStylePreset[]; importedCount: number; skippedCount: number } => {
+    if (importedStyles.length === 0) {
+        return { mergedStyles: existingStyles, importedCount: 0, skippedCount: 0 };
+    }
+
+    const existingIds = new Set(existingStyles.map((style) => style.id));
+    const dedupedImports = importedStyles.filter((style) => !existingIds.has(style.id));
+    const skippedCount = importedStyles.length - dedupedImports.length;
+
+    return {
+        mergedStyles: [...existingStyles, ...dedupedImports],
+        importedCount: dedupedImports.length,
+        skippedCount
+    };
+};
+
+export const resolveInitialActiveStyleId = (
+    availableStyles: MapStylePreset[],
+    preferredStyleId: string | null | undefined
+): string | null => {
+    if (availableStyles.length === 0) return null;
+    if (preferredStyleId && availableStyles.some((style) => style.id === preferredStyleId)) {
+        return preferredStyleId;
+    }
+    return availableStyles[0].id;
+};
 
 export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [styles, setStyles] = useState<MapStylePreset[]>([]);
     const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
     const [defaultThemes, setDefaultThemes] = useState<MapStylePreset[]>([DEFAULT_STYLE_PRESET]);
     const [defaultThemeIds, setDefaultThemeIds] = useState<string[]>([DEFAULT_STYLE_PRESET.id]);
+    const [isStylesReady, setIsStylesReady] = useState<boolean>(false);
     const [maputnikPublishStage, setMaputnikPublishStage] = useState<'idle' | 'pre' | 'publishing' | 'done' | 'error'>('idle');
     const [maputnikPublishInfo, setMaputnikPublishInfo] = useState<{
         styleUrl: string;
@@ -29,47 +94,72 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
 
     // Load Data
     useEffect(() => {
-        const loadData = async () => {
-            const savedStyles = await storageService.getStyles();
-            if (savedStyles && savedStyles.length > 0) {
-                setStyles(savedStyles);
-                setActiveStyleId(savedStyles[0].id);
+        let cancelled = false;
 
-                const bundled = savedStyles.filter(s => s.isBundledDefault);
-                if (bundled.length > 0) {
-                    setDefaultThemes(bundled);
-                    setDefaultThemeIds(bundled.map(s => s.id));
+        const loadData = async () => {
+            try {
+                const preferredStyleId =
+                    typeof window !== 'undefined' ? localStorage.getItem(ACTIVE_STYLE_STORAGE_KEY) : null;
+                const savedStyles = await storageService.getStyles();
+                if (cancelled) return;
+
+                if (savedStyles && savedStyles.length > 0) {
+                    setStyles(savedStyles);
+                    setActiveStyleId(resolveInitialActiveStyleId(savedStyles, preferredStyleId));
+
+                    const bundled = savedStyles.filter(s => s.isBundledDefault);
+                    if (bundled.length > 0) {
+                        setDefaultThemes(bundled);
+                        setDefaultThemeIds(bundled.map(s => s.id));
+                    }
+
+                    addLog("Loaded existing styles.", "info");
+                    return;
                 }
 
-                addLog("Loaded existing styles.", "info");
-                return;
-            }
+                const { themes, defaultIds } = await fetchDefaultThemes();
+                if (cancelled) return;
 
-            const { themes, defaultIds } = await fetchDefaultThemes();
-            if (themes.length > 0) {
-                setStyles(themes);
-                setActiveStyleId(themes[0].id);
-                setDefaultThemes(themes);
-                setDefaultThemeIds(defaultIds);
-                addLog("Bundled default themes loaded.", "info");
-                return;
-            }
+                if (themes.length > 0) {
+                    setStyles(themes);
+                    setActiveStyleId(resolveInitialActiveStyleId(themes, preferredStyleId));
+                    setDefaultThemes(themes);
+                    setDefaultThemeIds(defaultIds);
+                    addLog("Bundled default themes loaded.", "info");
+                    return;
+                }
 
-            setStyles([DEFAULT_STYLE_PRESET]);
-            setActiveStyleId(DEFAULT_STYLE_PRESET.id);
-            setDefaultThemes([DEFAULT_STYLE_PRESET]);
-            setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
-            addLog("Standard theme loaded.", "info");
+                setStyles([DEFAULT_STYLE_PRESET]);
+                setActiveStyleId(DEFAULT_STYLE_PRESET.id);
+                setDefaultThemes([DEFAULT_STYLE_PRESET]);
+                setDefaultThemeIds([DEFAULT_STYLE_PRESET.id]);
+                addLog("Standard theme loaded.", "info");
+            } finally {
+                if (!cancelled) {
+                    setIsStylesReady(true);
+                }
+            }
         };
         loadData();
-    }, []);
+        return () => {
+            cancelled = true;
+        };
+    }, [addLog]);
 
     // Save Data
     useEffect(() => {
-        if (styles.length > 0) {
+        if (isStylesReady && styles.length > 0) {
             storageService.saveStyles(styles);
         }
-    }, [styles]);
+    }, [isStylesReady, styles]);
+
+    useEffect(() => {
+        if (!isStylesReady || !activeStyleId || typeof window === 'undefined') {
+            return;
+        }
+
+        localStorage.setItem(ACTIVE_STYLE_STORAGE_KEY, activeStyleId);
+    }, [activeStyleId, isStylesReady]);
 
     const handleExport = () => {
         const customStyles = styles.filter(s => !defaultThemeIds.includes(s.id));
@@ -385,13 +475,19 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
             try {
                 const imported = JSON.parse(evt.target?.result as string);
                 if (Array.isArray(imported)) {
-                    // Re-generate IDs to avoid conflicts? Original didn't. 
-                    // But filter out ones that might clash with defaults if logic demands.
-                    // Original filtered '!defaultThemeIds.includes'.
-                    // We need ensure we don't import duplicates or broken ones.
-                    const validImports = imported.filter((s: MapStylePreset) => !defaultThemeIds.includes(s.id));
-                    setStyles(prev => [...prev, ...validImports]);
-                    addLog(`Imported ${validImports.length} styles.`, "success");
+                    const validImports = extractImportableStyles(imported, defaultThemeIds);
+                    if (validImports.length === 0) {
+                        addLog("No valid custom styles found in import file.", "warning");
+                        return;
+                    }
+                    const merged = mergeImportedStyles(styles, validImports);
+                    setStyles(merged.mergedStyles);
+                    const message = merged.skippedCount > 0
+                        ? `Imported ${merged.importedCount} styles. Skipped ${merged.skippedCount} duplicates.`
+                        : `Imported ${merged.importedCount} styles.`;
+                    addLog(message, "success");
+                } else {
+                    addLog("Import file must contain a JSON array of styles.", "error");
                 }
             } catch (err) {
                 addLog("Failed to parse JSON.", "error");
@@ -428,6 +524,7 @@ export const useStyleManager = (addLog: (msg: string, type?: LogEntry['type']) =
         setStyles,
         activeStyleId,
         setActiveStyleId,
+        isStylesReady,
         defaultThemeIds,
         maputnikPublishStage,
         maputnikPublishInfo,

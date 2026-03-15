@@ -1,274 +1,227 @@
-import { GoogleGenAI } from "@google/genai";
-import { v4 as uuidv4 } from 'uuid';
-import { IAiService } from "@core/services/ai/IAiService";
-import { ImageSize, IconDefinition, MapStylePreset, PopupStyle } from "@/types";
-import { createLogger } from "@core/logger";
+import { IconAtlasResult } from '@core/services/ai/IAiService';
+import { ImageSize, IconGenerationMode } from '@/types';
+import { createLogger } from '@core/logger';
+import { buildIconAtlasLayout } from './iconAtlasUtils';
+import { AbstractAiService } from './AbstractAiService';
+import {
+  IMAGE_RATE_LIMIT_USER_MESSAGE,
+  isGeminiRateLimitError,
+  toUserFacingGeminiError
+} from './gemini/geminiErrors';
+import {
+  createGeminiAsyncBatchTransport,
+  extractInlineImageDataUrl,
+  getClient
+} from './gemini/geminiBatchTransport';
 
 const logger = createLogger('GeminiService');
+const ICON_ATLAS_GRID_DIM = 4;
+const ICON_ATLAS_CHUNK_SIZE = ICON_ATLAS_GRID_DIM * ICON_ATLAS_GRID_DIM;
+const ICON_ATLAS_RETRY_PASSES = 1;
+const ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB = 24;
+const ICON_ASYNC_BATCH_MAX_ICONS_PER_JOB = 24;
+const ICON_ASYNC_BATCH_MAX_RETRY_ICONS = 48;
+const ICON_ASYNC_BATCH_POLL_INTERVAL_MS = 5000;
+const ICON_ASYNC_BATCH_POLL_TIMEOUT_MS = 480000;
+const ICON_PER_ICON_MAX_CALLS = 32;
+const IMAGE_REQUEST_MIN_INTERVAL_MS = 180;
+const IMAGE_RATE_LIMIT_MAX_RETRIES = 4;
+const IMAGE_RATE_LIMIT_BACKOFF_BASE_MS = 400;
+const IMAGE_RATE_LIMIT_BACKOFF_MAX_MS = 4000;
+const IMAGE_RATE_LIMIT_COOLDOWN_MS = 45000;
+const IMAGE_PROCESSING_TIMEOUT_MS = 5000;
+const TRANSPARENT_PLACEHOLDER_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-// Helper functions (kept local to the module)
-const getClient = (apiKey: string) => {
-    if (!apiKey) throw new Error("API Key not found.");
-    return new GoogleGenAI({ apiKey });
-};
-
-const tryParseJSON = (jsonString: string) => {
-    try {
-        return JSON.parse(jsonString);
-    } catch (e) {
-        logger.warn("JSON Parse failed, attempting repair...");
-        try {
-            let trimmed = jsonString.trim();
-            // Remove markdown code blocks if present
-            if (trimmed.startsWith('```json')) {
-                trimmed = trimmed.replace(/^```json/, '').replace(/```$/, '');
-            } else if (trimmed.startsWith('```')) {
-                trimmed = trimmed.replace(/^```/, '').replace(/```$/, '');
-            }
-
-            if (trimmed.endsWith(',')) trimmed = trimmed.slice(0, -1);
-            const lastBrace = trimmed.lastIndexOf('}');
-            if (lastBrace > -1) {
-                return JSON.parse(trimmed.substring(0, lastBrace + 1));
-            }
-        } catch (repairError) {
-            logger.error("JSON Repair failed", repairError);
-        }
-        return { mapStyle: {}, popupStyle: null };
+export class GeminiService extends AbstractAiService {
+    constructor(
+        apiKey: string,
+        textModel: string,
+        imageModel: string,
+        iconGenerationMode: IconGenerationMode = 'auto'
+    ) {
+        super(apiKey, textModel, imageModel, iconGenerationMode);
     }
-};
 
-const removeBackground = (base64Image: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                resolve(base64Image);
-                return;
-            }
-            ctx.drawImage(img, 0, 0);
-
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-
-            const bgR = data[0];
-            const bgG = data[1];
-            const bgB = data[2];
-
-            const tolerance = 120;
-
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-
-                const dist = Math.sqrt(
-                    (r - bgR) ** 2 +
-                    (g - bgG) ** 2 +
-                    (b - bgB) ** 2
+    private async generateImageContentWithRetries(contents: string) {
+        const client = getClient(this.apiKey);
+        return this.runWithImageRateLimitRetries({
+            operation: () =>
+                client.models.generateContent({
+                    model: this.imageModel,
+                    contents
+                }),
+            isRateLimitError: isGeminiRateLimitError,
+            toUserFacingError: toUserFacingGeminiError,
+            maxRetries: IMAGE_RATE_LIMIT_MAX_RETRIES,
+            backoffBaseMs: IMAGE_RATE_LIMIT_BACKOFF_BASE_MS,
+            backoffMaxMs: IMAGE_RATE_LIMIT_BACKOFF_MAX_MS,
+            minIntervalMs: IMAGE_REQUEST_MIN_INTERVAL_MS,
+            cooldownMs: IMAGE_RATE_LIMIT_COOLDOWN_MS,
+            onRetry: (retryIndex, backoffMs) => {
+                logger.warn(
+                    `Image model rate-limited (attempt ${retryIndex + 1}/${IMAGE_RATE_LIMIT_MAX_RETRIES + 1}). Retrying in ${backoffMs}ms...`
                 );
-
-                if (dist < tolerance) {
-                    data[i + 3] = 0;
-                }
-            }
-
-            ctx.putImageData(imageData, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
-        };
-        img.onerror = (e) => {
-            logger.error("Image processing failed", e);
-            resolve(base64Image);
-        };
-        img.src = base64Image;
-    });
-};
-
-const generateMapVisuals = async (prompt: string, apiKey: string, model: string): Promise<{ mapStyle: any, popupStyle: PopupStyle, iconTheme: string }> => {
-    const client = getClient(apiKey);
-
-    const systemInstruction = `You are a Mapbox Style Generator. Output JSON ONLY.
-    Task: Create a visual theme definition based on: "${prompt}".
-  
-    You must output a JSON object with:
-    1. "mapColors": A simple object defining hex codes for standard MapLibre layers.
-       Keys MUST be: "water", "land", "building", "road", "park", "text".
-    2. "popupStyle": Styling for info windows.
-    3. "iconTheme": Art direction description.
-  
-    Response Format:
-    {
-      "mapColors": {
-        "water": "#...",
-        "land": "#...",
-        "building": "#...",
-        "road": "#...",
-        "park": "#...",
-        "text": "#..."
-      },
-      "popupStyle": { "backgroundColor": "#...", "textColor": "#...", "borderColor": "#...", "borderRadius": "...", "fontFamily": "..." },
-      "iconTheme": "A string describing the icon style..."
-    }`;
-
-    try {
-        const response = await client.models.generateContent({
-            model: model,
-            contents: `Generate map theme for: "${prompt}".`,
-            config: {
-                systemInstruction,
-                responseMimeType: "application/json",
             }
         });
+    }
 
-        let result;
-        if (response.text) {
-            result = tryParseJSON(response.text);
-        } else {
-            throw new Error("No text returned from model");
+    private createGeminiBatchTransport(displayNamePrefix: string) {
+        return createGeminiAsyncBatchTransport(this.apiKey, this.imageModel, displayNamePrefix);
+    }
+
+    async generateIconAtlas(
+        categories: string[],
+        styleDescription: string,
+        size: ImageSize = '1K',
+        options: { fixedColumns?: number; fixedRows?: number } = {}
+    ): Promise<IconAtlasResult> {
+        const normalizedCategories = [...new Set(categories.map((category) => category.trim()).filter(Boolean))];
+
+        if (normalizedCategories.length === 0) {
+            return {
+                atlasImageUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+                entries: {}
+            };
         }
 
-        return {
-            mapStyle: result.mapColors || { water: '#a0c8f0', land: '#f0f0f0' },
-            popupStyle: result.popupStyle || {
-                backgroundColor: '#ffffff',
-                textColor: '#000000',
-                borderColor: '#cccccc',
-                borderRadius: '8px',
-                fontFamily: 'sans-serif'
-            },
-            iconTheme: result.iconTheme || `Minimalist flat icons matching ${prompt}`
-        };
+        const layout = buildIconAtlasLayout(normalizedCategories, { size, ...options });
+        const prompt = this.buildAtlasPrompt(normalizedCategories, styleDescription, size, options);
 
-    } catch (error) {
-        logger.error("Style Generation Error:", error);
-        return {
-            mapStyle: {},
-            popupStyle: { backgroundColor: '#fff', textColor: '#000', borderColor: '#ccc', borderRadius: '4px', fontFamily: 'Arial' },
-            iconTheme: `Simple icons for ${prompt}`
-        };
-    }
-};
+        const response = await this.generateImageContentWithRetries(prompt);
 
-export class GeminiService implements IAiService {
-    private apiKey: string;
-    private model: string;
+        const rawBase64 = extractInlineImageDataUrl(response);
+        if (rawBase64) {
+            return {
+                atlasImageUrl: rawBase64,
+                entries: layout.entries
+            };
+        }
 
-    constructor(apiKey: string, model: string) {
-        this.apiKey = apiKey;
-        this.model = model;
+        throw new Error('No atlas image data returned.');
     }
 
     async generateIconImage(category: string, styleDescription: string, size?: ImageSize): Promise<string> {
-        const client = getClient(this.apiKey);
-
-        const prompt = `Create a single graphical SYMBOL representing: "${category}".
-      
-      ART DIRECTION / THEME: ${styleDescription}
-      
-      CRITICAL INSTRUCTIONS:
-      1. **SUBJECT**: 
-         - Draw an OBJECT, ITEM, or CHARACTER FACE that visually explains "${category}".
-         - **THEME INTEGRATION**: The object MUST look like it belongs in the world of the theme.
-      2. **VISUAL STYLE**:
-         - **VIBRANT**: Use bold, saturated colors suitable for the theme.
-         - **FLAT / VECTOR / STICKER**: Clean lines, no noise.
-         - **ICONOGRAPHY**: Must be readable at 32px. Big shapes.
-      3. **COMPOSITION**:
-         - **FILL THE FRAME**: The subject must occupy 90% of the image canvas. **ZOOM IN.**
-         - **CENTERED**: The object must be perfectly centered.
-         - **BACKGROUND**: SOLID BRIGHT GREEN (Hex #00FF00) for chroma keying. NO gradients, NO shadows on background.
-      4. **NO TEXT**.
-      `;
+        const prompt = this.buildSingleIconPrompt(category, styleDescription);
 
         try {
-            const response = await client.models.generateContent({
-                model: this.model,
-                contents: prompt,
-            });
+            const response = await this.generateImageContentWithRetries(prompt);
 
-            const parts = response.candidates?.[0]?.content?.parts;
-            if (parts) {
-                for (const part of parts) {
-                    if (part.inlineData && part.inlineData.data) {
-                        const rawBase64 = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                        const processedImage = await removeBackground(rawBase64);
-                        return processedImage;
-                    }
-                }
+            const rawBase64 = extractInlineImageDataUrl(response);
+            if (rawBase64) {
+                const processedImage = await this.removeBackground(rawBase64, IMAGE_PROCESSING_TIMEOUT_MS);
+                return processedImage;
             }
             throw new Error("No image data returned.");
         } catch (error) {
+            const userFacingError = toUserFacingGeminiError(error);
+            if (userFacingError) {
+                logger.error(`Icon Generation Error (${category}):`, error);
+                throw userFacingError;
+            }
+
+            if (isGeminiRateLimitError(error)) {
+                logger.warn(`Icon Generation Rate Limited (${category})`, error);
+                throw new Error(IMAGE_RATE_LIMIT_USER_MESSAGE);
+            }
+
             logger.error(`Icon Generation Error (${category}):`, error);
-            return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+            return TRANSPARENT_PLACEHOLDER_ICON;
         }
     }
 
-    async generateMapTheme(prompt: string, categories: string[], onProgress?: (message: string) => void): Promise<MapStylePreset> {
-        onProgress?.("Designing visual language & palette...");
-        const visualsPromise = generateMapVisuals(prompt, this.apiKey, this.model);
-        const visuals = await visualsPromise;
+    protected async buildProviderThemeVisuals(prompt: string) {
+        const client = getClient(this.apiKey);
 
-        const iconTheme = visuals.iconTheme;
-        onProgress?.(`Art Direction: ${iconTheme.substring(0, 50)}...`);
-
-        onProgress?.(`Generating ${categories.length} icons in parallel...`);
-
-        let completedCount = 0;
-        const totalCount = categories.length;
-
-        const batchSize = 6;
-        const icons: IconDefinition[] = [];
-
-        for (let i = 0; i < categories.length; i += batchSize) {
-            const batch = categories.slice(i, i + batchSize);
-
-            const batchPromises = batch.map(async (cat) => {
-                try {
-                    const imageUrl = await this.generateIconImage(cat, iconTheme, '1K');
-                    return {
-                        category: cat,
-                        prompt: iconTheme,
-                        imageUrl,
-                        isLoading: false
-                    } as IconDefinition;
-                } catch (e) {
-                    return {
-                        category: cat,
-                        prompt: iconTheme,
-                        imageUrl: null,
-                        isLoading: false
-                    } as IconDefinition;
-                } finally {
-                    completedCount++;
-                    onProgress?.(`Created icon for ${cat} (${completedCount}/${totalCount})`);
+        try {
+            const response = await client.models.generateContent({
+                model: this.textModel,
+                contents: `Generate a complete themed map design package for "${prompt}".`,
+                config: {
+                    systemInstruction: this.buildThemeSystemInstruction(prompt),
+                    responseMimeType: "application/json",
                 }
             });
 
-            const batchResults = await Promise.all(batchPromises);
-            icons.push(...batchResults);
+            if (!response.text) {
+                throw new Error("No text returned from model");
+            }
+
+            const result = this.tryParseJson(response.text);
+            return await this.buildThemeVisualPackage(result, prompt);
+        } catch (error) {
+            const userFacingError = toUserFacingGeminiError(error);
+            if (userFacingError) {
+                logger.error("Style Generation Error:", error);
+                throw userFacingError;
+            }
+
+            logger.error("Style Generation Error:", error);
+            return this.buildThemeVisualPackage({}, prompt, 'Simple icons for');
         }
+    }
 
-        onProgress?.("Finalizing theme...");
-
-        const iconsByCategory: Record<string, IconDefinition> = {};
-        icons.forEach(icon => {
-            iconsByCategory[icon.category] = icon;
-        });
-
+    protected getProviderIconPipelineConfig(_onProgress?: (message: string) => void) {
         return {
-            id: uuidv4(),
-            name: prompt.split(' ').slice(0, 4).join(' ') + '...',
-            prompt,
-            iconTheme,
-            createdAt: new Date().toISOString(),
-            mapStyleJson: visuals.mapStyle,
-            popupStyle: visuals.popupStyle,
-            iconsByCategory
+            placeholderIcon: TRANSPARENT_PLACEHOLDER_ICON,
+            perIconMaxCalls: ICON_PER_ICON_MAX_CALLS,
+            rateLimitLabel: 'Image model',
+            isRateLimitError: isGeminiRateLimitError,
+            toUserFacingError: toUserFacingGeminiError,
+            cooldownMs: IMAGE_RATE_LIMIT_COOLDOWN_MS,
+            onWarning: (message: string, error?: unknown) => {
+                if (typeof error === 'undefined') {
+                    logger.warn(message);
+                    return;
+                }
+                logger.warn(message, error);
+            },
+            grid: {
+                chunkSize: ICON_ATLAS_CHUNK_SIZE,
+                fixedColumns: ICON_ATLAS_GRID_DIM,
+                fixedRows: ICON_ATLAS_GRID_DIM,
+            },
+            asyncIconChunkSize: ICON_ASYNC_BATCH_MAX_ICONS_PER_JOB,
+            asyncIconChunk: (chunk: string[], styleDescription: string, 
+                onProgress?: (message: string) => void) =>
+                this.runAsyncIconChunkViaTransport(chunk, styleDescription, onProgress, {
+                    transport: this.createGeminiBatchTransport('mapalchemist-icons'),
+                    isRateLimitError: isGeminiRateLimitError,
+                    toUserFacingError: toUserFacingGeminiError,
+                    minIntervalMs: IMAGE_REQUEST_MIN_INTERVAL_MS,
+                    maxRetries: IMAGE_RATE_LIMIT_MAX_RETRIES,
+                    backoffBaseMs: IMAGE_RATE_LIMIT_BACKOFF_BASE_MS,
+                    backoffMaxMs: IMAGE_RATE_LIMIT_BACKOFF_MAX_MS,
+                    cooldownMs: IMAGE_RATE_LIMIT_COOLDOWN_MS,
+                    pollIntervalMs: ICON_ASYNC_BATCH_POLL_INTERVAL_MS,
+                    pollTimeoutMs: ICON_ASYNC_BATCH_POLL_TIMEOUT_MS,
+                    createRetryLabel: 'Async batch creation',
+                    createCooldownErrorPrefix: 'Image model rate limit cooldown active',
+                    pollRetryLabel: 'Batch polling',
+                    imageProcessingTimeoutMs: IMAGE_PROCESSING_TIMEOUT_MS
+                }),
+            asyncRetryMaxIcons: ICON_ASYNC_BATCH_MAX_RETRY_ICONS,
+            atlasRetryPasses: ICON_ATLAS_RETRY_PASSES,
+            asyncAtlas: {
+                maxChunksPerBatch: ICON_ATLAS_ASYNC_BATCH_MAX_CHUNKS_PER_JOB,
+                transport: this.createGeminiBatchTransport('mapalchemist-atlas'),
+                minIntervalMs: IMAGE_REQUEST_MIN_INTERVAL_MS,
+                maxRetries: IMAGE_RATE_LIMIT_MAX_RETRIES,
+                backoffBaseMs: IMAGE_RATE_LIMIT_BACKOFF_BASE_MS,
+                backoffMaxMs: IMAGE_RATE_LIMIT_BACKOFF_MAX_MS,
+                pollIntervalMs: ICON_ASYNC_BATCH_POLL_INTERVAL_MS,
+                pollTimeoutMs: ICON_ASYNC_BATCH_POLL_TIMEOUT_MS,
+                createRetryLabel: 'Async batch creation',
+                createCooldownErrorPrefix: 'Image model rate limit cooldown active',
+                pollRetryLabel: 'Batch polling',
+                buildChunkMetadata: ({ passLabel: metadataPassLabel, chunkNumber }) => ({
+                    mode: 'atlas',
+                    pass: metadataPassLabel,
+                    chunk: String(chunkNumber)
+                })
+            },
+            onCellRejected: (category: string, validation: any) => {
+                logger.debug(`Atlas cell rejected for "${category}"`, validation);
+            }
         };
     }
 }

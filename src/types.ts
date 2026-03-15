@@ -66,6 +66,14 @@ export interface PlaceMarker {
 
   // Data
   description?: string;
+  address?: string;
+  website?: string;
+  phone?: string;
+  opening_hours?: string;
+  wikidata?: string;
+  wikipedia?: string;
+  image?: string;
+  wikimedia_commons?: string;
   rating?: number;
   user_ratings_total?: number;
 
@@ -82,7 +90,54 @@ export interface PlaceMarker {
   tags?: Record<string, string>;
 }
 
+export interface PoiPopupDetails {
+  status: 'idle' | 'loading' | 'loaded' | 'error';
+  address?: string;
+  website?: string;
+  phone?: string;
+  openingHours?: string;
+  summary?: string;
+  cuisine?: string;
+  operator?: string;
+  brand?: string;
+  wikipediaUrl?: string;
+  osmUrl?: string;
+  googleMapsUrl: string;
+  googleExactLocationUrl?: string;
+  photoUrl?: string;
+  photoAttributionText?: string;
+  photoAttributionUrl?: string;
+  photoCandidates?: PoiPopupPhotoCandidate[];
+}
+
+export interface PopupPhotoPresentation {
+  categoryProfile: 'scenic' | 'business' | 'compact';
+  resolutionBand: 'unknown' | 'low' | 'medium' | 'high';
+  frameHeight: number;
+  objectFit: 'cover' | 'contain';
+  objectPosition: string;
+  surfaceColor: string;
+}
+
+export interface PoiPopupPhotoCandidate {
+  url: string;
+  attributionText?: string;
+  attributionUrl?: string;
+  width?: number;
+  height?: number;
+  source:
+    | 'osm-image'
+    | 'wikimedia-commons'
+    | 'commons-geosearch'
+    | 'wikipedia-thumbnail'
+    | 'wikipedia-pageimage'
+    | 'wikipedia-geosearch'
+    | 'wikidata-image'
+    | 'commons-pageimage';
+}
+
 export type ImageSize = '1K' | '2K' | '4K';
+export type IconGenerationMode = 'auto' | 'batch-async' | 'atlas' | 'per-icon';
 
 export enum AppStatus {
   IDLE = 'IDLE',
@@ -91,11 +146,13 @@ export enum AppStatus {
 }
 
 // AI Provider Types
-export type AiProvider = 'google-gemini';
+export type AiProvider = 'google-gemini' | 'openai';
 
 export interface AiConfig {
   provider: AiProvider;
-  model: string;
+  textModel: string;
+  imageModel: string;
   apiKey: string;
   isCustomKey: boolean;
+  iconGenerationMode: IconGenerationMode;
 }

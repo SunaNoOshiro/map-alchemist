@@ -6,9 +6,32 @@ import { createLogger } from '@core/logger';
 const logger = createLogger('MapLibreAdapter');
 const APP_POPUP_CLASS = 'mapalchemist-app-popup';
 const APP_POPUP_STYLE_TAG_ID = 'mapalchemist-app-popup-style';
+const MAPLIBRE_NUMERIC_NULL_WARNING = 'Expected value to be of type number, but found null instead.';
+
+const installConsoleWarnFilter = () => {
+    if (typeof window === 'undefined' || typeof console === 'undefined') return;
+    const patchedFlag = '__mapAlchemistWarnFilterInstalled';
+    if ((window as any)[patchedFlag]) return;
+
+    const originalWarn = console.warn.bind(console);
+    console.warn = (...args: unknown[]) => {
+        const firstArg = typeof args[0] === 'string' ? args[0] : '';
+        // Some third-party base styles emit this warning frequently for nullable
+        // feature properties. It is noisy and not actionable in app runtime.
+        if (firstArg.includes(MAPLIBRE_NUMERIC_NULL_WARNING)) return;
+        originalWarn(...args as any[]);
+    };
+
+    (window as any)[patchedFlag] = true;
+};
 
 // --- WORKER CONFIG ---
 try {
+    // Keep MapLibre warnings out of user-facing console.
+    // External base styles can emit noisy non-actionable warnings (e.g. nullable numeric features).
+    if (typeof (maplibregl as any).setLogLevel === 'function') {
+        (maplibregl as any).setLogLevel('error');
+    }
     // @ts-ignore
     maplibregl.workerUrl = "https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl-csp-worker.js";
 } catch (e) {
@@ -67,6 +90,8 @@ export class MapLibreAdapter implements IMapController {
     private popup: maplibregl.Popup | null = null;
 
     initialize(container: HTMLElement, style?: any, onLoad?: () => void): void {
+        installConsoleWarnFilter();
+
         this.map = new maplibregl.Map({
             container,
             style: style || { version: 8, sources: {}, layers: [] },
@@ -83,9 +108,18 @@ export class MapLibreAdapter implements IMapController {
         this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
         this.map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
 
-        this.map.on('load', () => {
+        let didNotifyReady = false;
+        const notifyReady = () => {
+            if (didNotifyReady) return;
+            didNotifyReady = true;
             if (onLoad) onLoad();
-        });
+        };
+
+        // `load` can lag behind the first correct style paint for remote styles.
+        // `styledata` lets the app reveal the selected theme sooner while `load`
+        // still acts as a safety net if the style pipeline behaves differently.
+        this.map.once('styledata', notifyReady);
+        this.map.once('load', notifyReady);
 
         // Fallback image handler
         this.map.on('styleimagemissing', (e) => {
@@ -173,6 +207,10 @@ export class MapLibreAdapter implements IMapController {
             this.popup.remove();
             this.popup = null;
         }
+    }
+
+    getPopupElement(): HTMLElement | null {
+        return this.popup?.getElement() || null;
     }
 
     on(event: string, callback: MapEventHandler, layerId?: string): void {

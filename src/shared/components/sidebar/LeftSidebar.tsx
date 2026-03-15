@@ -34,7 +34,8 @@ interface LeftSidebarProps {
   hasApiKey: boolean;
   onConnectApi: () => void;
   aiConfig: AiConfig;
-  availableModels: Record<string, string>;
+  availableTextModels: Record<string, string>;
+  availableImageModels: Record<string, string>;
   onUpdateAiConfig: (config: Partial<AiConfig>) => void;
 }
 
@@ -61,7 +62,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   hasApiKey,
   onConnectApi,
   aiConfig,
-  availableModels,
+  availableTextModels,
+  availableImageModels,
   onUpdateAiConfig
 }) => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -128,7 +130,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                     <div className="p-2">
                       <AiSettingsPanel
                         aiConfig={aiConfig}
-                        availableModels={availableModels}
+                        availableTextModels={availableTextModels}
+                        availableImageModels={availableImageModels}
                         onUpdateAiConfig={onUpdateAiConfig}
                         onConnectApi={onConnectApi}
                         hasApiKey={hasApiKey}

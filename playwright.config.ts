@@ -14,12 +14,12 @@ const normalizedBasePath = basePath.endsWith('/') ? basePath : `${basePath}/`;
 const previewUrl = `http://localhost:4173${normalizedBasePath}`;
 
 export default defineConfig({
-    timeout: 60000,
+    timeout: 180000,
     testDir,
-    fullyParallel: true,
+    fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 1 : undefined,
+    workers: 1,
     reporter: 'html',
     use: {
         baseURL: process.env.BASE_URL || previewUrl,

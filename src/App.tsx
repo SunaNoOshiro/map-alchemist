@@ -9,6 +9,17 @@ import { useStyleManager } from '@features/styles/hooks/useStyleManager';
 import { useAppAuth } from '@features/auth/hooks/useAppAuth';
 import { useMapGeneration } from '@features/ai/hooks/useMapGeneration';
 
+const AppBootstrapShell = () => (
+  <div className="h-screen w-screen overflow-hidden bg-gray-950 text-white" data-testid="app-bootstrap-shell" aria-hidden="true">
+    <div className="h-16 border-b border-gray-800 bg-gray-900/95" />
+    <div className="flex h-[calc(100vh-4rem)]">
+      <div className="hidden w-80 border-r border-gray-800 bg-gray-900/90 sm:block" />
+      <div className="flex-1 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_40%),linear-gradient(180deg,_#0f172a_0%,_#111827_100%)]" />
+      <div className="hidden w-72 border-l border-gray-800 bg-gray-900/90 lg:block" />
+    </div>
+  </div>
+);
+
 function App() {
   // Shared State (Logs)
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -23,12 +34,12 @@ function App() {
 
   // State & Logic Hooks
   const {
-    hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey,
-    aiConfig, availableModels, updateAiConfig, validateApiKey
+    isAuthReady, hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey,
+    aiConfig, availableTextModels, availableImageModels, updateAiConfig, validateApiKey
   } = useAppAuth(addLog);
 
   const {
-    styles, setStyles, activeStyleId, setActiveStyleId,
+    styles, setStyles, activeStyleId, setActiveStyleId, isStylesReady,
     maputnikPublishStage, maputnikPublishInfo, maputnikPublishError,
     maputnikDemoPoisEnabled, setMaputnikDemoPoisEnabled,
     handleExport,
@@ -52,6 +63,10 @@ function App() {
   // Local UI State
   const [prompt, setPrompt] = useState('');
 
+  if (!isAuthReady) {
+    return <AppBootstrapShell />;
+  }
+
   // 1. Auth Guard
   if (!hasApiKey && !isGuestMode && !aiConfig.apiKey) {
     return (
@@ -59,10 +74,15 @@ function App() {
         onConnect={handleSelectKey}
         onGuestAccess={() => setIsGuestMode(true)}
         aiConfig={aiConfig}
-        availableModels={availableModels}
+        availableTextModels={availableTextModels}
+        availableImageModels={availableImageModels}
         onUpdateAiConfig={updateAiConfig}
       />
     );
+  }
+
+  if (!isStylesReady) {
+    return <AppBootstrapShell />;
   }
 
   // 2. Main Application
@@ -77,7 +97,8 @@ function App() {
       prompt={prompt}
       hasApiKey={hasApiKey || !!aiConfig.apiKey}
       aiConfig={aiConfig}
-      availableModels={availableModels}
+      availableTextModels={availableTextModels}
+      availableImageModels={availableImageModels}
       maputnikPublishStage={maputnikPublishStage}
       maputnikPublishInfo={maputnikPublishInfo}
       maputnikPublishError={maputnikPublishError}

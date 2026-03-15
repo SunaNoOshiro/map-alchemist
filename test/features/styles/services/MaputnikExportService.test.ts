@@ -85,6 +85,9 @@ describe('MaputnikExportService.injectDemoPois', () => {
     expect(features[0].properties.city).toBe('Map Alchemist City');
     expect(features[0].properties.textColor).toBe('#f97316');
     expect(features[3].properties.textColor).toBe('#111111');
+    const uniqueHalos = new Set(features.map((feature: any) => feature.properties.haloColor));
+    expect(uniqueHalos.size).toBe(1);
+    expect([...uniqueHalos][0]).toMatch(/^#[0-9a-f]{6}$/);
     expect(poiLayer.layout['icon-allow-overlap']).toBe(true);
     expect(poiLayer.layout['text-allow-overlap']).toBe(true);
     expect(poiLayer.layout['symbol-spacing']).toBe(1);
