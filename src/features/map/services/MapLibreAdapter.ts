@@ -69,6 +69,7 @@ const ensureAppPopupStyles = () => {
     styleTag.textContent = [
         `.${APP_POPUP_CLASS}.maplibregl-popup {`,
         '  max-width: none !important;',
+        '  overflow: visible !important;',
         '}',
         `.${APP_POPUP_CLASS}.maplibregl-popup .maplibregl-popup-content {`,
         '  background: transparent !important;',
@@ -79,6 +80,11 @@ const ensureAppPopupStyles = () => {
         '}',
         `.${APP_POPUP_CLASS}.maplibregl-popup .maplibregl-popup-tip {`,
         '  display: none !important;',
+        '}',
+        '@media (max-width: 639px) {',
+        '  .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left {',
+        '    bottom: max(10px, env(safe-area-inset-bottom, 0px)) !important;',
+        '  }',
         '}'
     ].join('\n');
 
@@ -88,9 +94,17 @@ const ensureAppPopupStyles = () => {
 export class MapLibreAdapter implements IMapController {
     private map: maplibregl.Map | null = null;
     private popup: maplibregl.Popup | null = null;
+    private listenerRegistry = new WeakMap<MapEventHandler, Array<{
+        event: string;
+        layerId?: string;
+        wrapper: (event: any) => void;
+    }>>();
 
     initialize(container: HTMLElement, style?: any, onLoad?: () => void): void {
         installConsoleWarnFilter();
+
+        const isMobileViewport = typeof window !== 'undefined'
+            && window.matchMedia?.('(max-width: 639px)').matches;
 
         this.map = new maplibregl.Map({
             container,
@@ -105,8 +119,14 @@ export class MapLibreAdapter implements IMapController {
             }
         });
 
-        this.map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-        this.map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
+        this.map.addControl(
+            new maplibregl.AttributionControl({ compact: true }),
+            isMobileViewport ? 'bottom-left' : 'bottom-right'
+        );
+        this.map.addControl(
+            new maplibregl.NavigationControl({ showCompass: true }),
+            isMobileViewport ? 'bottom-right' : 'top-right'
+        );
 
         let didNotifyReady = false;
         const notifyReady = () => {
@@ -134,6 +154,7 @@ export class MapLibreAdapter implements IMapController {
     }
 
     dispose(): void {
+        this.listenerRegistry = new WeakMap();
         if (this.map) {
             this.map.remove();
             this.map = null;
@@ -157,9 +178,16 @@ export class MapLibreAdapter implements IMapController {
         }
     }
 
-    addImage(id: string, image: ImageBitmap | HTMLImageElement | ImageData): void {
+    addImage(
+        id: string,
+        image: ImageBitmap | HTMLImageElement | ImageData,
+        options?: { sdf?: boolean; pixelRatio?: number }
+    ): void {
         if (this.map?.hasImage(id)) this.map.removeImage(id);
-        this.map?.addImage(id, image as any, { pixelRatio: 1 });
+        this.map?.addImage(id, image as any, {
+            pixelRatio: 1,
+            ...(options || {})
+        });
     }
 
     removeImage(id: string): void {
@@ -231,14 +259,43 @@ export class MapLibreAdapter implements IMapController {
         } else {
             this.map.on(event, wrapper);
         }
+
+        const registered = this.listenerRegistry.get(callback) || [];
+        registered.push({ event, layerId, wrapper });
+        this.listenerRegistry.set(callback, registered);
     }
 
     off(event: string, callback: MapEventHandler, layerId?: string): void {
-        // Implementation detail: removing anonymous wrappers is hard without tracking them.
-        // For this refactor, we might accept that 'off' is tricky or implement a wrapper map.
-        // For now, we assume simple usage or memory leaks are acceptable for V1 refactor 
-        // OR we just don't fully implement 'off' for anonymous functions.
-        // In a real prod app, we'd map callbacks to wrappers.
+        if (!this.map) return;
+
+        const registered = this.listenerRegistry.get(callback);
+        if (!registered?.length) return;
+
+        const remaining: typeof registered = [];
+        registered.forEach((entry) => {
+            const matches = entry.event === event && entry.layerId === layerId;
+            if (!matches) {
+                remaining.push(entry);
+                return;
+            }
+
+            try {
+                if (entry.layerId) {
+                    // @ts-ignore
+                    this.map?.off(entry.event, entry.layerId, entry.wrapper);
+                } else {
+                    this.map?.off(entry.event, entry.wrapper);
+                }
+            } catch (error) {
+                logger.warn('Failed to remove map listener', { event: entry.event, layerId: entry.layerId, error });
+            }
+        });
+
+        if (remaining.length > 0) {
+            this.listenerRegistry.set(callback, remaining);
+        } else {
+            this.listenerRegistry.delete(callback);
+        }
     }
 
     queryRenderedFeatures(point: [number, number], options?: any): any[] {

@@ -673,6 +673,11 @@ export class PoiDetailsService {
         return buildGoogleExactLocationUrl(feature);
     }
 
+    static peekCachedDetails(feature: any): PoiPopupDetails | undefined {
+        const cacheKey = PoiDetailsService.buildCacheKey(feature);
+        return PoiDetailsService.resolvedCache.get(cacheKey);
+    }
+
     private static buildCacheKey(feature: any): string {
         const properties = (feature?.properties || {}) as Record<string, unknown>;
         const osmType = normalizeOsmTypeCode(properties.osmType ?? properties.osm_type);

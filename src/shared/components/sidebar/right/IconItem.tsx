@@ -4,6 +4,7 @@ import { Wand2, Image as ImageIcon, X, Lock } from 'lucide-react';
 import { IconDefinition } from '@/types';
 import { getCategoryColor } from '@/constants';
 import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import SidebarVisibilityActions from '../common/SidebarVisibilityActions';
 
 interface IconItemProps {
     category: string;
@@ -12,6 +13,12 @@ interface IconItemProps {
     onSelect: (cat: string | null) => void;
     onRegenerate: (cat: string, prompt: string) => void;
     isReadOnly?: boolean;
+    mapVisibilityState?: {
+        isVisible: boolean;
+        isIsolated?: boolean;
+        onToggle: () => void;
+        onShowOnly: () => void;
+    };
 }
 
 const IconItem: React.FC<IconItemProps> = ({
@@ -20,7 +27,8 @@ const IconItem: React.FC<IconItemProps> = ({
     isSelected,
     onSelect,
     onRegenerate,
-    isReadOnly
+    isReadOnly,
+    mapVisibilityState
 }) => {
     const [localPrompt, setLocalPrompt] = useState(iconDef?.prompt || '');
     const isLoading = iconDef?.isLoading;
@@ -64,8 +72,21 @@ const IconItem: React.FC<IconItemProps> = ({
                 style={{ borderColor: `${sectionColor}50` }} // 50% opacity
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex justify-between items-start mb-2 pr-6">
-                    <span className={uiClass(UI_TYPOGRAPHY.subheading)} style={{ color: sectionColor }}>{category}</span>
+                <div className="flex justify-between items-start mb-2 pr-8 gap-3">
+                    <div className="min-w-0">
+                        <span className={uiClass(UI_TYPOGRAPHY.subheading)} style={{ color: sectionColor }}>{category}</span>
+                    </div>
+                    {mapVisibilityState && (
+                        <SidebarVisibilityActions
+                            isVisible={mapVisibilityState.isVisible}
+                            isIsolated={mapVisibilityState.isIsolated}
+                            onToggle={mapVisibilityState.onToggle}
+                            onShowOnly={mapVisibilityState.onShowOnly}
+                            entityLabel={category}
+                            toggleTestId={`icon-map-subcategory-eye-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                            isolateTestId={`icon-map-subcategory-only-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                        />
+                    )}
                 </div>
 
                 {/* Close Button */}
@@ -178,17 +199,30 @@ const IconItem: React.FC<IconItemProps> = ({
                 </span>
             </div>
 
-            {/* Quick Action */}
-            {!isReadOnly && (
-                <button
-                    onClick={handleRegenerate}
-                    disabled={isLoading}
-                    className="p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700 rounded-full transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
-                    title="Quick Magic Regenerate"
-                >
-                    <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />
-                </button>
-            )}
+            <div className="flex items-center gap-1">
+                {mapVisibilityState && (
+                    <SidebarVisibilityActions
+                        isVisible={mapVisibilityState.isVisible}
+                        isIsolated={mapVisibilityState.isIsolated}
+                        onToggle={mapVisibilityState.onToggle}
+                        onShowOnly={mapVisibilityState.onShowOnly}
+                        entityLabel={category}
+                        toggleTestId={`icon-map-subcategory-eye-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                        isolateTestId={`icon-map-subcategory-only-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                    />
+                )}
+
+                {!isReadOnly && (
+                    <button
+                        onClick={handleRegenerate}
+                        disabled={isLoading}
+                        className="p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700 rounded-full transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                        title="Quick Magic Regenerate"
+                    >
+                        <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />
+                    </button>
+                )}
+            </div>
         </div>
     );
 };

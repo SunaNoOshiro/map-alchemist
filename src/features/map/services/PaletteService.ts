@@ -6,6 +6,10 @@ import { IMapController } from '@core/interfaces/IMapController';
 // For now, let's assume the Controller can give us the list of layers, OR we pass the standard MapLibre style JSON to iterate over.
 
 export class PaletteService {
+    private static isCustomPoiLayer(layerId: string): boolean {
+        return layerId === 'unclustered-point' || layerId.startsWith('unclustered-point--');
+    }
+
     private static applyLayerOverrides(
         layers: any[],
         predicate: (layerId: string) => boolean,
@@ -60,7 +64,7 @@ export class PaletteService {
         if (palette.text) {
             nextLayers = PaletteService.applyLayerOverrides(
                 nextLayers,
-                (id) => id !== 'unclustered-point',
+                (id) => !PaletteService.isCustomPoiLayer(id),
                 (layer) => {
                     if (layer.type !== 'symbol') return layer;
                     return {
@@ -113,7 +117,7 @@ export class PaletteService {
                 .filter(l => l.type === 'symbol')
                 .forEach(l => {
                     // Keep data-driven POI label colors from feature properties.
-                    if (l.id === 'unclustered-point') return;
+                    if (PaletteService.isCustomPoiLayer(l.id)) return;
                     map.setPaintProperty(l.id, 'text-color', colors.text);
                 });
         }

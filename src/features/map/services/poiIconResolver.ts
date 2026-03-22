@@ -1,5 +1,6 @@
 import { MAP_CATEGORIES, OSM_MAPPING } from '@/constants';
 import { IconDefinition } from '@/types';
+import { getCanonicalCategoryGroups, resolveCategoryGroupForPoi } from '@shared/taxonomy/poiTaxonomy';
 
 export const FALLBACK_POI_ICON_KEY = 'Landmark';
 
@@ -49,8 +50,17 @@ Object.entries(OSM_MAPPING).forEach(([combo, value]) => {
   }
 });
 
+const FULL_POI_CATEGORY_CATALOG = orderedUnique([
+  ...MAP_CATEGORIES,
+  ...Object.values(OSM_MAPPING).map((entry) => entry.subcategory)
+]);
+
+const STYLE_SEED_POI_CATEGORY_CATALOG = orderedUnique([
+  ...MAP_CATEGORIES
+]);
+
 export const getCanonicalPoiCategories = (categoriesInput?: string[]): string[] => {
-  const sourceCategories = categoriesInput === undefined ? MAP_CATEGORIES : categoriesInput;
+  const sourceCategories = categoriesInput === undefined ? FULL_POI_CATEGORY_CATALOG : categoriesInput;
   const categories = orderedUnique([...sourceCategories]);
   if (
     categories.length > 0 &&
@@ -59,6 +69,11 @@ export const getCanonicalPoiCategories = (categoriesInput?: string[]): string[] 
     categories.push(FALLBACK_POI_ICON_KEY);
   }
   return categories;
+};
+
+export const getStyleSeedPoiCategories = (categoriesInput?: string[]): string[] => {
+  const sourceCategories = categoriesInput === undefined ? STYLE_SEED_POI_CATEGORY_CATALOG : categoriesInput;
+  return getCanonicalPoiCategories(sourceCategories);
 };
 
 export const resolvePoiTaxonomy = (subclass?: string, className?: string): { category: string; subcategory: string } => {
@@ -72,15 +87,23 @@ export const resolvePoiTaxonomy = (subclass?: string, className?: string): { cat
 
   const fallbackLabel = toDisplayLabel(subclass || className) || FALLBACK_POI_ICON_KEY;
   return {
-    category: fallbackLabel,
+    category: resolveCategoryGroupForPoi({
+      category: className,
+      subcategory: fallbackLabel,
+      rawClass: className
+    }),
     subcategory: fallbackLabel,
   };
 };
 
-const buildAvailableIconIndex = (activeIcons: Record<string, IconDefinition>): Map<string, string> => {
+const buildAvailableIconIndex = (
+  activeIcons: Record<string, IconDefinition>,
+  options?: { includeKeysWithoutImage?: boolean }
+): Map<string, string> => {
   const index = new Map<string, string>();
   Object.entries(activeIcons).forEach(([key, iconDef]) => {
-    if (!iconDef?.imageUrl) return;
+    if (!iconDef) return;
+    if (!options?.includeKeysWithoutImage && !iconDef.imageUrl) return;
     const normalized = normalizeToken(key);
     if (!normalized) return;
     if (!index.has(normalized)) {
@@ -119,4 +142,63 @@ export const resolvePoiIconKey = (
 
   const fallbackResolved = pick(FALLBACK_POI_ICON_KEY);
   return fallbackResolved || FALLBACK_POI_ICON_KEY;
+};
+
+export const resolvePoiRemixTarget = (
+  activeIcons: Record<string, IconDefinition>,
+  options: {
+    category?: string;
+    subcategory?: string;
+    subclass?: string;
+    className?: string;
+    iconKey?: string;
+  }
+): string => {
+  const available = buildAvailableIconIndex(activeIcons, { includeKeysWithoutImage: true });
+  const categoryGroups = new Set(getCanonicalCategoryGroups().map((entry) => normalizeToken(entry)));
+  const taxonomy = resolvePoiTaxonomy(options.subclass, options.className);
+  const resolveExisting = (value?: string): string | null => {
+    const normalized = normalizeToken(value);
+    if (!normalized) return null;
+    return available.get(normalized) || null;
+  };
+  const normalizeLabel = (value?: string): string => toDisplayLabel(value) || String(value || '').trim();
+
+  const leafCandidates = [
+    options.subcategory,
+    taxonomy.subcategory,
+    toDisplayLabel(options.subclass)
+  ];
+
+  for (const candidate of leafCandidates) {
+    const existing = resolveExisting(candidate);
+    if (existing) return existing;
+  }
+
+  for (const candidate of leafCandidates) {
+    const normalized = normalizeToken(candidate);
+    const label = normalizeLabel(candidate);
+    if (!normalized || !label) continue;
+    if (!categoryGroups.has(normalized)) {
+      return label;
+    }
+  }
+
+  const fallbackCandidates = [
+    options.iconKey,
+    taxonomy.category,
+    options.category
+  ];
+
+  for (const candidate of fallbackCandidates) {
+    const existing = resolveExisting(candidate);
+    if (existing) return existing;
+  }
+
+  for (const candidate of fallbackCandidates) {
+    const label = normalizeLabel(candidate);
+    if (label) return label;
+  }
+
+  return '';
 };

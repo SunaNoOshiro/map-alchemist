@@ -1,11 +1,16 @@
 
-import React, { useEffect, useRef, useMemo, useState } from 'react';
-import { IconDefinition, AppStatus } from '@/types';
+import React, { startTransition, useDeferredValue, useEffect, useRef, useMemo, useState } from 'react';
+import { IconDefinition, AppStatus, LoadedPoiSearchItem, PoiMapVisibilityFilters, RightSidebarMode } from '@/types';
 import SidebarContainer from './SidebarContainer';
 import IconItem from './right/IconItem';
-import { CATEGORY_COLORS, CATEGORY_GROUPS } from '@/constants';
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import PoiSearchPanel from './right/PoiSearchPanel';
+import { CATEGORY_COLORS } from '@/constants';
+import { ChevronDown, ChevronRight, MapPinned, Shapes, X } from 'lucide-react';
 import { UI_CONTROLS, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import { buildIconSidebarGroups } from '@shared/taxonomy/poiTaxonomy';
+import { PoiRegistryService } from '@/features/map/services/PoiRegistryService';
+import { PoiSearchService } from '@/features/map/services/PoiSearchService';
+import SidebarVisibilityActions from './common/SidebarVisibilityActions';
 
 interface RightSidebarProps {
   isOpen: boolean;
@@ -18,6 +23,13 @@ interface RightSidebarProps {
   onRegenerateIcon: (category: string, prompt: string) => void;
   status: AppStatus;
   hasApiKey: boolean;
+  mode: RightSidebarMode;
+  onModeChange: (mode: RightSidebarMode) => void;
+  loadedPois: LoadedPoiSearchItem[];
+  selectedPoiId?: string | null;
+  onSelectPoi: (poiId: string) => void;
+  poiMapVisibilityFilters: PoiMapVisibilityFilters;
+  onPoiMapVisibilityFiltersChange: (filters: PoiMapVisibilityFilters) => void;
 }
 
 const RightSidebar: React.FC<RightSidebarProps> = ({
@@ -30,44 +42,107 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
   onSelectCategory,
   onRegenerateIcon,
   status,
-  hasApiKey
+  hasApiKey,
+  mode,
+  onModeChange,
+  loadedPois,
+  selectedPoiId,
+  onSelectPoi,
+  poiMapVisibilityFilters,
+  onPoiMapVisibilityFiltersChange
 }) => {
   const selectedRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const isProgrammaticScroll = useRef(false);
+  const scrollTimeoutRef = useRef<number | null>(null);
+  const scrollAnimationFrameRef = useRef<number | null>(null);
+  const appliedRemixFocusRef = useRef<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [hasVisitedPlaces, setHasVisitedPlaces] = useState(mode === 'places');
+  const deferredLoadedPois = useDeferredValue(loadedPois);
+  const observedPoisForIcons = mode === 'icons' ? deferredLoadedPois : [];
 
-  // Initialize all groups as expanded
+  const iconGroups = useMemo(() => {
+    if (mode !== 'icons') return [];
+    return buildIconSidebarGroups(activeIcons, observedPoisForIcons);
+  }, [activeIcons, observedPoisForIcons, mode]);
+  const hasActiveMapVisibilityFilters = Boolean(
+    poiMapVisibilityFilters.hiddenCategories.length ||
+    poiMapVisibilityFilters.hiddenSubcategories.length ||
+    poiMapVisibilityFilters.isolation
+  );
+
+  // Preserve the user's collapse state even as taxonomy grows with newly loaded POIs.
   useEffect(() => {
-    const allExpanded = Object.keys(CATEGORY_GROUPS).reduce((acc, key) => ({ ...acc, [key]: true }), {});
-    setExpandedGroups(allExpanded);
-  }, []);
+    if (mode !== 'icons') return;
+    setExpandedGroups((prev) => {
+      const next = iconGroups.reduce((acc, group) => {
+        acc[group.groupName] = prev[group.groupName] ?? true;
+        return acc;
+      }, {} as Record<string, boolean>);
+
+      const hasChanged =
+        Object.keys(next).length !== Object.keys(prev).length
+        || Object.entries(next).some(([key, value]) => prev[key] !== value);
+
+      return hasChanged ? next : prev;
+    });
+  }, [iconGroups, mode]);
+
+  useEffect(() => {
+    if (mode === 'places') {
+      setHasVisitedPlaces(true);
+    }
+  }, [mode]);
 
   const collapseToGroup = (groupName: string) => {
-    const nextState = Object.keys(CATEGORY_GROUPS).reduce((acc, key) => {
-      acc[key] = key === groupName;
+    const nextState = iconGroups.reduce((acc, group) => {
+      acc[group.groupName] = group.groupName === groupName;
       return acc;
     }, {} as Record<string, boolean>);
     setExpandedGroups(nextState);
   };
 
+  const clearPendingListScroll = () => {
+    if (scrollTimeoutRef.current !== null) {
+      window.clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+    if (scrollAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollAnimationFrameRef.current);
+      scrollAnimationFrameRef.current = null;
+    }
+    isProgrammaticScroll.current = false;
+  };
+
+  useEffect(() => {
+    if (!remixFocusCategory) {
+      appliedRemixFocusRef.current = null;
+    }
+  }, [remixFocusCategory]);
+
   // Scroll to selected item and ensure its group is expanded
   useEffect(() => {
+    if (mode !== 'icons') return;
+    clearPendingListScroll();
     if (isOpen && selectedCategory) {
       // Find which group holds this category
-      const groupName = Object.entries(CATEGORY_GROUPS).find(([_, items]) =>
-        items.includes(selectedCategory)
-      )?.[0];
+      const groupName = iconGroups.find((group) => group.items.includes(selectedCategory))?.groupName;
+      const shouldApplyRemixFocus = Boolean(
+        remixFocusCategory &&
+        remixFocusCategory === selectedCategory &&
+        appliedRemixFocusRef.current !== remixFocusCategory
+      );
 
       if (groupName) {
-        if (remixFocusCategory) {
+        if (shouldApplyRemixFocus) {
           collapseToGroup(groupName);
         } else {
           setExpandedGroups(prev => ({ ...prev, [groupName]: true }));
         }
       }
 
-      if (selectedRef.current) {
+      if (selectedRef.current && shouldApplyRemixFocus) {
         const alignSelectedToTop = () => {
           if (!selectedRef.current) return;
           if (remixFocusCategory && listRef.current) {
@@ -111,49 +186,76 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
                 isProgrammaticScroll.current = false;
               });
             });
-            setTimeout(() => {
-              if (!selectedRef.current || !listRef.current) return;
-              isProgrammaticScroll.current = true;
-              ensureVisible();
-              isProgrammaticScroll.current = false;
-            }, 250);
             return;
           }
           selectedRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
         };
 
         const scheduleScroll = () => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
+          scrollAnimationFrameRef.current = window.requestAnimationFrame(() => {
+            scrollAnimationFrameRef.current = window.requestAnimationFrame(() => {
               alignSelectedToTop();
             });
           });
         };
 
-        if (remixFocusCategory) {
+        if (shouldApplyRemixFocus) {
+          appliedRemixFocusRef.current = remixFocusCategory || null;
           scheduleScroll();
-        } else {
-          setTimeout(() => {
-            scheduleScroll();
-          }, 150);
         }
       }
     }
-  }, [selectedCategory, isOpen, remixFocusCategory]);
+    return () => {
+      clearPendingListScroll();
+    };
+  }, [selectedCategory, isOpen, remixFocusCategory, mode, iconGroups]);
 
   const toggleGroup = (group: string) => {
     setExpandedGroups(prev => ({ ...prev, [group]: !prev[group] }));
   };
 
-  const totalIcons = useMemo(() => Object.values(CATEGORY_GROUPS).flat().length, []);
+  const totalIcons = useMemo(() => iconGroups.reduce((sum, group) => sum + group.items.length, 0), [iconGroups]);
+  const headerTitle = mode === 'places' ? 'Loaded Places' : 'Icon Assets';
+  const headerCount = mode === 'places' ? `${loadedPois.length} POIs` : `${totalIcons} Items`;
+
+  const handleCategoryVisibilityToggle = (category: string, visible: boolean) => {
+    startTransition(() => {
+      onPoiMapVisibilityFiltersChange(
+        PoiRegistryService.setCategoryVisibility(poiMapVisibilityFilters, category, visible)
+      );
+    });
+  };
+
+  const handleSubcategoryVisibilityToggle = (taxonomyKey: string, visible: boolean) => {
+    startTransition(() => {
+      onPoiMapVisibilityFiltersChange(
+        PoiRegistryService.setSubcategoryVisibility(poiMapVisibilityFilters, taxonomyKey, visible)
+      );
+    });
+  };
+
+  const applyPoiMapVisibilityFilters = (filters: PoiMapVisibilityFilters) => {
+    startTransition(() => {
+      onPoiMapVisibilityFiltersChange(filters);
+    });
+  };
+
+  const handleIconSelection = (category: string | null) => {
+    clearPendingListScroll();
+    appliedRemixFocusRef.current = null;
+    if (remixFocusCategory && onClearRemixFocus) {
+      onClearRemixFocus();
+    }
+    onSelectCategory(category);
+  };
 
   return (
     <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="right" onClose={onClose}>
       {/* Header */}
       <div className="p-4 border-b border-gray-800 flex items-center justify-between gap-2 flex-shrink-0 bg-gray-900">
         <div className="flex items-center gap-2">
-          <h2 className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-400')}>Icon Assets</h2>
-          <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full')}>{totalIcons} Items</span>
+          <h2 className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-400')}>{headerTitle}</h2>
+          <span className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full')}>{headerCount}</span>
         </div>
         {onClose && (
           <button
@@ -168,69 +270,178 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
       </div>
 
-      {/* List */}
-      <div
-        ref={listRef}
-        data-testid="icon-assets-list"
-        className="flex-1 overflow-y-auto px-3 pb-32 space-y-3 scrollbar-thin"
-        onScroll={() => {
-          if (remixFocusCategory && onClearRemixFocus && !isProgrammaticScroll.current) {
-            onClearRemixFocus();
-          }
-        }}
-      >
-        {Object.entries(CATEGORY_GROUPS).map(([groupName, items]) => {
-          const isExpanded = expandedGroups[groupName];
-          const groupColor = CATEGORY_COLORS[groupName] || '#6b7280';
-
-          return (
-            <div
-              key={groupName}
-              className="space-y-1"
-              data-testid="icon-group"
-              data-group={groupName}
-              data-expanded={isExpanded ? 'true' : 'false'}
-            >
-              {/* Group Header */}
-              <div
-                onClick={() => toggleGroup(groupName)}
-                data-testid="icon-group-header"
-                data-group={groupName}
-                className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none border-b bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm"
-                style={{ borderColor: groupColor }}
-              >
-                {isExpanded ? (
-                  <ChevronDown size={12} style={{ color: groupColor }} />
-                ) : (
-                  <ChevronRight size={12} style={{ color: groupColor }} />
-                )}
-                <span className={UI_TYPOGRAPHY.sectionLabel} style={{ color: groupColor }}>
-                  {groupName}
-                </span>
-                <span className={uiClass(UI_TYPOGRAPHY.tiny, 'ml-auto text-gray-600')}>{items.length}</span>
-              </div>
-
-              {/* Items */}
-              {isExpanded && (
-                <div className="space-y-1">
-                  {items.map((cat) => (
-                    <div key={cat} ref={selectedCategory === cat ? selectedRef : null}>
-                      <IconItem
-                        category={cat}
-                        iconDef={activeIcons[cat]}
-                        isSelected={selectedCategory === cat}
-                        onSelect={onSelectCategory}
-                        onRegenerate={onRegenerateIcon}
-                        isReadOnly={!hasApiKey}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="border-b border-gray-800 bg-gray-900 px-4 pb-4">
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-gray-950/70 p-1">
+          <button
+            type="button"
+            onClick={() => onModeChange('places')}
+            className={uiClass(
+              UI_CONTROLS.subtleButton,
+              'min-h-10 justify-center rounded-lg px-3 py-2 text-xs normal-case tracking-normal',
+              mode === 'places'
+                ? 'border-gray-600 bg-gray-800/80 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]'
+                : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-800/50'
+            )}
+            data-testid="right-sidebar-tab-places"
+          >
+            <MapPinned size={14} />
+            Places
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange('icons')}
+            className={uiClass(
+              UI_CONTROLS.subtleButton,
+              'min-h-10 justify-center rounded-lg px-3 py-2 text-xs normal-case tracking-normal',
+              mode === 'icons'
+                ? 'border-gray-600 bg-gray-800/80 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]'
+                : 'border-transparent bg-transparent text-gray-400 hover:bg-gray-800/50'
+            )}
+            data-testid="right-sidebar-tab-icons"
+          >
+            <Shapes size={14} />
+            Icons
+          </button>
+        </div>
       </div>
+
+      {hasVisitedPlaces && (
+        <div
+          className={uiClass(
+            'flex-1 overflow-y-auto px-3 pb-32 scrollbar-thin',
+            mode === 'places' ? 'block' : 'hidden'
+          )}
+        >
+          <PoiSearchPanel
+            pois={loadedPois}
+            isActive={mode === 'places'}
+            selectedPoiId={selectedPoiId}
+            onSelectPoi={onSelectPoi}
+            mapVisibilityFilters={poiMapVisibilityFilters}
+            onMapVisibilityFiltersChange={onPoiMapVisibilityFiltersChange}
+          />
+        </div>
+      )}
+
+      {mode === 'icons' && (
+        <div
+          ref={listRef}
+          data-testid="icon-assets-list"
+          className="flex-1 overflow-y-auto px-3 pb-32 space-y-3 scrollbar-thin"
+          onScroll={() => {
+            if (!isProgrammaticScroll.current) {
+              clearPendingListScroll();
+            }
+            if (remixFocusCategory && onClearRemixFocus && !isProgrammaticScroll.current) {
+              onClearRemixFocus();
+            }
+          }}
+        >
+          <div className={uiClass(UI_CONTROLS.panel, 'rounded-2xl p-3 shadow-inner')}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                <div className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'text-gray-400')}>Map visibility</div>
+                <div className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>
+                  Eye toggles hide or reveal branches while keeping icon browsing focused on category structure.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => applyPoiMapVisibilityFilters(PoiRegistryService.resetVisibility())}
+                className={uiClass(UI_CONTROLS.subtleButton, 'px-3 normal-case tracking-normal text-sm font-medium')}
+                data-testid="icon-map-reset-visibility"
+                disabled={!hasActiveMapVisibilityFilters}
+              >
+                Reset visibility
+              </button>
+            </div>
+          </div>
+
+          {iconGroups.map(({ groupName, items }) => {
+            const isExpanded = expandedGroups[groupName];
+            const groupColor = CATEGORY_COLORS[groupName] || '#6b7280';
+            const categoryVisible = PoiRegistryService.isCategoryVisible(poiMapVisibilityFilters, groupName);
+            const siblingTaxonomyKeys = items.map((item) => PoiSearchService.buildTaxonomyKey(groupName, item));
+
+            return (
+              <div
+                key={groupName}
+                className="space-y-1"
+                data-testid="icon-group"
+                data-group={groupName}
+                data-expanded={isExpanded ? 'true' : 'false'}
+              >
+                {/* Group Header */}
+                <div
+                  onClick={() => toggleGroup(groupName)}
+                  data-testid="icon-group-header"
+                  data-group={groupName}
+                  className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none border-b bg-gray-900/50 hover:bg-gray-800/50 transition-colors sticky top-0 z-10 backdrop-blur-sm"
+                  style={{ borderColor: groupColor }}
+                >
+                  {isExpanded ? (
+                    <ChevronDown size={12} style={{ color: groupColor }} />
+                  ) : (
+                    <ChevronRight size={12} style={{ color: groupColor }} />
+                  )}
+                  <span className={uiClass(UI_TYPOGRAPHY.sectionLabel, 'flex-1')} style={{ color: groupColor }}>
+                    {groupName}
+                  </span>
+                  <SidebarVisibilityActions
+                    isVisible={categoryVisible}
+                    isIsolated={PoiRegistryService.isCategoryIsolated(poiMapVisibilityFilters, groupName)}
+                    entityLabel={groupName}
+                    toggleTestId={`icon-map-category-eye-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                    isolateTestId={`icon-map-category-only-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                    onToggle={() => handleCategoryVisibilityToggle(groupName, !categoryVisible)}
+                    onShowOnly={() => applyPoiMapVisibilityFilters(PoiRegistryService.showOnlyCategory(poiMapVisibilityFilters, groupName))}
+                  />
+                </div>
+
+                {/* Items */}
+                {isExpanded && (
+                  <div className="space-y-1">
+                    {items.map((cat) => {
+                      const taxonomyKey = PoiSearchService.buildTaxonomyKey(groupName, cat);
+                      const subcategoryVisible = PoiRegistryService.isSubcategoryVisible(
+                        poiMapVisibilityFilters,
+                        groupName,
+                        taxonomyKey
+                      );
+
+                      return (
+                      <div key={cat} ref={selectedCategory === cat ? selectedRef : null}>
+                        <IconItem
+                          category={cat}
+                          iconDef={activeIcons[cat]}
+                          isSelected={selectedCategory === cat}
+                          onSelect={handleIconSelection}
+                          onRegenerate={onRegenerateIcon}
+                          isReadOnly={!hasApiKey}
+                          mapVisibilityState={{
+                            isVisible: subcategoryVisible,
+                            isIsolated: PoiRegistryService.isSubcategoryIsolated(poiMapVisibilityFilters, taxonomyKey),
+                            onToggle: () => handleSubcategoryVisibilityToggle(taxonomyKey, !subcategoryVisible),
+                            onShowOnly: () => applyPoiMapVisibilityFilters(
+                              PoiRegistryService.showOnlySubcategory(
+                                poiMapVisibilityFilters,
+                                groupName,
+                                taxonomyKey,
+                                siblingTaxonomyKeys
+                              )
+                            )
+                          }}
+                        />
+                      </div>
+                    );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </SidebarContainer>
   );
 };

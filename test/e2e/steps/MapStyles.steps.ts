@@ -2,20 +2,32 @@ import { createBdd } from 'playwright-bdd';
 import { expect, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { MAP_CATEGORIES } from '../../../src/constants';
+import { getStyleSeedPoiCategories } from '../../../src/features/map/services/poiIconResolver';
 
 const { Given, When, Then } = createBdd();
 
 const normalizeCategoryKey = (value: string) =>
     value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
+const toTestToken = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+const buildTaxonomyKey = (category: string, subcategory: string) =>
+    `${normalizeCategoryKey(category)}::${normalizeCategoryKey(subcategory)}`;
+
 const VALID_ICON_KEYS = Array.from(
     new Set(
-        MAP_CATEGORIES.map((category) => normalizeCategoryKey(category))
+        getStyleSeedPoiCategories().map((category) => normalizeCategoryKey(category))
     )
 );
 let lastClickedPoiTitle: string | null = null;
+let lastClickedPoiId: string | null = null;
+let lastClickedPoiCategory: string | null = null;
+let lastClickedPoiSubcategory: string | null = null;
+let selectedPoiCategoryFilter: string | null = null;
+let selectedPoiSubcategoryFilter: string | null = null;
 let rememberedMapView: { lng: number; lat: number; zoom: number } | null = null;
+let rememberedLoadedPoiCount: number | null = null;
 
 async function waitForGuestOrMap(page: Page): Promise<'guest' | 'map'> {
     await expect.poll(async () => {
@@ -33,6 +45,11 @@ async function waitForGuestOrMap(page: Page): Promise<'guest' | 'map'> {
 
     const guestVisible = await page.getByRole('button', { name: /Continue as Guest/i }).isVisible().catch(() => false);
     return guestVisible ? 'guest' : 'map';
+}
+
+async function selectPoiFilterOption(page: Page, triggerTestId: string, value: string): Promise<void> {
+    await page.getByTestId(triggerTestId).click();
+    await page.getByTestId(`${triggerTestId}-option-${toTestToken(value)}`).click();
 }
 
 // Helper: Find and click a visible POI with a likely icon (copied from original spec)
@@ -80,7 +97,15 @@ async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 
         points = await page.evaluate(({ validIconKeys, pointPreference }) => {
             const map = (window as any).__map;
             if (!map) return null;
-            const features = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
+            const visualLayerIds = (map.getStyle?.()?.layers || [])
+                .map((layer: any) => String(layer?.id || ''))
+                .filter((layerId: string) =>
+                    layerId.startsWith('unclustered-point--') ||
+                    layerId.startsWith('unclustered-point-fallback--')
+                );
+            if (visualLayerIds.length === 0) return null;
+
+            const features = map.queryRenderedFeatures({ layers: visualLayerIds });
             if (!features.length) return null;
 
             const canvas = map.getCanvas();
@@ -150,18 +175,24 @@ async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 
 
                 for (const candidate of candidates) {
                     if (!inBounds(candidate)) continue;
-                    const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: ['unclustered-point'] });
+                    const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: visualLayerIds });
                     if (hits && hits.length > 0) {
                         return {
                             ...candidate,
-                            title: String(feature.properties?.title || '')
+                            id: String(feature.properties?.id || ''),
+                            title: String(feature.properties?.title || ''),
+                            category: String(feature.properties?.category || ''),
+                            subcategory: String(feature.properties?.subcategory || '')
                         };
                     }
                 }
 
                 return {
                     ...(candidates.find(inBounds) || candidates[0]),
-                    title: String(feature.properties?.title || '')
+                    id: String(feature.properties?.id || ''),
+                    title: String(feature.properties?.title || ''),
+                    category: String(feature.properties?.category || ''),
+                    subcategory: String(feature.properties?.subcategory || '')
                 };
             });
         }, { validIconKeys: VALID_ICON_KEYS, pointPreference: preference });
@@ -177,43 +208,18 @@ async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 
     const popup = page.locator('.maplibregl-popup-content');
 
     for (const point of points) {
+        lastClickedPoiId = point.id || null;
         lastClickedPoiTitle = point.title || null;
-        const triggeredViaMapEvent = await page.evaluate((candidate) => {
-            const map = (window as any).__map;
-            if (!map) return false;
-            const hits = map.queryRenderedFeatures([candidate.x, candidate.y], { layers: ['unclustered-point'] });
-            if (!hits || hits.length === 0) return false;
-            const firstFeature = hits[0] as any;
-            const coordinates = firstFeature?.geometry?.coordinates;
-            const lng = Array.isArray(coordinates) ? Number(coordinates[0]) : Number.NaN;
-            const lat = Array.isArray(coordinates) ? Number(coordinates[1]) : Number.NaN;
-
-            try {
-                map.fire('click', {
-                    point: { x: candidate.x, y: candidate.y },
-                    lngLat: Number.isFinite(lng) && Number.isFinite(lat)
-                        ? { lng, lat }
-                        : map.unproject([candidate.x, candidate.y]),
-                    features: hits
-                });
-                return true;
-            } catch (_error) {
-                return false;
-            }
-        }, point);
-
-        if (!triggeredViaMapEvent) {
-            await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
-        }
+        lastClickedPoiCategory = point.category || null;
+        lastClickedPoiSubcategory = point.subcategory || null;
+        await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
 
         if (await popup.isVisible().catch(() => false)) {
             return point;
         }
-        if (triggeredViaMapEvent) {
-            await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
-            if (await popup.isVisible().catch(() => false)) {
-                return point;
-            }
+        await mapCanvas.click({ position: { x: point.x, y: point.y }, force: true });
+        if (await popup.isVisible().catch(() => false)) {
+            return point;
         }
         await page.waitForTimeout(200);
     }
@@ -223,7 +229,13 @@ async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 
 
 Given('I am on the home page', async ({ page }) => {
     lastClickedPoiTitle = null;
+    lastClickedPoiId = null;
+    lastClickedPoiCategory = null;
+    lastClickedPoiSubcategory = null;
+    selectedPoiCategoryFilter = null;
+    selectedPoiSubcategoryFilter = null;
     rememberedMapView = null;
+    rememberedLoadedPoiCount = null;
     const errors: string[] = [];
 
     // Capture console logs and collect errors to fail the test later
@@ -436,7 +448,7 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
         stripThemeIcons(pirateThemeOriginal),
         stripThemeIcons(cartoonThemeOriginal)
     ];
-    const iconSeedKeys = [...MAP_CATEGORIES];
+    const iconSeedKeys = getStyleSeedPoiCategories();
 
     await page.evaluate(async ({ themes, iconKeys }) => {
         const dummyIcon = {
@@ -513,8 +525,26 @@ Given('I have custom {string} and {string} themes injected', async ({ page }, th
     console.log('[E2E] Map canvas is visible');
 });
 
+const selectStyleFromToolbar = async (page: import('@playwright/test').Page, styleName: string) => {
+    const trigger = page.getByTestId('active-style-trigger');
+    await expect(trigger).toBeVisible({ timeout: 10000 });
+
+    if (!await trigger.textContent().then((text) => text?.includes(styleName) ?? false)) {
+        await trigger.click();
+        const menuOption = page
+            .locator('button')
+            .filter({ hasText: styleName })
+            .filter({ hasNot: page.getByTestId('active-style-trigger') })
+            .first();
+        await expect(menuOption).toBeVisible({ timeout: 10000 });
+        await menuOption.click();
+    }
+
+    await expect(trigger).toContainText(styleName, { timeout: 15000 });
+};
+
 When('I select the {string} style', async ({ page }, styleName) => {
-    await page.getByRole('heading', { name: styleName }).click();
+    await selectStyleFromToolbar(page, styleName);
 });
 
 Then('the map should be visible', async ({ page }) => {
@@ -558,6 +588,316 @@ Then('POIs should appear without zooming after load', async ({ page }) => {
 
 Then('the style {string} should be active', async ({ page }, styleName) => {
     await expect(page.getByTestId('active-style-trigger')).toContainText(styleName);
+});
+
+When('I switch the right sidebar to Places', async ({ page }) => {
+    await page.getByTestId('right-sidebar-tab-places').click();
+    await expect(page.getByTestId('poi-search-input')).toBeVisible();
+});
+
+When('I switch the right sidebar to Icons', async ({ page }) => {
+    await page.getByTestId('right-sidebar-tab-icons').click();
+    await expect(page.getByTestId('icon-assets-list')).toBeVisible();
+});
+
+When('I freeze POI search time to {string}', async ({ page }, isoTimestamp) => {
+    await page.evaluate((value) => {
+        (window as any).__mapAlchemistPoiSearchNow = value;
+    }, isoTimestamp);
+});
+
+When('I search loaded POIs for the last clicked POI title', async ({ page }) => {
+    if (!lastClickedPoiTitle) {
+        throw new Error('No POI title was captured from the last map click.');
+    }
+
+    await page.getByTestId('poi-search-input').fill(lastClickedPoiTitle);
+});
+
+When('I select the category filter matching the last clicked POI', async ({ page }) => {
+    if (!lastClickedPoiCategory) {
+        throw new Error('No POI category was captured from the last map click.');
+    }
+
+    await selectPoiFilterOption(page, 'poi-category-filter', lastClickedPoiCategory);
+});
+
+When('I select the subcategory filter matching the last clicked POI', async ({ page }) => {
+    if (!lastClickedPoiSubcategory || !lastClickedPoiCategory) {
+        throw new Error('No POI subcategory was captured from the last map click.');
+    }
+
+    await selectPoiFilterOption(page, 'poi-subcategory-filter', buildTaxonomyKey(lastClickedPoiCategory, lastClickedPoiSubcategory));
+});
+
+When('I select the first available specific POI category filter', async ({ page }) => {
+    const categoryFilter = page.getByTestId('poi-category-filter');
+    await expect(categoryFilter).toBeVisible();
+    await categoryFilter.click();
+
+    const options = page.locator('[data-testid^="poi-category-filter-option-"]');
+    const count = await options.count();
+    selectedPoiCategoryFilter = null;
+
+    for (let index = 0; index < count; index += 1) {
+        const option = options.nth(index);
+        const text = (await option.getAttribute('data-option-label'))?.trim() || '';
+        if (!text || /All categories/i.test(text)) continue;
+        selectedPoiCategoryFilter = text;
+        await option.click();
+        break;
+    }
+
+    if (!selectedPoiCategoryFilter) {
+        throw new Error('No specific POI category filter is available.');
+    }
+});
+
+When('I enable the {string} POI filter', async ({ page }, filterLabel) => {
+    const filterMap: Record<string, string> = {
+        'Has photo': 'poi-filter-has-photo',
+        'Has website': 'poi-filter-has-website',
+        'Open now': 'poi-filter-open-now'
+    };
+    const testId = filterMap[filterLabel];
+    if (!testId) {
+        throw new Error(`Unsupported POI filter label: ${filterLabel}`);
+    }
+
+    await page.getByTestId(testId).click();
+});
+
+Then('POI search results should contain the last clicked POI title', async ({ page }) => {
+    if (!lastClickedPoiTitle) {
+        throw new Error('No POI title was captured from the last map click.');
+    }
+
+    await expect(page.getByTestId('poi-search-results')).toContainText(lastClickedPoiTitle);
+});
+
+Then('POI search results should all match the selected category filter', async ({ page }) => {
+    if (!selectedPoiCategoryFilter) {
+        throw new Error('No POI category filter was selected.');
+    }
+
+    const results = page.getByTestId('poi-search-result');
+    await expect(results.first()).toBeVisible();
+    const texts = await results.allTextContents();
+    expect(texts.length).toBeGreaterThan(0);
+    texts.forEach((text) => {
+        expect(text).toContain(selectedPoiCategoryFilter as string);
+    });
+});
+
+When('I reset POI search filters', async ({ page }) => {
+    await page.getByRole('button', { name: 'Reset filters' }).click();
+    await expect(page.getByTestId('poi-search-input')).toHaveValue('');
+    await expect(page.getByTestId('poi-category-filter')).toContainText('All categories');
+    await expect(page.getByTestId('poi-subcategory-filter')).toContainText('All subcategories');
+});
+
+Then('POI search results should satisfy the {string} filter', async ({ page }, filterLabel) => {
+    const expectations: Record<string, { required: string; rejected: string }> = {
+        'Has photo': { required: 'Photo', rejected: 'No photo' },
+        'Has website': { required: 'Website', rejected: 'No website' },
+        'Open now': { required: 'Open now', rejected: 'Closed / unknown' }
+    };
+
+    const expectation = expectations[filterLabel];
+    if (!expectation) {
+        throw new Error(`Unsupported POI filter expectation: ${filterLabel}`);
+    }
+
+    await expect.poll(async () => {
+        const emptyState = await page.getByTestId('poi-search-results').textContent();
+        if (emptyState?.includes('No loaded POIs match the current search and filters.')) {
+            return 'empty';
+        }
+
+        const texts = await page.getByTestId('poi-search-result').allTextContents();
+        if (texts.length === 0) {
+            return 'pending';
+        }
+
+        const everyMatches = texts.every((text) =>
+            text.includes(expectation.required) && !text.includes(expectation.rejected)
+        );
+
+        return everyMatches ? 'matched' : 'pending';
+    }, {
+        timeout: 10000,
+        message: `POI search results did not settle into the expected "${filterLabel}" filtered state.`
+    }).toMatch(/^(empty|matched)$/);
+});
+
+When('I remember the current loaded POI count', async ({ page }) => {
+    await expect.poll(async () => {
+        const text = await page.getByTestId('poi-search-results-count').textContent();
+        const match = text?.match(/^(\d+)\s*\/\s*(\d+)/);
+        return match ? Number(match[2]) : 0;
+    }).toBeGreaterThan(0);
+
+    rememberedLoadedPoiCount = await page.evaluate(() => {
+        const countNode = document.querySelector('[data-testid="poi-search-results-count"]');
+        const text = countNode?.textContent || '';
+        const match = text.match(/^(\d+)\s*\/\s*(\d+)/);
+        return match ? Number(match[2]) : null;
+    });
+
+    if (rememberedLoadedPoiCount === null) {
+        throw new Error('Unable to capture the loaded POI count.');
+    }
+});
+
+When('I pan the map far away', async ({ page }) => {
+    await page.evaluate(() => {
+        const map = (window as any).__map;
+        if (!map) return;
+        const center = map.getCenter();
+        map.easeTo({
+            center: [Number(center.lng) + 0.12, Number(center.lat) + 0.08],
+            duration: 350
+        });
+    });
+    await page.waitForTimeout(800);
+});
+
+Then('the loaded POI count should not shrink', async ({ page }) => {
+    if (rememberedLoadedPoiCount === null) {
+        throw new Error('No remembered loaded POI count is available.');
+    }
+
+    await expect.poll(async () => {
+        const text = await page.getByTestId('poi-search-results-count').textContent();
+        const match = text?.match(/^(\d+)\s*\/\s*(\d+)/);
+        return match ? Number(match[2]) : 0;
+    }).toBeGreaterThanOrEqual(rememberedLoadedPoiCount);
+});
+
+When('I hide the category matching the last clicked POI from the map', async ({ page }) => {
+    if (!lastClickedPoiCategory) {
+        throw new Error('No POI category was captured from the last map click.');
+    }
+
+    const toggle = page.getByTestId('poi-map-visibility-toggle');
+    if (!(await page.getByTestId(`poi-map-category-checkbox-${toTestToken(lastClickedPoiCategory)}`).count())) {
+        await toggle.click();
+    }
+
+    const checkbox = page.getByTestId(`poi-map-category-checkbox-${toTestToken(lastClickedPoiCategory)}`);
+    await expect.poll(async () => await checkbox.count(), {
+        timeout: 15000,
+        message: `Category checkbox for ${lastClickedPoiCategory} did not appear in the Places panel.`
+    }).toBeGreaterThan(0);
+    await checkbox.scrollIntoViewIfNeeded();
+    if ((await checkbox.getAttribute('aria-checked')) !== 'false') {
+        await checkbox.click();
+    }
+});
+
+When('I show the category matching the last clicked POI on the map', async ({ page }) => {
+    if (!lastClickedPoiCategory) {
+        throw new Error('No POI category was captured from the last map click.');
+    }
+
+    const toggle = page.getByTestId('poi-map-visibility-toggle');
+    if (!(await page.getByTestId(`poi-map-category-checkbox-${toTestToken(lastClickedPoiCategory)}`).count())) {
+        await toggle.click();
+    }
+
+    const checkbox = page.getByTestId(`poi-map-category-checkbox-${toTestToken(lastClickedPoiCategory)}`);
+    await expect.poll(async () => await checkbox.count(), {
+        timeout: 15000,
+        message: `Category checkbox for ${lastClickedPoiCategory} did not reappear in the Places panel.`
+    }).toBeGreaterThan(0);
+    await checkbox.scrollIntoViewIfNeeded();
+    if ((await checkbox.getAttribute('aria-checked')) !== 'true') {
+        await checkbox.click();
+    }
+});
+
+When('I hide the category matching the last clicked POI from the map using the Icons panel', async ({ page }) => {
+    if (!lastClickedPoiCategory) {
+        throw new Error('No POI category was captured from the last map click.');
+    }
+
+    const eyeButton = page.getByTestId(`icon-map-category-eye-${toTestToken(lastClickedPoiCategory)}`);
+    await expect(eyeButton).toBeVisible();
+    await eyeButton.click();
+});
+
+When('I show only the category matching the last clicked POI from the map using the Icons panel', async ({ page }) => {
+    if (!lastClickedPoiCategory) {
+        throw new Error('No POI category was captured from the last map click.');
+    }
+
+    const isolateButton = page.getByTestId(`icon-map-category-only-${toTestToken(lastClickedPoiCategory)}`);
+    await expect(isolateButton).toBeVisible();
+    await isolateButton.click();
+});
+
+When('I reset map visibility from the Icons panel', async ({ page }) => {
+    const resetButton = page.getByTestId('icon-map-reset-visibility');
+    await expect(resetButton).toBeVisible();
+    await resetButton.click();
+});
+
+Then('the matching POI search result should be loaded but not visible', async ({ page }) => {
+    if (!lastClickedPoiTitle) {
+        throw new Error('No POI title was captured from the last map click.');
+    }
+
+    const matchingResult = page.getByTestId('poi-search-result').filter({ hasText: lastClickedPoiTitle }).first();
+    await expect(matchingResult).toBeVisible();
+    await expect(matchingResult).toContainText('Hidden');
+    await expect(matchingResult).not.toContainText('Shown');
+});
+
+Then('the matching POI search result should be visible again', async ({ page }) => {
+    if (!lastClickedPoiTitle) {
+        throw new Error('No POI title was captured from the last map click.');
+    }
+
+    const matchingResult = page.getByTestId('poi-search-result').filter({ hasText: lastClickedPoiTitle }).first();
+    await expect(matchingResult).toBeVisible();
+    await expect(matchingResult).toContainText('Shown');
+});
+
+When('I close the popup', async ({ page }) => {
+    await page.locator('#popup-close-btn').click();
+    await expect(page.locator('.maplibregl-popup-content')).not.toBeVisible();
+});
+
+When('I emulate a mobile viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 393, height: 851 });
+});
+
+When('I click the first POI search result', async ({ page }) => {
+    if (lastClickedPoiId) {
+        const exactResult = page.locator(`[data-testid="poi-search-result"][data-poi-id="${lastClickedPoiId}"]`).first();
+        if (await exactResult.count()) {
+            await exactResult.click();
+            return;
+        }
+    }
+
+    if (lastClickedPoiTitle) {
+        const matchingResult = page.getByTestId('poi-search-result').filter({ hasText: lastClickedPoiTitle }).first();
+        if (await matchingResult.count()) {
+            await matchingResult.click();
+            return;
+        }
+    }
+
+    await page.getByTestId('poi-search-result').first().click();
+});
+
+Then('the popup should mention the last clicked POI title', async ({ page }) => {
+    if (!lastClickedPoiTitle) {
+        throw new Error('No POI title was captured from the last map click.');
+    }
+
+    await expect(page.locator('.maplibregl-popup:visible [data-testid="poi-popup"]').last()).toContainText(lastClickedPoiTitle);
 });
 
 When('I click on a visible POI on the map', async ({ page }) => {
@@ -707,6 +1047,13 @@ Then('the popup should remain inside the map viewport', async ({ page }) => {
         });
         return metrics.isWithin;
     }, { timeout: 10000 }).toBe(true);
+});
+
+Then('the popup close button should remain tappable on mobile', async ({ page }) => {
+    const closeButton = page.locator('#popup-close-btn');
+    await expect(closeButton).toBeVisible();
+    await closeButton.click();
+    await expect(page.locator('.maplibregl-popup-content')).not.toBeVisible();
 });
 
 Then('the map view should remain stable after opening the popup', async ({ page }) => {
@@ -914,7 +1261,10 @@ Then('POI labels should read text color from feature properties', async ({ page 
     const textColorExpression = await page.evaluate(() => {
         const map = (window as any).__map;
         if (!map) return null;
-        return map.getPaintProperty('unclustered-point', 'text-color');
+        const layer = map.getStyle()?.layers?.find((candidate: any) =>
+            typeof candidate?.id === 'string' && candidate.id.startsWith('unclustered-point--')
+        );
+        return layer ? map.getPaintProperty(layer.id, 'text-color') : null;
     });
 
     expect(textColorExpression).not.toBeNull();
@@ -930,13 +1280,17 @@ Then('POI icons should scale correctly with zoom level', async ({ page }) => {
         return await page.evaluate(() => {
             const map = (window as any).__map;
             if (!map) return false;
-            return !!map.getStyle()?.layers?.find((l: any) => l.id === 'unclustered-point');
+            return !!map.getStyle()?.layers?.find((l: any) =>
+                typeof l?.id === 'string' && l.id.startsWith('unclustered-point--')
+            );
         });
     }, { timeout: 15000 }).toBeTruthy();
 
     const iconSizeConfig = await page.evaluate(() => {
         const map = (window as any).__map;
-        const layer = map.getStyle().layers.find((l: any) => l.id === 'unclustered-point');
+        const layer = map.getStyle().layers.find((l: any) =>
+            typeof l?.id === 'string' && l.id.startsWith('unclustered-point--')
+        );
         return layer.layout['icon-size'];
     });
 
@@ -973,7 +1327,7 @@ When('I zoom the map', async ({ page }) => {
 
 When('I switch to the {string} style', async ({ page }, styleName) => {
     console.log(`[E2E] Switching to style: ${styleName}`);
-    await page.getByRole('heading', { name: styleName }).click();
+    await selectStyleFromToolbar(page, styleName);
     // Wait for the status indicator or map canvas to settle
     await page.waitForTimeout(3000);
 });

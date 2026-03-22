@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { IconDefinition, PopupStyle } from '@/types';
+import { IconDefinition, LoadedPoiSearchItem, PoiMapVisibilityFilters, PopupStyle } from '@/types';
 import { useMapLogic } from '../hooks/useMapLogic';
 
 interface MapViewProps {
@@ -14,6 +14,9 @@ interface MapViewProps {
     onEditIcon?: (category: string) => void;
     isThemeSelected?: boolean;
     activeThemeName?: string;
+    onLoadedPoisChange?: (pois: LoadedPoiSearchItem[]) => void;
+    poiFocusRequest?: { id: string; nonce: number } | null;
+    poiMapVisibilityFilters: PoiMapVisibilityFilters;
 }
 
 const MapView: React.FC<MapViewProps> = (props) => {

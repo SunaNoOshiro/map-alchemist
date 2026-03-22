@@ -93,6 +93,40 @@ describe('PopupGenerator', () => {
     expect(html).not.toContain('https://example.com/bus.png');
   });
 
+  it('falls back to the default popup pin when a POI icon image is unavailable at render time', () => {
+    const html = PopupGenerator.generateHtml(
+      {
+        properties: {
+          category: 'Food & Drink',
+          subcategory: 'Night Club',
+          iconKey: 'Night Club',
+          title: 'Rickshaw Stop',
+          description: 'Live music venue'
+        }
+      },
+      popupStyle,
+      { land: '#ffffff', text: '#111111', road: '#222222' },
+      {
+        'Night Club': {
+          category: 'Food & Drink',
+          prompt: 'Night Club icon',
+          imageUrl: null,
+          isLoading: false
+        },
+        'Food & Drink': {
+          category: 'Food & Drink',
+          prompt: 'Food icon',
+          imageUrl: null,
+          isLoading: false
+        }
+      },
+      false
+    );
+
+    expect(html).toContain('alt="Rickshaw Stop icon"');
+    expect(html).toContain('data:image/svg+xml');
+  });
+
   it('renders a unified popup frame and compact layout constraints', () => {
     const html = PopupGenerator.generateHtml(
       {
@@ -112,10 +146,81 @@ describe('PopupGenerator', () => {
     expect(html).toContain('data-mapalchemist-popup-frame-fill="true"');
     expect(html).toContain('data-mapalchemist-popup-frame-stroke="true"');
     expect(html).toContain('data-mapalchemist-popup-content="true"');
-    expect(html).toContain('width:min(400px, calc(100vw - 40px)); max-width:400px;');
+    expect(html).toContain('width:min(400px, calc(100vw - 24px)); max-width:400px;');
     expect(html).toContain('max-height:min(56vh, 388px);');
-    expect(html).toContain('-webkit-line-clamp:3;');
-    expect(html).toContain('grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));');
+    expect(html).not.toContain('data-testid="poi-popup-summary"');
+    expect(html).toContain('grid-template-columns:repeat(auto-fit, minmax(136px, 1fr));');
+    expect(html).toContain('viewBox="0 0 260 260"');
+    expect(html).toContain('top:0; right:8px; transform:translateY(-32%);');
+  });
+
+  it('uses the POI canonical category color inside the popup header tag accents', () => {
+    const html = PopupGenerator.generateHtml(
+      {
+        properties: {
+          category: 'Food & Drink',
+          subcategory: 'Cafe',
+          title: 'Cafe Aurora',
+          textColor: '#c2410c'
+        }
+      },
+      popupStyle,
+      { land: '#ffffff', text: '#111111', road: '#222222' },
+      {},
+      false
+    );
+
+    expect(html).toContain('data-testid="poi-popup-category-chip"');
+    expect(html).toContain('Food &amp; Drink');
+    expect(html).toContain('data-testid="poi-popup-category"');
+    expect(html).toContain('>Cafe<');
+    expect(html).toContain('color:#c2410c;');
+    expect(html).toContain('background:#f6b902;');
+    expect(html).toContain('box-shadow:inset 0 0 0 2px #c2410c55;');
+  });
+
+  it('renders popup taxonomy as subcategory text followed by a category chip below', () => {
+    const html = PopupGenerator.generateHtml(
+      {
+        properties: {
+          category: 'Food & Drink',
+          subcategory: 'Cafe',
+          title: 'Cafe Aurora',
+          textColor: '#c2410c'
+        }
+      },
+      popupStyle,
+      { land: '#ffffff', text: '#111111', road: '#222222' },
+      {},
+      false
+    );
+
+    expect(html).toContain('data-testid="poi-popup-taxonomy"');
+    expect(html).toContain('display:grid; gap:4px; justify-items:start;');
+    expect(html).toContain('data-testid="poi-popup-category"');
+    expect(html).toContain('>Cafe<');
+    expect(html).toContain('data-testid="poi-popup-category-chip"');
+    expect(html).toContain('>Food &amp; Drink<');
+  });
+
+  it('softens low-contrast category accents against bright popup backgrounds', () => {
+    const html = PopupGenerator.generateHtml(
+      {
+        properties: {
+          category: 'Transport',
+          subcategory: 'Bus Stop',
+          title: 'Downtown Stop',
+          textColor: '#60a5fa'
+        }
+      },
+      popupStyle,
+      { land: '#ffffff', text: '#111111', road: '#222222' },
+      {},
+      false
+    );
+
+    expect(html).toContain('data-testid="poi-popup-category-chip"');
+    expect(html).not.toContain('color:#60a5fa;');
   });
 
   it('renders enriched POI details, photo preview, and external links', () => {
@@ -156,7 +261,7 @@ describe('PopupGenerator', () => {
     expect(html).toContain('Historic cafe with a bright corner patio.');
   });
 
-  it('falls back to a compact summary label when rich summary text is absent', () => {
+  it('does not render a duplicate summary when header taxonomy already covers it', () => {
     const html = PopupGenerator.generateHtml(
       {
         properties: {
@@ -176,8 +281,11 @@ describe('PopupGenerator', () => {
       }
     );
 
-    expect(html).toContain('data-testid="poi-popup-summary"');
-    expect(html).toContain('Monument');
+    expect(html).not.toContain('data-testid="poi-popup-summary"');
+    expect(html).toContain('data-testid="poi-popup-category"');
+    expect(html).toContain('>Monument<');
+    expect(html).toContain('data-testid="poi-popup-category-chip"');
+    expect(html).toContain('>Landmark<');
   });
 
   it('derives taller scenic photo frames and more compact business frames', () => {
@@ -401,6 +509,7 @@ describe('PopupGenerator', () => {
     expect(loadingHtml).toContain('data-testid="poi-popup-loading-status"');
     expect(loadingHtml).toContain('data-testid="poi-popup-loading-line-primary"');
     expect(loadingHtml).toContain('data-testid="poi-popup-loading-line-secondary"');
+    expect(loadingHtml).toContain('min-height:72px;');
     expect(loadingHtml).not.toContain('data-testid="poi-popup-loading-orbit"');
     expect(loadingHtml).not.toContain('data-testid="poi-popup-loading-shimmer"');
     expect(loadingHtml).not.toContain('data-testid="poi-popup-photo"');

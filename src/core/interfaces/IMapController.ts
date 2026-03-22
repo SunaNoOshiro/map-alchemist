@@ -37,7 +37,11 @@ export interface IMapController {
     /**
      * Adds an image to the map's sprite sheet.
      */
-    addImage(id: string, image: ImageBitmap | HTMLImageElement | ImageData): void;
+    addImage(
+        id: string,
+        image: ImageBitmap | HTMLImageElement | ImageData,
+        options?: { sdf?: boolean; pixelRatio?: number }
+    ): void;
     removeImage(id: string): void;
     hasImage(id: string): boolean;
 
@@ -52,6 +56,7 @@ export interface IMapController {
     showPopup(coordinates: [number, number], htmlContent: string, options?: any): void;
     removePopup(): void;
     getPopupElement?(): HTMLElement | null;
+    getRawMap?(): any;
 
     /**
      * Query rendered features from the map.

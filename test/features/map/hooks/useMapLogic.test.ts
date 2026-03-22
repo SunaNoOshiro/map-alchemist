@@ -111,8 +111,8 @@ describe('computePopupViewportConstraints', () => {
       10
     );
 
-    expect(constraints.maxPopupWidth).toBe(346);
-    expect(constraints.maxContentHeight).toBe(474);
+    expect(constraints.maxPopupWidth).toBe(344);
+    expect(constraints.maxContentHeight).toBe(308);
   });
 
   it('keeps popup sizing usable inside narrower map containers', () => {
@@ -123,6 +123,16 @@ describe('computePopupViewportConstraints', () => {
 
     expect(constraints.maxPopupWidth).toBe(246);
     expect(constraints.maxContentHeight).toBe(254);
+  });
+
+  it('applies a tighter width cap for narrow mobile-sized viewports', () => {
+    const constraints = computePopupViewportConstraints(
+      { top: 0, left: 0, right: 390, bottom: 760 },
+      16
+    );
+
+    expect(constraints.maxPopupWidth).toBe(344);
+    expect(constraints.maxContentHeight).toBe(308);
   });
 });
 

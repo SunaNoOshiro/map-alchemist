@@ -5,9 +5,19 @@ import { PopupGenerator } from '../services/PopupGenerator';
 import { PaletteService } from '../services/PaletteService';
 import { PoiService } from '../services/PoiService';
 import { PoiDetailsService } from '../services/PoiDetailsService';
+import { PoiRegistryService } from '../services/PoiRegistryService';
+import { PoiSearchService } from '../services/PoiSearchService';
+import { resolvePoiRemixTarget } from '../services/poiIconResolver';
 import { derivePalette } from '@core/services/defaultThemes';
-import { DEFAULT_STYLE_URL, MAP_CATEGORIES } from '@/constants';
-import { MapStylePreset, IconDefinition, PoiPopupDetails, PopupStyle } from '@/types';
+import { DEFAULT_STYLE_URL } from '@/constants';
+import { getCanonicalCategoryGroups } from '@shared/taxonomy/poiTaxonomy';
+import {
+    IconDefinition,
+    LoadedPoiSearchItem,
+    PoiMapVisibilityFilters,
+    PoiPopupDetails,
+    PopupStyle
+} from '@/types';
 import { createLogger } from '@core/logger';
 import { isMapLibreStyleJson, sanitizeMapLibreStyleForRuntime } from '../services/styleCompiler';
 
@@ -64,12 +74,333 @@ const NUMERIC_PAINT_PROPERTIES = new Set([
     'text-halo-blur'
 ]);
 const NUMERIC_FILTER_COMPARISON_OPERATORS = new Set(['<', '<=', '>', '>=']);
-const normalizeCategoryToken = (value?: string) =>
-    String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-const CATEGORY_BY_TOKEN = new Map(
-    MAP_CATEGORIES.map((category) => [normalizeCategoryToken(category), category] as const)
-);
 const POI_MOVEEND_REFRESH_DEBOUNCE_MS = 180;
+const POI_FACET_WARM_CONCURRENCY = 2;
+const POI_FACET_WARM_QUEUE_LIMIT = 60;
+const POI_INTERACTION_LAYER_ID = 'unclustered-point';
+const POI_SYMBOL_LAYER_PREFIX = 'unclustered-point--';
+const POI_FALLBACK_LAYER_PREFIX = 'unclustered-point-fallback--';
+const POI_CATEGORY_GROUPS = getCanonicalCategoryGroups();
+const POI_VISIBILITY_FEATURE_STATE_KEY = 'mapVisible';
+const POI_VIEWPORT_COLLECTION_BUFFER_RATIO = 0.35;
+const POI_VIEWPORT_ZOOM_BUCKET_STEP = 0.5;
+const POI_VIEWPORT_MIN_LNG_PADDING = 0.003;
+const POI_VIEWPORT_MIN_LAT_PADDING = 0.002;
+const POI_ICON_VISIBLE_ALPHA_THRESHOLD = 16;
+const POI_ICON_MIN_VISIBLE_PIXEL_COUNT = 12;
+
+const toPoiLayerToken = (value: string): string =>
+    value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+const getPoiSymbolLayerId = (category: string): string =>
+    `${POI_SYMBOL_LAYER_PREFIX}${toPoiLayerToken(category)}`;
+
+const getPoiFallbackLayerId = (category: string): string =>
+    `${POI_FALLBACK_LAYER_PREFIX}${toPoiLayerToken(category)}`;
+
+const getPoiVisualLayerIds = (): string[] =>
+    POI_CATEGORY_GROUPS.flatMap((category) => [
+        getPoiFallbackLayerId(category),
+        getPoiSymbolLayerId(category)
+    ]);
+
+const POI_FALLBACK_DOT_IMAGE_ID = 'poi-dot-fallback-sdf';
+
+type PoiViewportBounds = {
+    west: number;
+    south: number;
+    east: number;
+    north: number;
+};
+
+type PoiViewportSnapshot = {
+    bounds: PoiViewportBounds;
+    bufferedBounds: PoiViewportBounds;
+    zoomBucket: number;
+};
+
+const normalizePoiViewportBounds = (rawBounds: any): PoiViewportBounds | null => {
+    if (!rawBounds) return null;
+
+    const west = Number(rawBounds.getWest?.());
+    const south = Number(rawBounds.getSouth?.());
+    const east = Number(rawBounds.getEast?.());
+    const north = Number(rawBounds.getNorth?.());
+
+    if (![west, south, east, north].every(Number.isFinite)) {
+        return null;
+    }
+
+    if (east <= west || north <= south) {
+        return null;
+    }
+
+    return { west, south, east, north };
+};
+
+const expandPoiViewportBounds = (
+    bounds: PoiViewportBounds,
+    bufferRatio = POI_VIEWPORT_COLLECTION_BUFFER_RATIO
+): PoiViewportBounds => {
+    const lngSpan = Math.max(bounds.east - bounds.west, 0);
+    const latSpan = Math.max(bounds.north - bounds.south, 0);
+    const lngPad = Math.max(lngSpan * bufferRatio, POI_VIEWPORT_MIN_LNG_PADDING);
+    const latPad = Math.max(latSpan * bufferRatio, POI_VIEWPORT_MIN_LAT_PADDING);
+
+    return {
+        west: bounds.west - lngPad,
+        south: bounds.south - latPad,
+        east: bounds.east + lngPad,
+        north: bounds.north + latPad
+    };
+};
+
+const toPoiZoomBucket = (zoom: number): number =>
+    Math.round(zoom / POI_VIEWPORT_ZOOM_BUCKET_STEP) * POI_VIEWPORT_ZOOM_BUCKET_STEP;
+
+const capturePoiViewportSnapshot = (rawMap: any): PoiViewportSnapshot | null => {
+    if (!rawMap) return null;
+
+    const bounds = normalizePoiViewportBounds(rawMap.getBounds?.());
+    const zoom = Number(rawMap.getZoom?.());
+    if (!bounds || !Number.isFinite(zoom)) {
+        return null;
+    }
+
+    return {
+        bounds,
+        bufferedBounds: expandPoiViewportBounds(bounds),
+        zoomBucket: toPoiZoomBucket(zoom)
+    };
+};
+
+const isPoiViewportWithinBufferedBounds = (
+    viewport: PoiViewportBounds,
+    bufferedBounds: PoiViewportBounds
+): boolean => (
+    viewport.west >= bufferedBounds.west &&
+    viewport.south >= bufferedBounds.south &&
+    viewport.east <= bufferedBounds.east &&
+    viewport.north <= bufferedBounds.north
+);
+
+const shouldSkipPoiViewportRefresh = (
+    rawMap: any,
+    lastSnapshot: PoiViewportSnapshot | null
+): boolean => {
+    if (!rawMap || !lastSnapshot) return false;
+
+    const currentSnapshot = capturePoiViewportSnapshot(rawMap);
+    if (!currentSnapshot) return false;
+
+    if (currentSnapshot.zoomBucket !== lastSnapshot.zoomBucket) {
+        return false;
+    }
+
+    return isPoiViewportWithinBufferedBounds(
+        currentSnapshot.bounds,
+        lastSnapshot.bufferedBounds
+    );
+};
+
+const buildPoiFeatureVisibleExpression = () => ([
+    'boolean',
+    ['feature-state', POI_VISIBILITY_FEATURE_STATE_KEY],
+    true
+]);
+
+const buildPoiInteractionLayer = () => ({
+    id: POI_INTERACTION_LAYER_ID,
+    type: 'circle' as const,
+    source: 'places',
+    minzoom: 13,
+    paint: {
+        'circle-radius': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13, 10,
+            15, 14,
+            18, 18
+        ],
+        'circle-color': '#000000',
+        'circle-opacity': 0
+    }
+});
+
+const buildPoiVisibilityOpacityExpression = () => ([
+    'case',
+    buildPoiFeatureVisibleExpression(),
+    1,
+    0
+]);
+
+const buildPoiSymbolLayer = (category: string) => ({
+    id: getPoiSymbolLayerId(category),
+    type: 'symbol' as const,
+    source: 'places',
+    minzoom: 13,
+    filter: [
+        'all',
+        ['==', ['get', 'category'], category],
+        ['==', ['get', 'hasRenderableCustomIconImage'], true]
+    ],
+    layout: {
+        'icon-image': ['get', 'iconKey'],
+        'icon-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13, 0.15,
+            14, 0.25,
+            16, 0.35,
+            18, 0.45
+        ],
+        'icon-allow-overlap': false,
+        'icon-optional': false,
+        'symbol-spacing': 250,
+        'text-field': ['get', 'title'],
+        'text-font': ['Noto Sans Regular'],
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13, 9,
+            15, 11,
+            18, 13
+        ],
+        'text-optional': false,
+        'text-allow-overlap': false
+    },
+    paint: {
+        'icon-opacity': buildPoiVisibilityOpacityExpression(),
+        'icon-color': ['coalesce', ['get', 'textColor'], '#6b7280'],
+        'icon-halo-color': ['coalesce', ['get', 'haloColor'], '#ffffff'],
+        'icon-halo-width': 1,
+        'text-color': ['get', 'textColor'],
+        'text-opacity': buildPoiVisibilityOpacityExpression(),
+        'text-halo-color': ['get', 'haloColor'],
+        'text-halo-width': 2
+    }
+});
+
+const buildPoiFallbackLayer = (category: string) => ({
+    id: getPoiFallbackLayerId(category),
+    type: 'symbol' as const,
+    source: 'places',
+    minzoom: 13,
+    filter: [
+        'all',
+        ['==', ['get', 'category'], category],
+        ['!=', ['get', 'hasRenderableCustomIconImage'], true]
+    ],
+    layout: {
+        'icon-image': POI_FALLBACK_DOT_IMAGE_ID,
+        'icon-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13, 0.55,
+            15, 0.7,
+            18, 0.85
+        ],
+        'icon-allow-overlap': false,
+        'icon-optional': false,
+        'symbol-spacing': 250,
+        'text-field': ['get', 'title'],
+        'text-font': ['Noto Sans Regular'],
+        'text-offset': [0, 1.2],
+        'text-anchor': 'top',
+        'text-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            13, 9,
+            15, 11,
+            18, 13
+        ],
+        'text-optional': false,
+        'text-allow-overlap': false
+    },
+    paint: {
+        'icon-opacity': buildPoiVisibilityOpacityExpression(),
+        'icon-color': ['coalesce', ['get', 'textColor'], '#6b7280'],
+        'icon-halo-color': ['coalesce', ['get', 'haloColor'], '#ffffff'],
+        'icon-halo-width': 1,
+        'text-color': ['get', 'textColor'],
+        'text-opacity': buildPoiVisibilityOpacityExpression(),
+        'text-halo-color': ['get', 'haloColor'],
+        'text-halo-width': 2
+    }
+});
+
+const buildPoiFallbackDotImage = (fillColor = '#000000'): ImageData | null => {
+    if (typeof document === 'undefined') return null;
+
+    const canvas = document.createElement('canvas');
+    const size = 20;
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+
+    context.clearRect(0, 0, size, size);
+    context.beginPath();
+    context.arc(size / 2, size / 2, 5, 0, Math.PI * 2);
+    context.fillStyle = fillColor;
+    context.fill();
+
+    return context.getImageData(0, 0, size, size);
+};
+
+export const hasRenderableIconPixels = (imageData?: ImageData | null): boolean => {
+    if (!imageData?.data?.length) return false;
+
+    let visiblePixelCount = 0;
+    for (let index = 3; index < imageData.data.length; index += 4) {
+        if (imageData.data[index] >= POI_ICON_VISIBLE_ALPHA_THRESHOLD) {
+            visiblePixelCount += 1;
+            if (visiblePixelCount >= POI_ICON_MIN_VISIBLE_PIXEL_COUNT) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+};
+
+export const buildPopupRenderableIconMap = (
+    feature: any,
+    activeIcons: Record<string, IconDefinition>,
+    invalidIconKeys: Set<string>
+): Record<string, IconDefinition> => {
+    const iconKey = String(feature?.properties?.iconKey || '');
+    if (!iconKey || !invalidIconKeys.has(iconKey)) {
+        return activeIcons;
+    }
+
+    const keysToNullify = new Set(
+        [iconKey, feature?.properties?.subcategory, feature?.properties?.category]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+    );
+
+    let mutated = false;
+    const nextIcons: Record<string, IconDefinition> = { ...activeIcons };
+    keysToNullify.forEach((key) => {
+        const iconDef = nextIcons[key];
+        if (!iconDef?.imageUrl) return;
+        mutated = true;
+        nextIcons[key] = {
+            ...iconDef,
+            imageUrl: null
+        };
+    });
+
+    return mutated ? nextIcons : activeIcons;
+};
 
 const wrapNumericInputExpression = (input: any) => {
     if (!Array.isArray(input) || input.length === 0) return input;
@@ -298,6 +629,9 @@ interface UseMapLogicProps {
     isDefaultTheme: boolean;
     onEditIcon?: (category: string) => void;
     onMapLoad?: (map: any) => void;
+    onLoadedPoisChange?: (pois: LoadedPoiSearchItem[]) => void;
+    poiFocusRequest?: { id: string; nonce: number } | null;
+    poiMapVisibilityFilters: PoiMapVisibilityFilters;
 }
 
 // Exported for unit tests: identifies which custom icons must be removed/loaded
@@ -381,6 +715,7 @@ export const computePopupViewportConstraints = (
 ): PopupViewportConstraints => {
     const viewportWidth = Math.max(0, viewportRect.right - viewportRect.left);
     const viewportHeight = Math.max(0, viewportRect.bottom - viewportRect.top);
+    const isNarrowViewport = viewportWidth <= 640;
     const availableWidth = Math.max(180, Math.floor(viewportWidth - (margin * 2) - POPUP_CLOSE_BUTTON_OVERHANG));
     const availableContentHeight = Math.max(
         160,
@@ -388,8 +723,8 @@ export const computePopupViewportConstraints = (
     );
 
     return {
-        maxPopupWidth: Math.min(400, availableWidth),
-        maxContentHeight: availableContentHeight
+        maxPopupWidth: Math.min(isNarrowViewport ? 344 : 400, availableWidth),
+        maxContentHeight: isNarrowViewport ? Math.min(availableContentHeight, 308) : availableContentHeight
     };
 };
 
@@ -423,7 +758,10 @@ export const useMapLogic = ({
     popupStyle,
     isDefaultTheme,
     onEditIcon,
-    onMapLoad
+    onMapLoad,
+    onLoadedPoisChange,
+    poiFocusRequest,
+    poiMapVisibilityFilters
 }: UseMapLogicProps) => {
     const mapController = useRef<IMapController | null>(null);
     const [loaded, setLoaded] = useState(false);
@@ -434,11 +772,276 @@ export const useMapLogic = ({
     const popupRequestSequence = useRef(0);
     const suppressedMoveendRefreshCount = useRef(0);
     const skipNextStyleApplyRef = useRef(false);
+    const loadedPoiFeaturesRef = useRef<Map<string, any>>(new Map());
+    const viewportPoiIdsRef = useRef<Set<string>>(new Set());
+    const lastPublishedPoiSnapshotRef = useRef('');
+    const openPoiFeatureRef = useRef<((feature: any, anchorCoords?: [number, number]) => void) | null>(null);
+    const invalidIconKeysRef = useRef<Set<string>>(new Set());
+    const renderableCustomIconKeysRef = useRef<Set<string>>(new Set());
+    const handledPoiFocusRequestRef = useRef<number | null>(null);
+    const latestLoadedPoisCallbackRef = useRef(onLoadedPoisChange);
+    const latestPoiCollectionInputsRef = useRef({ activeIcons, palette: paletteProp, popupStyle });
+    const poiMapVisibilityFiltersRef = useRef(poiMapVisibilityFilters);
+    const poiFacetWarmQueueRef = useRef<string[]>([]);
+    const poiFacetWarmPendingRef = useRef<Set<string>>(new Set());
+    const poiFacetWarmActiveCountRef = useRef(0);
+    const scheduledPoiSnapshotTimeoutRef = useRef<number | null>(null);
+    const popupLayoutObserverRef = useRef<ResizeObserver | null>(null);
+    const popupObservedElementRef = useRef<HTMLElement | null>(null);
+    const lastAppliedPoiFeatureVisibilityRef = useRef<Map<string, boolean>>(new Map());
+    const lastPoiCollectionViewportRef = useRef<PoiViewportSnapshot | null>(null);
 
     const palette = useMemo(() => {
         if (paletteProp) return paletteProp;
         return derivePalette(mapStyleJson);
     }, [mapStyleJson, paletteProp]);
+
+    useEffect(() => {
+        latestLoadedPoisCallbackRef.current = onLoadedPoisChange;
+    }, [onLoadedPoisChange]);
+
+    useEffect(() => {
+        latestPoiCollectionInputsRef.current = {
+            activeIcons,
+            palette,
+            popupStyle
+        };
+    }, [activeIcons, palette, popupStyle]);
+
+    useEffect(() => {
+        poiMapVisibilityFiltersRef.current = poiMapVisibilityFilters;
+    }, [poiMapVisibilityFilters]);
+
+    const clearScheduledPoiSnapshot = useCallback(() => {
+        if (scheduledPoiSnapshotTimeoutRef.current !== null) {
+            window.clearTimeout(scheduledPoiSnapshotTimeoutRef.current);
+            scheduledPoiSnapshotTimeoutRef.current = null;
+        }
+    }, []);
+
+    const publishLoadedPoisSnapshot = useCallback((controller: IMapController) => {
+        const rawMap = controller.getRawMap?.();
+        if (!rawMap) {
+            loadedPoiFeaturesRef.current = new Map();
+            viewportPoiIdsRef.current = new Set();
+            if (lastPublishedPoiSnapshotRef.current !== '__empty__') {
+                lastPublishedPoiSnapshotRef.current = '__empty__';
+                latestLoadedPoisCallbackRef.current?.([]);
+            }
+            return;
+        }
+
+        const registryFeatures = Array.from(loadedPoiFeaturesRef.current.values());
+        if (registryFeatures.length === 0) {
+            if (lastPublishedPoiSnapshotRef.current !== '__empty__') {
+                lastPublishedPoiSnapshotRef.current = '__empty__';
+                latestLoadedPoisCallbackRef.current?.([]);
+            }
+            return;
+        }
+
+        const shownIds = new Set<string>();
+        registryFeatures.forEach((feature) => {
+            const id = PoiRegistryService.resolveFeatureId(feature);
+            if (!id) return;
+            if (PoiSearchService.matchesMapVisibilityFilters(feature, poiMapVisibilityFiltersRef.current)) {
+                shownIds.add(id);
+            }
+        });
+
+        const nextItems = PoiSearchService.buildLoadedPoiItems(registryFeatures, shownIds);
+        const snapshotSignature = nextItems
+            .map((item) =>
+                [
+                    item.id,
+                    item.shownOnMap ? '1' : '0',
+                    item.hasPhoto ? '1' : '0',
+                    item.hasWebsite ? '1' : '0',
+                    item.isOpenNow ? '1' : '0',
+                    item.address || '',
+                    item.website || '',
+                    item.openingHours || ''
+                ].join(':')
+            )
+            .join('|');
+
+        if (snapshotSignature === lastPublishedPoiSnapshotRef.current) {
+            return;
+        }
+
+        lastPublishedPoiSnapshotRef.current = snapshotSignature;
+        latestLoadedPoisCallbackRef.current?.(nextItems);
+    }, []);
+
+    const scheduleLoadedPoisSnapshotPublish = useCallback((controller: IMapController, delay = 0) => {
+        clearScheduledPoiSnapshot();
+
+        if (delay <= 0) {
+            publishLoadedPoisSnapshot(controller);
+            return;
+        }
+
+        scheduledPoiSnapshotTimeoutRef.current = window.setTimeout(() => {
+            scheduledPoiSnapshotTimeoutRef.current = null;
+            publishLoadedPoisSnapshot(controller);
+        }, delay);
+    }, [clearScheduledPoiSnapshot, publishLoadedPoisSnapshot]);
+
+    const syncPoiRegistryToMap = useCallback((controller: IMapController) => {
+        controller.setGeoJsonSourceData(
+            'places',
+            PoiRegistryService.toFeatureCollection(loadedPoiFeaturesRef.current)
+        );
+    }, []);
+
+    const applyPoiFeatureVisibilityStates = useCallback((controller: IMapController) => {
+        const rawMap = controller.getRawMap?.();
+        if (!rawMap?.setFeatureState) return;
+
+        Array.from(loadedPoiFeaturesRef.current.values()).forEach((feature) => {
+            const id = PoiRegistryService.resolveFeatureId(feature);
+            if (!id) return;
+
+            const nextVisible = PoiSearchService.matchesMapVisibilityFilters(
+                feature,
+                poiMapVisibilityFiltersRef.current
+            );
+            if (lastAppliedPoiFeatureVisibilityRef.current.get(id) === nextVisible) {
+                return;
+            }
+
+            rawMap.setFeatureState(
+                { source: 'places', id },
+                { [POI_VISIBILITY_FEATURE_STATE_KEY]: nextVisible }
+            );
+            lastAppliedPoiFeatureVisibilityRef.current.set(id, nextVisible);
+        });
+    }, []);
+
+    const applyPoiRenderableCustomIconState = useCallback(() => {
+        let changed = false;
+
+        loadedPoiFeaturesRef.current.forEach((feature) => {
+            const properties = feature?.properties || {};
+            const iconKey = String(properties.iconKey || '').trim();
+            const hasCustomIconImage = properties.hasCustomIconImage === true;
+            const nextRenderable = hasCustomIconImage && iconKey.length > 0 && renderableCustomIconKeysRef.current.has(iconKey);
+
+            if (properties.hasRenderableCustomIconImage === nextRenderable) {
+                return;
+            }
+
+            feature.properties = {
+                ...properties,
+                hasRenderableCustomIconImage: nextRenderable
+            };
+            changed = true;
+        });
+
+        return changed;
+    }, []);
+
+    const pumpPoiFacetWarmQueue = useCallback(() => {
+        if (!mapController.current) return;
+
+        while (
+            poiFacetWarmActiveCountRef.current < POI_FACET_WARM_CONCURRENCY &&
+            poiFacetWarmQueueRef.current.length > 0
+        ) {
+            const nextId = poiFacetWarmQueueRef.current.shift();
+            if (!nextId) continue;
+
+            const feature = loadedPoiFeaturesRef.current.get(nextId);
+            if (!feature) continue;
+
+            poiFacetWarmActiveCountRef.current += 1;
+            void PoiDetailsService.getDetails(feature)
+                .catch(() => undefined)
+                .finally(() => {
+                    poiFacetWarmActiveCountRef.current = Math.max(0, poiFacetWarmActiveCountRef.current - 1);
+                    if (mapController.current) {
+                        scheduleLoadedPoisSnapshotPublish(mapController.current, 90);
+                    }
+                    pumpPoiFacetWarmQueue();
+                });
+        }
+    }, [scheduleLoadedPoisSnapshotPublish]);
+
+    const schedulePoiFacetWarmup = useCallback((features: any[]) => {
+        features.forEach((feature) => {
+            if ((poiFacetWarmQueueRef.current.length + poiFacetWarmActiveCountRef.current) >= POI_FACET_WARM_QUEUE_LIMIT) return;
+            const id = PoiRegistryService.resolveFeatureId(feature);
+            if (!id) return;
+            if (poiFacetWarmPendingRef.current.has(id)) return;
+            if (PoiDetailsService.peekCachedDetails(feature)) return;
+
+            poiFacetWarmPendingRef.current.add(id);
+            poiFacetWarmQueueRef.current.push(id);
+        });
+
+        pumpPoiFacetWarmQueue();
+    }, [pumpPoiFacetWarmQueue]);
+
+    const refreshPoisFromViewport = useCallback((
+        controller: IMapController,
+        options: { force?: boolean } = {}
+    ) => {
+        const rawMap = controller.getRawMap?.();
+        if (!options.force && shouldSkipPoiViewportRefresh(rawMap, lastPoiCollectionViewportRef.current)) {
+            return false;
+        }
+
+        const latestInputs = latestPoiCollectionInputsRef.current;
+        const discoveredFeatures = PoiService.collectData(
+            controller,
+            latestInputs.activeIcons,
+            latestInputs.palette || {},
+            latestInputs.popupStyle
+        );
+        viewportPoiIdsRef.current = new Set(
+            discoveredFeatures
+                .map((feature) => PoiRegistryService.resolveFeatureId(feature))
+                .filter((id): id is string => Boolean(id))
+        );
+        const mergeResult = PoiRegistryService.mergeDiscoveredFeatures(
+            loadedPoiFeaturesRef.current,
+            discoveredFeatures,
+            Date.now()
+        );
+        lastPoiCollectionViewportRef.current = capturePoiViewportSnapshot(rawMap);
+
+        loadedPoiFeaturesRef.current = mergeResult.registry;
+        const renderabilityChanged = applyPoiRenderableCustomIconState();
+
+        if (mergeResult.changed || renderabilityChanged) {
+            syncPoiRegistryToMap(controller);
+            lastAppliedPoiFeatureVisibilityRef.current = new Map();
+            window.setTimeout(() => {
+                if (!mapController.current || mapController.current !== controller) return;
+                applyPoiFeatureVisibilityStates(controller);
+            }, 0);
+        }
+
+        schedulePoiFacetWarmup(discoveredFeatures);
+        if (mergeResult.changed || mergeResult.addedIds.length > 0) {
+            publishLoadedPoisSnapshot(controller);
+        }
+        return true;
+    }, [applyPoiFeatureVisibilityStates, applyPoiRenderableCustomIconState, publishLoadedPoisSnapshot, schedulePoiFacetWarmup, syncPoiRegistryToMap]);
+
+    const applyPoiMapVisibilityFilters = useCallback((controller: IMapController) => {
+        const rawMap = controller.getRawMap?.();
+        if (!rawMap?.getLayer?.(POI_INTERACTION_LAYER_ID)) return;
+
+        const interactionFilterExpression = PoiRegistryService.buildLayerVisibilityFilter(
+            poiMapVisibilityFiltersRef.current
+        );
+        rawMap.setFilter?.(POI_INTERACTION_LAYER_ID, interactionFilterExpression);
+        applyPoiFeatureVisibilityStates(controller);
+        // Defer the expensive sidebar snapshot publish so the map visibility toggle
+        // can land first without competing with a full loaded-POI recalculation.
+        scheduleLoadedPoisSnapshotPublish(controller, 96);
+    }, [applyPoiFeatureVisibilityStates, scheduleLoadedPoisSnapshotPublish]);
 
     const ensurePoiInfrastructure = useCallback((controller: IMapController) => {
         const rawMap = controller.getRawMap?.();
@@ -448,52 +1051,39 @@ export const useMapLogic = ({
             rawMap.addSource('places', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
+                promoteId: 'id',
                 cluster: false
             });
             logger.info('Created "places" source on map load');
         }
 
-        if (!rawMap.getLayer('unclustered-point')) {
-            rawMap.addLayer({
-                id: 'unclustered-point',
-                type: 'symbol',
-                source: 'places',
-                minzoom: 13,
-                layout: {
-                    'icon-image': ['get', 'iconKey'],
-                    'icon-size': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        13, 0.15,
-                        14, 0.25,
-                        16, 0.35,
-                        18, 0.45
-                    ],
-                    'icon-allow-overlap': false,
-                    'symbol-spacing': 250,
-                    'text-field': ['get', 'title'],
-                    'text-font': ['Noto Sans Regular'],
-                    'text-offset': [0, 1.2],
-                    'text-anchor': 'top',
-                    'text-size': [
-                        'interpolate',
-                        ['linear'],
-                        ['zoom'],
-                        13, 9,
-                        15, 11,
-                        18, 13
-                    ],
-                    'text-optional': true,
-                    'text-allow-overlap': false
-                },
-                paint: {
-                    'text-color': ['get', 'textColor'],
-                    'text-halo-color': ['get', 'haloColor'],
-                    'text-halo-width': 2
-                }
-            });
-            logger.info('Created "unclustered-point" layer on map load');
+        if (!rawMap.getLayer(POI_INTERACTION_LAYER_ID)) {
+            rawMap.addLayer(buildPoiInteractionLayer());
+            logger.info('Created "unclustered-point" interaction layer on map load');
+        }
+
+        if (!controller.hasImage(POI_FALLBACK_DOT_IMAGE_ID)) {
+            const dotImage = buildPoiFallbackDotImage();
+            if (dotImage) {
+                controller.addImage(POI_FALLBACK_DOT_IMAGE_ID, dotImage, { sdf: true });
+            }
+        }
+
+        POI_CATEGORY_GROUPS.forEach((category) => {
+
+            const layerId = getPoiSymbolLayerId(category);
+            if (!rawMap.getLayer(layerId)) {
+                rawMap.addLayer(buildPoiSymbolLayer(category));
+            }
+
+            const fallbackLayerId = getPoiFallbackLayerId(category);
+            if (!rawMap.getLayer(fallbackLayerId)) {
+                rawMap.addLayer(buildPoiFallbackLayer(category), layerId);
+            }
+        });
+
+        if (POI_CATEGORY_GROUPS.some((category) => rawMap.getLayer(getPoiSymbolLayerId(category)))) {
+            logger.info('Created category-specific POI symbol layers on map load');
         }
 
         PoiService.hideBaseMapPOILayers(controller);
@@ -549,9 +1139,21 @@ export const useMapLogic = ({
 
         return () => {
             active = false;
+            loadedPoiFeaturesRef.current = new Map();
+            lastPublishedPoiSnapshotRef.current = '__empty__';
+            poiFacetWarmQueueRef.current = [];
+            poiFacetWarmPendingRef.current = new Set();
+            poiFacetWarmActiveCountRef.current = 0;
+            clearScheduledPoiSnapshot();
+            lastAppliedPoiFeatureVisibilityRef.current = new Map();
+            lastPoiCollectionViewportRef.current = null;
+            popupLayoutObserverRef.current?.disconnect();
+            popupLayoutObserverRef.current = null;
+            popupObservedElementRef.current = null;
+            latestLoadedPoisCallbackRef.current?.([]);
             mapController.current?.dispose();
         };
-    }, [ensurePoiInfrastructure]);
+    }, [clearScheduledPoiSnapshot, ensurePoiInfrastructure]);
 
     useEffect(() => {
         if (!loaded || !mapController.current || !containerRef.current) return;
@@ -593,11 +1195,19 @@ export const useMapLogic = ({
         const onStyleData = () => {
             const nextMap = controller.getRawMap?.();
             if (!nextMap) return;
+            loadedPoiFeaturesRef.current = new Map();
+            lastPublishedPoiSnapshotRef.current = '__empty__';
+            poiFacetWarmQueueRef.current = [];
+            poiFacetWarmPendingRef.current = new Set();
+            poiFacetWarmActiveCountRef.current = 0;
+            lastAppliedPoiFeatureVisibilityRef.current = new Map();
+            lastPoiCollectionViewportRef.current = null;
             ensurePoiInfrastructure(controller);
-            PoiService.refreshData(controller, activeIcons, paletteProp || derivePalette(mapStyleJson), popupStyle);
+            refreshPoisFromViewport(controller, { force: true });
+            applyPoiMapVisibilityFilters(controller);
 
             const onIdleRefresh = () => {
-                PoiService.refreshData(controller, activeIcons, paletteProp || derivePalette(mapStyleJson), popupStyle);
+                refreshPoisFromViewport(controller, { force: true });
                 nextMap.off?.('idle', onIdleRefresh);
             };
 
@@ -611,8 +1221,15 @@ export const useMapLogic = ({
         mapStyleJson,
         baseStyle,
         palette,
-        ensurePoiInfrastructure
+        ensurePoiInfrastructure,
+        applyPoiMapVisibilityFilters,
+        refreshPoisFromViewport
     ]);
+
+    useEffect(() => {
+        if (!loaded || !mapController.current) return;
+        applyPoiMapVisibilityFilters(mapController.current);
+    }, [loaded, poiMapVisibilityFilters, applyPoiMapVisibilityFilters]);
 
     // 3. Apply Palette Logic
     useEffect(() => {
@@ -661,12 +1278,25 @@ export const useMapLogic = ({
                 controller.removeImage(category);
             }
             delete loadedIconUrls.current[category];
+            invalidIconKeysRef.current.delete(category);
+            renderableCustomIconKeysRef.current.delete(category);
             logger.debug(`Removed stale custom icon "${category}" after style change`);
         });
 
+        if (applyPoiRenderableCustomIconState()) {
+            syncPoiRegistryToMap(controller);
+        }
+
         Object.entries(desiredIconUrls).forEach(([cat, url]) => {
             // Simple cache check
-            if (loadedIconUrls.current[cat] === url && controller.hasImage(cat)) {
+            if (
+                loadedIconUrls.current[cat] === url
+                && renderableCustomIconKeysRef.current.has(cat)
+                && controller.hasImage(cat)
+            ) {
+                if (applyPoiRenderableCustomIconState()) {
+                    syncPoiRegistryToMap(controller);
+                }
                 logger.trace(`Icon "${cat}" already loaded, skipping`);
                 return;
             }
@@ -689,20 +1319,63 @@ export const useMapLogic = ({
 
                         // Convert canvas to ImageData for MapLibre
                         const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
-
-                        controller.addImage(cat, imageData);
                         loadedIconUrls.current[cat] = url;
+
+                        if (!hasRenderableIconPixels(imageData)) {
+                            invalidIconKeysRef.current.add(cat);
+                            renderableCustomIconKeysRef.current.delete(cat);
+                            if (applyPoiRenderableCustomIconState()) {
+                                syncPoiRegistryToMap(controller);
+                            }
+                            logger.warn(`Loaded icon "${cat}" is blank/transparent; keeping fallback dot placeholder`);
+                            return;
+                        }
+
+                        invalidIconKeysRef.current.delete(cat);
+                        renderableCustomIconKeysRef.current.add(cat);
+                        controller.addImage(cat, imageData);
+                        if (applyPoiRenderableCustomIconState()) {
+                            syncPoiRegistryToMap(controller);
+                        }
                         logger.info(`Loaded and resized icon "${cat}" to ${targetSize}x${targetSize}`);
                     }
                 } catch (e) {
+                    invalidIconKeysRef.current.add(cat);
+                    renderableCustomIconKeysRef.current.delete(cat);
+                    loadedIconUrls.current[cat] = url;
+                    if (applyPoiRenderableCustomIconState()) {
+                        syncPoiRegistryToMap(controller);
+                    }
                     logger.error(`Failed to resize icon "${cat}":`, e);
                 }
             };
             img.onerror = (e) => {
+                loadedIconUrls.current[cat] = url;
+                invalidIconKeysRef.current.add(cat);
+                renderableCustomIconKeysRef.current.delete(cat);
+                if (applyPoiRenderableCustomIconState()) {
+                    syncPoiRegistryToMap(controller);
+                }
                 logger.error(`Failed to load icon "${cat}":`, e);
             };
         });
-    }, [loaded, activeIcons]);
+    }, [activeIcons, applyPoiRenderableCustomIconState, loaded, syncPoiRegistryToMap]);
+
+    useEffect(() => {
+        if (!loaded || !mapController.current) return;
+        const controller = mapController.current;
+
+        const hideBasePoiLayers = () => {
+            PoiService.hideBaseMapPOILayers(controller);
+        };
+
+        hideBasePoiLayers();
+        controller.on('styledata', hideBasePoiLayers);
+
+        return () => {
+            controller.off('styledata', hideBasePoiLayers);
+        };
+    }, [loaded]);
 
     // 5. Popup Interaction
     // We bind the click listener ONCE
@@ -735,37 +1408,33 @@ export const useMapLogic = ({
         if (!loaded || !mapController.current) return;
         const controller = mapController.current;
 
-        const resolveEditCategory = (...candidates: Array<string | undefined>) => {
-            for (const candidate of candidates) {
-                const normalized = normalizeCategoryToken(candidate);
-                if (!normalized) continue;
-                const mapped = CATEGORY_BY_TOKEN.get(normalized);
-                if (mapped) return mapped;
-            }
-            return '';
-        };
+        const resolveEditCategory = (
+            icons: Record<string, IconDefinition>,
+            feature?: any
+        ) => resolvePoiRemixTarget(icons, {
+            category: feature?.properties?.category,
+            subcategory: feature?.properties?.subcategory,
+            subclass: feature?.properties?.subclass,
+            className: feature?.properties?.class,
+            iconKey: feature?.properties?.iconKey
+        });
 
-        const onPointClick = (e: MapEvent) => {
-            if (!e.features || e.features.length === 0) return;
-            const feature = e.features.find((candidate) =>
+        const openPoiFeature = (rawFeature: any, anchorCoords?: [number, number]) => {
+            if (!rawFeature) return;
+            const feature = [rawFeature].find((candidate) =>
                 Boolean(resolveEditCategory(
-                    candidate.properties?.iconKey,
-                    candidate.properties?.subcategory,
-                    candidate.properties?.category
+                    latestState.current.activeIcons,
+                    candidate
                 ))
-            ) || e.features[0];
-            const clickedLng = Number(e.lngLat?.lng);
-            const clickedLat = Number(e.lngLat?.lat);
+            ) || rawFeature;
             const featureCoords = (feature.geometry as any).coordinates.slice() as [number, number];
-            const coords: [number, number] = Number.isFinite(clickedLng) && Number.isFinite(clickedLat)
-                ? [clickedLng, clickedLat]
-                : featureCoords;
+            const coords = anchorCoords || featureCoords;
             const state = latestState.current;
             const editTarget = resolveEditCategory(
-                feature.properties?.iconKey,
-                feature.properties?.subcategory,
-                feature.properties?.category
+                state.activeIcons,
+                feature
             );
+            const editDisabledReason = 'This POI does not map to a regeneratable icon in the current theme.';
             const popupRequestId = ++popupRequestSequence.current;
             const rawMap = controller.getRawMap?.();
 
@@ -799,10 +1468,12 @@ export const useMapLogic = ({
                     if (!rawMap || !mapContainer || typeof rawMap.panBy !== 'function') return;
 
                     const containerRect = mapContainer.getBoundingClientRect();
+                    const viewportWidth = Math.max(0, containerRect.right - containerRect.left);
+                    const viewportMargin = viewportWidth <= 640 ? 16 : POPUP_VIEWPORT_MARGIN;
                     const popupContent = popupRoot.querySelector('[data-mapalchemist-popup-content="true"]') as HTMLDivElement | null;
                     const { maxPopupWidth, maxContentHeight } = computePopupViewportConstraints(
                         containerRect,
-                        POPUP_VIEWPORT_MARGIN
+                        viewportMargin
                     );
 
                     popupRoot.style.width = `${maxPopupWidth}px`;
@@ -833,7 +1504,7 @@ export const useMapLogic = ({
                     const [deltaX, deltaY] = computePopupViewportPanDelta(
                         popupChromeRect,
                         containerRect,
-                        POPUP_VIEWPORT_MARGIN
+                        viewportMargin
                     );
 
                     if (deltaX !== 0 || deltaY !== 0) {
@@ -844,11 +1515,39 @@ export const useMapLogic = ({
                 const syncFrameAndViewport = () => {
                     PopupGenerator.syncFrameGeometry(popupRoot);
                     requestAnimationFrame(() => {
-                        PopupGenerator.syncFrameGeometry(popupRoot);
                         fitPopupIntoViewport();
-                        requestAnimationFrame(() => fitPopupIntoViewport());
                     });
                 };
+
+                const popupContent = popupRoot.querySelector('[data-mapalchemist-popup-content="true"]') as HTMLElement | null;
+                if (typeof ResizeObserver !== 'undefined' && popupObservedElementRef.current !== popupRoot) {
+                    popupLayoutObserverRef.current?.disconnect();
+                    popupLayoutObserverRef.current = null;
+                    popupObservedElementRef.current = popupRoot;
+
+                    let resizeScheduled = false;
+                    let lastObservedSize = '';
+                    const observedElement = popupContent || popupRoot;
+                    const observer = new ResizeObserver((entries) => {
+                        const nextRect = entries[0]?.contentRect;
+                        if (nextRect) {
+                            const nextSize = `${Math.round(nextRect.width)}x${Math.round(nextRect.height)}`;
+                            if (nextSize === lastObservedSize) {
+                                return;
+                            }
+                            lastObservedSize = nextSize;
+                        }
+                        if (resizeScheduled) return;
+                        resizeScheduled = true;
+                        window.setTimeout(() => {
+                            resizeScheduled = false;
+                            if (!popupRoot.isConnected) return;
+                            syncFrameAndViewport();
+                        }, 48);
+                    });
+                    observer.observe(observedElement);
+                    popupLayoutObserverRef.current = observer;
+                }
 
                 syncFrameAndViewport();
                 const btn = popupRoot.querySelector('#popup-edit-btn') as HTMLButtonElement | null;
@@ -862,6 +1561,8 @@ export const useMapLogic = ({
                     btn.disabled = !editTarget;
                     btn.style.opacity = editTarget ? '1' : '0.55';
                     btn.style.cursor = editTarget ? 'pointer' : 'not-allowed';
+                    btn.title = editTarget ? 'Open this icon in the editor' : editDisabledReason;
+                    btn.setAttribute('aria-label', editTarget ? 'Remix Icon' : editDisabledReason);
                     btn.onclick = () => {
                         if (!editTarget) return;
                         state.onEditIcon?.(editTarget);
@@ -872,6 +1573,9 @@ export const useMapLogic = ({
                 if (closeBtn) {
                     closeBtn.onclick = () => {
                         popupRequestSequence.current += 1;
+                        popupLayoutObserverRef.current?.disconnect();
+                        popupLayoutObserverRef.current = null;
+                        popupObservedElementRef.current = null;
                         controller.removePopup();
                     };
                 }
@@ -974,11 +1678,16 @@ export const useMapLogic = ({
             };
 
             const renderPopup = (detailStatus = PoiDetailsService.buildInitialDetails(feature)) => {
+                const popupIcons = buildPopupRenderableIconMap(
+                    feature,
+                    state.activeIcons,
+                    invalidIconKeysRef.current
+                );
                 const html = PopupGenerator.generateHtml(
                     feature,
                     state.popupStyle,
                     state.palette,
-                    state.activeIcons,
+                    popupIcons,
                     state.isDefaultTheme,
                     detailStatus
                 );
@@ -996,6 +1705,7 @@ export const useMapLogic = ({
                 .then((details) => {
                     if (popupRequestId !== popupRequestSequence.current) return;
                     renderPopup(details);
+                    publishLoadedPoisSnapshot(controller);
                 })
                 .catch((error) => {
                     logger.warn('Failed to load popup details', error);
@@ -1004,26 +1714,130 @@ export const useMapLogic = ({
                         ...PoiDetailsService.buildInitialDetails(feature),
                         status: 'error'
                     });
+                    publishLoadedPoisSnapshot(controller);
                 });
+        };
+
+        openPoiFeatureRef.current = openPoiFeature;
+
+        const setPoiCursor = (cursor: string) => {
+            const rawMap = controller.getRawMap?.();
+            const canvas = rawMap?.getCanvas?.();
+            if (canvas?.style) {
+                canvas.style.cursor = cursor;
+                return;
+            }
+            if (typeof document !== 'undefined') {
+                document.body.style.cursor = cursor;
+            }
+        };
+
+        const onVisiblePoiLayerClick = (e: MapEvent) => {
+            if (!e.features || e.features.length === 0) return;
+            const feature = e.features[0];
+            const clickedLng = Number(e.lngLat?.lng);
+            const clickedLat = Number(e.lngLat?.lat);
+            const featureCoords = (feature.geometry as any).coordinates.slice() as [number, number];
+            const coords: [number, number] = Number.isFinite(clickedLng) && Number.isFinite(clickedLat)
+                ? [clickedLng, clickedLat]
+                : featureCoords;
+            openPoiFeature(feature, coords);
+        };
+
+        const clearPoiCursor = () => {
+            setPoiCursor('');
+        };
+
+        const showPoiCursor = () => {
+            setPoiCursor('pointer');
         };
 
         const dismissPopupOnZoomStart = () => {
             popupRequestSequence.current += 1;
+            popupLayoutObserverRef.current?.disconnect();
+            popupLayoutObserverRef.current = null;
+            popupObservedElementRef.current = null;
             controller.removePopup();
         };
 
-        controller.on('click', onPointClick, 'unclustered-point');
+        const rawMap = controller.getRawMap?.();
+        const visualLayerIds = getPoiVisualLayerIds().filter((layerId) => rawMap?.getLayer?.(layerId));
+
+        visualLayerIds.forEach((layerId) => {
+            controller.on('click', onVisiblePoiLayerClick, layerId);
+            controller.on('mouseenter', showPoiCursor, layerId);
+            controller.on('mouseleave', clearPoiCursor, layerId);
+        });
+
         controller.on('zoomstart', dismissPopupOnZoomStart);
-        // Mouse cursor logic
-        controller.on('mouseenter', () => { document.body.style.cursor = 'pointer'; }, 'unclustered-point');
-        controller.on('mouseleave', () => { document.body.style.cursor = ''; }, 'unclustered-point');
+        controller.on('mouseleave', clearPoiCursor);
 
         return () => {
-            controller.off('click', onPointClick, 'unclustered-point');
+            openPoiFeatureRef.current = null;
+            popupLayoutObserverRef.current?.disconnect();
+            popupLayoutObserverRef.current = null;
+            popupObservedElementRef.current = null;
+            visualLayerIds.forEach((layerId) => {
+                controller.off('click', onVisiblePoiLayerClick, layerId);
+                controller.off('mouseenter', showPoiCursor, layerId);
+                controller.off('mouseleave', clearPoiCursor, layerId);
+            });
             controller.off('zoomstart', dismissPopupOnZoomStart);
+            controller.off('mouseleave', clearPoiCursor);
         };
 
-    }, [loaded]);
+    }, [loaded, publishLoadedPoisSnapshot]);
+
+    useEffect(() => {
+        if (!loaded || !mapController.current || !poiFocusRequest) return;
+        if (handledPoiFocusRequestRef.current === poiFocusRequest.nonce) return;
+        handledPoiFocusRequestRef.current = poiFocusRequest.nonce;
+
+        const controller = mapController.current;
+        const rawMap = controller.getRawMap?.();
+        const feature = loadedPoiFeaturesRef.current.get(poiFocusRequest.id);
+        if (!rawMap || !feature || !openPoiFeatureRef.current) return;
+
+        const coordinates = (feature.geometry as any)?.coordinates?.slice?.(0, 2) as [number, number] | undefined;
+        if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+
+        let didOpen = false;
+        let fallbackTimer: number | null = null;
+        const handleMoveEnd = () => {
+            if (didOpen) return;
+            didOpen = true;
+            rawMap.off?.('moveend', handleMoveEnd);
+            if (fallbackTimer !== null) {
+                window.clearTimeout(fallbackTimer);
+                fallbackTimer = null;
+            }
+            openPoiFeatureRef.current?.(feature, coordinates);
+        };
+
+        rawMap.on?.('moveend', handleMoveEnd);
+
+        if (typeof rawMap.easeTo === 'function') {
+            rawMap.easeTo({
+                center: coordinates,
+                zoom: Math.max(typeof rawMap.getZoom === 'function' ? rawMap.getZoom() : 14, 16),
+                duration: 650
+            });
+        } else {
+            handleMoveEnd();
+            return;
+        }
+
+        fallbackTimer = window.setTimeout(() => {
+            handleMoveEnd();
+        }, 800);
+
+        return () => {
+            rawMap.off?.('moveend', handleMoveEnd);
+            if (fallbackTimer !== null) {
+                window.clearTimeout(fallbackTimer);
+            }
+        };
+    }, [loaded, poiFocusRequest]);
 
     // 5. POI & Click Handlers
     useEffect(() => {
@@ -1034,17 +1848,7 @@ export const useMapLogic = ({
 
         // Map click handler (removed undefined handleMapClick)
 
-        // Change cursor to pointer when hovering over POI icons
         const rawMap = controller.getRawMap?.();
-        if (rawMap) {
-            rawMap.on('mouseenter', 'unclustered-point', () => {
-                rawMap.getCanvas().style.cursor = 'pointer';
-            });
-
-            rawMap.on('mouseleave', 'unclustered-point', () => {
-                rawMap.getCanvas().style.cursor = '';
-            });
-        }
 
         // Set up moveend listener for POI refresh
         const moveendHandler = () => {
@@ -1060,17 +1864,17 @@ export const useMapLogic = ({
             moveendRefreshTimer = window.setTimeout(() => {
                 moveendRefreshTimer = null;
                 if (!mapController.current) return;
-                PoiService.refreshData(mapController.current, activeIcons, palette, popupStyle);
+                refreshPoisFromViewport(mapController.current);
             }, POI_MOVEEND_REFRESH_DEBOUNCE_MS);
         };
 
         controller.on('moveend', moveendHandler);
 
         // Initial POI load
-        PoiService.refreshData(controller, activeIcons, palette, popupStyle);
+        refreshPoisFromViewport(controller, { force: true });
 
         const initialIdleRefresh = () => {
-            PoiService.refreshData(controller, activeIcons, palette, popupStyle);
+            refreshPoisFromViewport(controller, { force: true });
             if (!removedInitialIdleListener) {
                 rawMap?.off?.('idle', initialIdleRefresh);
                 removedInitialIdleListener = true;
@@ -1088,16 +1892,13 @@ export const useMapLogic = ({
                     moveendRefreshTimer = null;
                 }
 
-                // Clean up cursor event listeners
                 const rawMap = mapController.current.getRawMap?.();
                 if (rawMap) {
                     rawMap.off('idle', initialIdleRefresh);
-                    rawMap.off('mouseenter', 'unclustered-point');
-                    rawMap.off('mouseleave', 'unclustered-point');
                 }
             }
         };
-    }, [loaded, activeIcons, palette, popupStyle]);
+    }, [loaded, refreshPoisFromViewport]);
 
     return { loaded, isInitialVisualReady };
 };
