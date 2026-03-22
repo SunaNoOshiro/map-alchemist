@@ -1,6 +1,6 @@
 import { createBdd } from 'playwright-bdd';
 import { expect, Page } from '@playwright/test';
-import { MAP_CATEGORIES } from '../../../src/constants';
+import { getStyleSeedPoiCategories } from '../../../src/features/map/services/poiIconResolver';
 
 const { Given, When, Then } = createBdd();
 
@@ -12,7 +12,7 @@ const normalizeCategoryKey = (value: string) =>
 
 const VALID_ICON_KEYS = Array.from(
   new Set(
-    MAP_CATEGORIES.map((category) => normalizeCategoryKey(category))
+    getStyleSeedPoiCategories().map((category) => normalizeCategoryKey(category))
   )
 );
 
@@ -383,6 +383,25 @@ Then('the icon item {string} should be aligned to the top of the icon list', asy
   expect(visibleBottom).toBeGreaterThan(listBox.y + 12);
 });
 
+When('I click the icon item {string}', async ({ page }, category) => {
+  const item = page.getByTestId(getIconTestId(category));
+  await expect(item).toBeVisible();
+  await item.click();
+});
+
+Then('the icon item {string} should be selected for editing', async ({ page }, category) => {
+  const item = page.getByTestId(getIconTestId(category));
+  await expect(item).toBeVisible();
+  await expect(item.getByRole('button', { name: /close/i })).toBeVisible();
+  await expect(item).toContainText('Art Direction Prompt');
+});
+
+Then('the icon item {string} should no longer be selected for editing', async ({ page }, category) => {
+  const item = page.getByTestId(getIconTestId(category));
+  await expect(item).toBeVisible();
+  await expect(item.getByRole('button', { name: /close/i })).toHaveCount(0);
+});
+
 When('I scroll the icon list by {int}', async ({ page }, delta) => {
   const { before, after } = await page.evaluate((scrollDelta) => {
     const list = document.querySelector('[data-testid="icon-assets-list"]');
@@ -396,6 +415,7 @@ When('I scroll the icon list by {int}', async ({ page }, delta) => {
 });
 
 Then('the icon list scroll position should be greater than {int}', async ({ page }, expected) => {
+  await page.waitForTimeout(350);
   const scrollTop = await page.evaluate(() => {
     const list = document.querySelector('[data-testid="icon-assets-list"]');
     return list ? list.scrollTop : 0;
@@ -404,6 +424,7 @@ Then('the icon list scroll position should be greater than {int}', async ({ page
 });
 
 Then('the icon list scroll position should be less than {int}', async ({ page }, expected) => {
+  await page.waitForTimeout(350);
   const scrollTop = await page.evaluate(() => {
     const list = document.querySelector('[data-testid="icon-assets-list"]');
     return list ? list.scrollTop : 0;

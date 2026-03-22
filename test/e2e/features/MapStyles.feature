@@ -35,6 +35,81 @@ Feature: Map Style Interaction
     Then the map should be visible
     And POIs should appear without zooming after load
 
+  Scenario: Searching loaded POIs by name and category
+    When I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I click on a visible POI on the map
+    Then a popup should be visible
+    When I switch the right sidebar to Places
+    And I search loaded POIs for the last clicked POI title
+    And I select the category filter matching the last clicked POI
+    And I select the subcategory filter matching the last clicked POI
+    Then POI search results should contain the last clicked POI title
+    When I close the popup
+    And I click the first POI search result
+    Then a popup should be visible
+    And the popup should mention the last clicked POI title
+
+  Scenario: Filtering loaded POIs by metadata
+    When I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I switch the right sidebar to Places
+    And I freeze POI search time to "2026-03-15T10:00:00Z"
+    And I select the first available specific POI category filter
+    Then POI search results should all match the selected category filter
+    When I reset POI search filters
+    And I enable the "Has photo" POI filter
+    Then POI search results should satisfy the "Has photo" filter
+    When I reset POI search filters
+    And I enable the "Has website" POI filter
+    Then POI search results should satisfy the "Has website" filter
+    When I reset POI search filters
+    And I enable the "Open now" POI filter
+    Then POI search results should satisfy the "Open now" filter
+
+  Scenario: Persisting loaded POIs across map panning
+    When I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I switch the right sidebar to Places
+    And I remember the current loaded POI count
+    And I pan the map far away
+    Then the loaded POI count should not shrink
+
+  Scenario: Hiding and showing POI categories on the map
+    When I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I click on a visible POI on the map
+    Then a popup should be visible
+    When I switch the right sidebar to Places
+    And I search loaded POIs for the last clicked POI title
+    And I hide the category matching the last clicked POI from the map
+    Then the matching POI search result should be loaded but not visible
+    When I show the category matching the last clicked POI on the map
+    Then the matching POI search result should be visible again
+
+  Scenario: Syncing map visibility controls between Icons and Places
+    When I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I click on a visible POI on the map
+    Then a popup should be visible
+    When I switch the right sidebar to Icons
+    And I hide the category matching the last clicked POI from the map using the Icons panel
+    And I switch the right sidebar to Places
+    And I search loaded POIs for the last clicked POI title
+    Then the matching POI search result should be loaded but not visible
+    When I switch the right sidebar to Icons
+    And I show only the category matching the last clicked POI from the map using the Icons panel
+    And I switch the right sidebar to Places
+    Then the matching POI search result should be visible again
+    When I switch the right sidebar to Icons
+    And I show only the category matching the last clicked POI from the map using the Icons panel
+    And I switch the right sidebar to Places
+    Then the matching POI search result should be loaded but not visible
+    When I switch the right sidebar to Icons
+    And I reset map visibility from the Icons panel
+    And I switch the right sidebar to Places
+    Then the matching POI search result should be visible again
+
   Scenario: Verifying icon scaling and theme switching
     Then POI icons should scale correctly with zoom level
 
@@ -78,3 +153,11 @@ Feature: Map Style Interaction
     And the active map theme should restore directly to "in style of cartoon (Custom)"
     And the initial map reveal veil should be dismissed
     And the map should be visible
+
+  Scenario: Keeping popup close accessible on mobile
+    When I emulate a mobile viewport
+    And I select the "pirates map of treasures (Custom)" style
+    Then the map should be visible
+    When I click on a visible POI on the map
+    Then a popup should be visible
+    And the popup close button should remain tappable on mobile

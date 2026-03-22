@@ -16,7 +16,8 @@ describe('PaletteService.applyPalette', () => {
         const { map, setPaintProperty } = createMockMap();
         const layers = [
             { id: 'country-label', type: 'symbol' },
-            { id: 'unclustered-point', type: 'symbol' },
+            { id: 'unclustered-point', type: 'circle' },
+            { id: 'unclustered-point--food-drink', type: 'symbol' },
             { id: 'road-primary', type: 'line' }
         ];
 
@@ -30,7 +31,7 @@ describe('PaletteService.applyPalette', () => {
         );
 
         const hasPoiTextOverride = setPaintProperty.mock.calls.some(
-            ([layerId, paintProp]) => layerId === 'unclustered-point' && paintProp === 'text-color'
+            ([layerId, paintProp]) => String(layerId).startsWith('unclustered-point') && paintProp === 'text-color'
         );
 
         expect(hasPoiTextOverride).toBe(false);

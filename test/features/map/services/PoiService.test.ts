@@ -70,14 +70,14 @@ describe('PoiService.refreshData label colors', () => {
         expect(outputFeature.properties.haloColor).toMatch(/^#[0-9a-f]{6}$/);
     });
 
-    it('falls back to palette text color when no category group color is found', () => {
+    it('uses the fallback category-group color for uncategorized POIs', () => {
         const palette = { text: '#345678', land: '#111827' };
         const { map, setGeoJsonSourceData } = createMockMap([createPoiFeature({ subclass: 'unknown_poi_kind' })]);
 
         PoiService.refreshData(map, {}, palette, DEFAULT_POPUP_STYLE);
 
         const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
-        expect(outputFeature.properties.textColor).toBe(palette.text);
+        expect(outputFeature.properties.textColor).toBe('#9ca3af');
     });
 
     it('uses one harmonized halo color for all POI labels in a refresh pass', () => {
@@ -152,7 +152,7 @@ describe('PoiService.refreshData label colors', () => {
 
     it('updates places source again when refresh inputs change rendered POI properties', () => {
         const basePalette = { text: '#334155', land: '#0f172a' };
-        const changedPalette = { text: '#ef4444', land: '#0f172a' };
+        const changedPalette = { text: '#ef4444', land: '#f97316' };
         const { map, setGeoJsonSourceData } = createMockMap([
             createPoiFeature({
                 subclass: 'unknown_poi_kind'
@@ -165,8 +165,7 @@ describe('PoiService.refreshData label colors', () => {
         expect(setGeoJsonSourceData).toHaveBeenCalledTimes(2);
         const [, firstPayload] = setGeoJsonSourceData.mock.calls[0] as [string, { features: Array<{ properties: Record<string, string> }> }];
         const [, secondPayload] = setGeoJsonSourceData.mock.calls[1] as [string, { features: Array<{ properties: Record<string, string> }> }];
-        expect(firstPayload.features[0].properties.textColor).toBe(basePalette.text);
-        expect(secondPayload.features[0].properties.textColor).toBe(changedPalette.text);
+        expect(firstPayload.features[0].properties.haloColor).not.toBe(secondPayload.features[0].properties.haloColor);
     });
 
     it('preserves OSM identifiers and free-detail source tags for popup enrichment', () => {
@@ -199,5 +198,130 @@ describe('PoiService.refreshData label colors', () => {
         expect(outputFeature.properties.wikipedia).toBe('en:Test_Place');
         expect(outputFeature.properties.wikidata).toBe('Q42');
         expect(outputFeature.properties.image).toBe('https://images.example/test-place.jpg');
+    });
+
+    it('marks POIs with a custom icon image when the active icon set provides one', () => {
+        const palette = { text: '#123456', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({ subclass: 'cafe' })
+        ]);
+
+        PoiService.refreshData(map, {
+            Cafe: {
+                name: 'Cafe',
+                imageUrl: 'https://images.example/cafe-icon.png'
+            } as any
+        }, palette, DEFAULT_POPUP_STYLE);
+
+        const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
+        expect(outputFeature.properties.iconKey).toBe('Cafe');
+        expect(outputFeature.properties.hasCustomIconImage).toBe(true);
+        expect(outputFeature.properties.hasRenderableCustomIconImage).toBe(false);
+    });
+
+    it('marks POIs without a custom icon image so the map can render the dot fallback', () => {
+        const palette = { text: '#123456', land: '#0f172a' };
+        const { map, setGeoJsonSourceData } = createMockMap([
+            createPoiFeature({ subclass: 'cafe' })
+        ]);
+
+        PoiService.refreshData(map, {
+            Cafe: {
+                name: 'Cafe'
+            } as any
+        }, palette, DEFAULT_POPUP_STYLE);
+
+        const outputFeature = getFirstOutputFeature(setGeoJsonSourceData);
+        expect(outputFeature.properties.iconKey).toBe('Landmark');
+        expect(outputFeature.properties.hasCustomIconImage).toBe(false);
+        expect(outputFeature.properties.hasRenderableCustomIconImage).toBe(false);
+    });
+
+    it('hides base-map POI-like symbol layers while leaving road and place labels alone', () => {
+        const setLayoutProperty = vi.fn();
+        const rawMap = {
+            getLayer: vi.fn(() => ({})),
+            setLayoutProperty
+        };
+        const map = {
+            getLayers: vi.fn(() => [
+                {
+                    id: 'poi-label',
+                    type: 'symbol',
+                    source: 'openmaptiles',
+                    'source-layer': 'poi_label'
+                },
+                {
+                    id: 'shop-overlay',
+                    type: 'symbol',
+                    source: 'openmaptiles',
+                    filter: ['==', ['get', 'shop'], 'supermarket']
+                },
+                {
+                    id: 'generic-business-label',
+                    type: 'symbol',
+                    source: 'openfreemap',
+                    'source-layer': 'name',
+                    layout: {
+                        'text-field': ['get', 'name']
+                    }
+                },
+                {
+                    id: 'unknown-source-business-label',
+                    type: 'symbol',
+                    source: 'theme-compiled-businesses',
+                    layout: {
+                        'text-field': ['get', 'name']
+                    }
+                },
+                {
+                    id: 'unknown-source-symbol-without-source-layer',
+                    type: 'symbol',
+                    source: 'theme-runtime-overlay',
+                    layout: {
+                        'icon-image': 'custom-business-marker'
+                    }
+                },
+                {
+                    id: 'theme-street-shop-label',
+                    type: 'symbol',
+                    source: 'theme-runtime-overlay',
+                    'source-layer': 'name',
+                    layout: {
+                        'text-field': ['get', 'street_name_like_business']
+                    }
+                },
+                {
+                    id: 'road-label',
+                    type: 'symbol',
+                    source: 'openmaptiles',
+                    'source-layer': 'transportation_name'
+                },
+                {
+                    id: 'place-label',
+                    type: 'symbol',
+                    source: 'openmaptiles',
+                    'source-layer': 'place'
+                },
+                {
+                    id: 'unclustered-point--shopping',
+                    type: 'symbol',
+                    source: 'places'
+                }
+            ]),
+            getRawMap: vi.fn(() => rawMap)
+        } as unknown as IMapController;
+
+        PoiService.hideBaseMapPOILayers(map);
+
+        expect(setLayoutProperty).toHaveBeenCalledWith('poi-label', 'visibility', 'none');
+        expect(setLayoutProperty).toHaveBeenCalledWith('shop-overlay', 'visibility', 'none');
+        expect(setLayoutProperty).toHaveBeenCalledWith('generic-business-label', 'visibility', 'none');
+        expect(setLayoutProperty).toHaveBeenCalledWith('unknown-source-business-label', 'visibility', 'none');
+        expect(setLayoutProperty).toHaveBeenCalledWith('unknown-source-symbol-without-source-layer', 'visibility', 'none');
+        expect(setLayoutProperty).toHaveBeenCalledWith('theme-street-shop-label', 'visibility', 'none');
+        expect(setLayoutProperty).not.toHaveBeenCalledWith('road-label', 'visibility', 'none');
+        expect(setLayoutProperty).not.toHaveBeenCalledWith('place-label', 'visibility', 'none');
+        expect(setLayoutProperty).not.toHaveBeenCalledWith('unclustered-point--shopping', 'visibility', 'none');
     });
 });

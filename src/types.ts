@@ -136,6 +136,63 @@ export interface PoiPopupPhotoCandidate {
     | 'commons-pageimage';
 }
 
+export interface LoadedPoiSearchItem {
+  id: string;
+  title: string;
+  category: string;
+  subcategory: string;
+  taxonomyKey: string;
+  iconKey: string;
+  coordinates: [number, number];
+  address?: string;
+  website?: string;
+  openingHours?: string;
+  hasPhoto: boolean;
+  hasWebsite: boolean;
+  isOpenNow: boolean;
+  shownOnMap: boolean;
+}
+
+export interface PoiSearchFilters {
+  query: string;
+  category: string;
+  subcategory: string;
+  hasPhoto: boolean;
+  hasWebsite: boolean;
+  openNow: boolean;
+}
+
+export interface PoiTaxonomySummarySubcategory {
+  subcategory: string;
+  taxonomyKey: string;
+  count: number;
+  shownCount: number;
+}
+
+export interface PoiTaxonomySummaryCategory {
+  category: string;
+  count: number;
+  shownCount: number;
+  subcategoryCount: number;
+  visibleSubcategoryCount: number;
+  subcategories: PoiTaxonomySummarySubcategory[];
+}
+
+export interface PoiMapVisibilityIsolationState {
+  kind: 'category' | 'subcategory';
+  key: string;
+  previousHiddenCategories: string[];
+  previousHiddenSubcategories: string[];
+}
+
+export interface PoiMapVisibilityFilters {
+  hiddenCategories: string[];
+  hiddenSubcategories: string[];
+  isolation?: PoiMapVisibilityIsolationState | null;
+}
+
+export type RightSidebarMode = 'icons' | 'places';
+
 export type ImageSize = '1K' | '2K' | '4K';
 export type IconGenerationMode = 'auto' | 'batch-async' | 'atlas' | 'per-icon';
 

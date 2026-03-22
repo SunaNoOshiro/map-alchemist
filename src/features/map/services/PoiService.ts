@@ -3,6 +3,7 @@ import { CATEGORY_COLORS, getCategoryColor } from '@/constants';
 import { IconDefinition, PopupStyle } from '@/types';
 import { createLogger } from '@core/logger';
 import { resolvePoiIconKey, resolvePoiTaxonomy } from './poiIconResolver';
+import { PoiRegistryService } from './PoiRegistryService';
 import { extractPoiSymbolSources } from './styleCatalog';
 import { deriveHarmonizedHaloFromPalette, normalizeHexColor } from './colorHarmony';
 
@@ -130,6 +131,42 @@ const buildPoiRefreshSignature = (features: any[], sourceCount: number): string 
     return `${sourceCount}:${features.length}:${hash >>> 0}`;
 };
 
+const isAppPoiLayerId = (layerId: string): boolean =>
+    layerId === 'unclustered-point'
+    || layerId.startsWith('unclustered-point--')
+    || layerId.startsWith('unclustered-point-fallback--');
+
+const BASE_CONTEXT_SOURCE_LAYER_ALLOWLIST = new Set([
+    'place',
+    'transportation_name',
+    'housenumber',
+    'address'
+]);
+
+const isAllowedBaseContextLabelLayer = (layer: any): boolean => {
+    const sourceLayer = String(layer?.['source-layer'] || '').toLowerCase();
+    return BASE_CONTEXT_SOURCE_LAYER_ALLOWLIST.has(sourceLayer);
+};
+
+const shouldHideBaseSymbolLayer = (layer: any): boolean => {
+    if (layer?.type !== 'symbol') return false;
+
+    const layerId = String(layer?.id || '');
+    if (!layerId || isAppPoiLayerId(layerId)) return false;
+
+    const source = String(layer?.source || '').toLowerCase();
+    if (source === 'places') return false;
+
+    if (isAllowedBaseContextLabelLayer(layer)) {
+        return false;
+    }
+
+    // Allowlist-only: if the symbol layer is not app-owned and not one of the
+    // explicit context labels we preserve, hide it. This prevents theme/base
+    // business labels from visually duplicating the app-owned POI system.
+    return true;
+};
+
 export class PoiService {
     /**
      * Hides base map POI layers since our custom layer handles all POI rendering
@@ -137,13 +174,13 @@ export class PoiService {
     static hideBaseMapPOILayers(map: IMapController) {
         const layers = map.getLayers();
         const poiLayers = layers
-            .filter(l => l.type === 'symbol' && typeof (l as any)['source-layer'] === 'string' && (l as any)['source-layer'].toLowerCase().includes('poi'));
+            .filter((layer) => shouldHideBaseSymbolLayer(layer));
 
         const rawMap = (map as any).getRawMap?.();
         if (!rawMap) return;
 
         poiLayers.forEach(layer => {
-            if (layer.id && layer.id !== 'unclustered-point') {
+            if (layer.id && !isAppPoiLayerId(layer.id)) {
                 try {
                     if (rawMap.getLayer(layer.id)) {
                         // Hide base map POI layer - our custom layer will show styled POIs
@@ -157,7 +194,7 @@ export class PoiService {
         });
     }
 
-    static refreshData(
+    static collectData(
         map: IMapController,
         activeIcons: Record<string, IconDefinition>,
         palette: Record<string, string>,
@@ -190,6 +227,7 @@ export class PoiService {
                     subcategory,
                     subclass
                 });
+                const hasCustomIconImage = Boolean(activeIcons[iconKey]?.imageUrl);
                 const address = buildAddress(props);
                 const description = props.description || props.operator || props.brand || (subcategory && subcategory !== category ? subcategory : '');
 
@@ -198,51 +236,65 @@ export class PoiService {
                 const labelColor = categoryColor || fallbackTextColor;
                 const haloColor = harmonizedHaloColor;
 
-                byId.set(fid, {
+                byId.set(fid, PoiRegistryService.applyMapVisibilityMetadata({
                     type: 'Feature',
-                        properties: {
-                            id: fid,
-                            title: name,
-                            category,
-                            subcategory,
-                            class: props.class,
-                            subclass,
-                            osm_id: props.osm_id,
-                            osm_type: props.osm_type,
-                            maki: (props as any).maki,
-                            description,
-                            address,
-                            website: props.website || props['contact:website'],
-                            phone: props.phone || props['contact:phone'],
-                            opening_hours: props.opening_hours || props['contact:opening_hours'],
-                            wikidata: props.wikidata,
-                            wikipedia: props.wikipedia,
-                            image: props.image,
-                            wikimedia_commons: props.wikimedia_commons,
-                            brand: props.brand,
-                            operator: props.operator,
-                            cuisine: props.cuisine,
-                            'addr:street': props['addr:street'],
-                            'addr:housenumber': props['addr:housenumber'],
-                            'addr:city': props['addr:city'],
-                            'addr:state': props['addr:state'],
-                            'addr:postcode': props['addr:postcode'],
-                            'addr:country': props['addr:country'],
-                            iconKey,
-                            textColor: labelColor,
-                            haloColor
-                        },
+                    properties: {
+                        id: fid,
+                        title: name,
+                        category,
+                        subcategory,
+                        class: props.class,
+                        subclass,
+                        osm_id: props.osm_id,
+                        osm_type: props.osm_type,
+                        maki: (props as any).maki,
+                        description,
+                        address,
+                        website: props.website || props['contact:website'],
+                        phone: props.phone || props['contact:phone'],
+                        opening_hours: props.opening_hours || props['contact:opening_hours'],
+                        wikidata: props.wikidata,
+                        wikipedia: props.wikipedia,
+                        image: props.image,
+                        wikimedia_commons: props.wikimedia_commons,
+                        brand: props.brand,
+                        operator: props.operator,
+                        cuisine: props.cuisine,
+                        'addr:street': props['addr:street'],
+                        'addr:housenumber': props['addr:housenumber'],
+                        'addr:city': props['addr:city'],
+                        'addr:state': props['addr:state'],
+                        'addr:postcode': props['addr:postcode'],
+                        'addr:country': props['addr:country'],
+                        iconKey,
+                        hasCustomIconImage,
+                        hasRenderableCustomIconImage: false,
+                        textColor: labelColor,
+                        haloColor
+                    },
                     geometry: {
                         type: 'Point',
                         coordinates: coords
                     }
-                });
+                }));
             });
         });
 
-        const features = Array
+        return Array
             .from(byId.values())
             .sort((left, right) => String(left?.properties?.id || '').localeCompare(String(right?.properties?.id || '')));
+    }
+
+    static refreshData(
+        map: IMapController,
+        activeIcons: Record<string, IconDefinition>,
+        palette: Record<string, string>,
+        popupStyle: PopupStyle
+    ) {
+        const features = PoiService.collectData(map, activeIcons, palette, popupStyle);
+        const layers = map.getLayers();
+        const poiSources = extractPoiSymbolSources({ layers: layers as any[] })
+            .map((entry) => ({ source: entry.source, sourceLayer: entry.sourceLayer }));
         logger.debug(`Found ${features.length} POI features from ${poiSources.length} sources`);
 
         const refreshSignature = buildPoiRefreshSignature(features, poiSources.length);

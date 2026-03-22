@@ -4,11 +4,24 @@ import RightSidebar from '@shared/components/sidebar/RightSidebar';
 import TopToolbar from '@shared/components/TopToolbar';
 import MapView from '@features/map/components/MapView';
 import MaputnikPublishModal from '@shared/components/MaputnikPublishModal';
-import { MapStylePreset, LogEntry, AppStatus, IconDefinition } from '@/types';
+import {
+    MapStylePreset,
+    LogEntry,
+    AppStatus,
+    IconDefinition,
+    LoadedPoiSearchItem,
+    PoiMapVisibilityFilters,
+    RightSidebarMode
+} from '@/types';
 import { normalizePopupStyle } from '@core/services/defaultThemes';
 import { DEFAULT_STYLE_PRESET } from '@/constants';
 
 const EMPTY_ICONS: Record<string, IconDefinition> = {};
+const DEFAULT_POI_MAP_VISIBILITY_FILTERS: PoiMapVisibilityFilters = {
+    hiddenCategories: [],
+    hiddenSubcategories: [],
+    isolation: null
+};
 
 interface MainLayoutProps {
     // State
@@ -100,6 +113,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     });
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [remixFocusCategory, setRemixFocusCategory] = useState<string | null>(null);
+    const [rightSidebarMode, setRightSidebarMode] = useState<RightSidebarMode>('icons');
+    const [loadedPois, setLoadedPois] = useState<LoadedPoiSearchItem[]>([]);
+    const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
+    const [poiFocusRequest, setPoiFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
+    const [poiMapVisibilityFilters, setPoiMapVisibilityFilters] = useState<PoiMapVisibilityFilters>(
+        DEFAULT_POI_MAP_VISIBILITY_FILTERS
+    );
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -136,9 +156,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     const handleEditFromPopup = useCallback((category: string) => {
         if (isMobile) setIsLeftSidebarOpen(false);
         if (!isRightSidebarOpen) setIsRightSidebarOpen(true);
+        setRightSidebarMode('icons');
         setRemixFocusCategory(category);
         setSelectedCategory(category);
     }, [isMobile, isRightSidebarOpen]);
+
+    const handleSelectPoiFromSearch = useCallback((poiId: string) => {
+        if (!isRightSidebarOpen) setIsRightSidebarOpen(true);
+        setRightSidebarMode('places');
+        setSelectedPoiId(poiId);
+        setPoiFocusRequest({ id: poiId, nonce: Date.now() });
+    }, [isRightSidebarOpen]);
 
     useEffect(() => {
         if (!import.meta.env.DEV) return;
@@ -229,6 +257,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                         onEditIcon={handleEditFromPopup}
                         isThemeSelected={!!activeStyleId}
                         activeThemeName={activeStyle?.name}
+                        onLoadedPoisChange={setLoadedPois}
+                        poiFocusRequest={poiFocusRequest}
+                        poiMapVisibilityFilters={poiMapVisibilityFilters}
                     />
                 </main>
             </div>
@@ -244,6 +275,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onRegenerateIcon={(cat, prompt) => onRegenerateIcon(cat, prompt)} // Wrapper to match signature if needed
                 status={status}
                 hasApiKey={hasApiKey}
+                mode={rightSidebarMode}
+                onModeChange={setRightSidebarMode}
+                loadedPois={loadedPois}
+                selectedPoiId={selectedPoiId}
+                onSelectPoi={handleSelectPoiFromSearch}
+                poiMapVisibilityFilters={poiMapVisibilityFilters}
+                onPoiMapVisibilityFiltersChange={setPoiMapVisibilityFilters}
             />
 
             <MaputnikPublishModal

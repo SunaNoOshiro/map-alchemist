@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AppStatus, MapStylePreset, LogEntry, AiConfig } from '@/types';
 import { AiFactory } from '../services/AiFactory';
-import { MAP_CATEGORIES } from '@/constants';
+import { getStyleSeedPoiCategories } from '@features/map/services/poiIconResolver';
 import { createLogger } from '@core/logger';
 
 const logger = createLogger('MapGenerationHook');
@@ -43,7 +43,7 @@ export const useMapGeneration = ({
             const aiService = AiFactory.getService(aiConfig);
             const newPreset = await aiService.generateMapTheme(
                 prompt,
-                MAP_CATEGORIES,
+                getStyleSeedPoiCategories(),
                 (msg) => {
                     setLoadingMessage(msg);
                     addLog(msg, "info");

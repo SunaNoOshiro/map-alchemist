@@ -149,7 +149,8 @@ export const CATEGORY_COLORS: Record<string, string> = {
   'Nature': '#10b981',
   'Sports & Leisure': '#14b8a6',
   'Education': '#84cc16',
-  'Religious': '#f472b6'
+  'Religious': '#f472b6',
+  'Other': '#6b7280'
 };
 
 export const getCategoryColor = (subcategory: string): string => {

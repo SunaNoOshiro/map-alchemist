@@ -1,5 +1,1874 @@
 # Implementation Plan
 
+## Phase 49 Plan: Route Invalid Custom POI Icons Through the Shared Fallback-Dot Layer (2026-03-22)
+
+### Goal
+Fix the remaining cases where an app-owned POI label is visible but its marker is missing, tiny, or inconsistently colored across zoom levels.
+
+The target behavior is:
+- if a POI has a valid custom icon image, it stays in the custom-icon symbol layer;
+- if a POI icon is missing, blank, or otherwise unusable, that POI is treated exactly like a no-icon POI;
+- all such POIs render through the same shared fallback-dot layer, with the same size scaling and the same `textColor` tint as the visible label.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: stop trying to rescue broken custom icons inside the custom-icon layer by swapping in a placeholder under the same `iconKey`.
+- Instead, mark unusable custom-icon POIs as fallback-rendered so they move to the shared fallback-dot layer.
+
+### Proposed Changes
+1. Split “has icon URL” from “has usable rendered icon”.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Preserve raw metadata about whether a POI has an icon URL.
+   - Add a render-state path so POIs whose generated icon asset is blank, missing, or invalid are excluded from the custom-icon symbol layer and included in the fallback-dot symbol layer.
+
+2. Remove the custom-layer placeholder-dot rescue path.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Stop registering fallback dots under the original `iconKey` for invalid custom icons.
+   - Keep one shared fallback-dot image and one shared fallback-dot sizing behavior, so all no-icon/invalid-icon POIs look identical at every zoom.
+
+3. Keep popup behavior unchanged while map rendering becomes consistent.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+   - Popup can still show the default pin when a generated icon asset is unusable.
+   - This phase is only about map marker parity and consistency.
+
+4. Add regressions for invalid custom-icon parity.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Cover:
+     - valid custom icon stays in custom-icon layer,
+     - blank or missing custom icon uses the shared fallback-dot layer,
+     - invalid-icon fallback dot matches label color,
+     - invalid-icon fallback dot keeps the same size behavior as other fallback dots.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 44 Plan: Strict Allowlist-Only Symbol Visibility for Non-App Layers (2026-03-21)
+
+### Goal
+Eliminate the remaining duplicate or stray business labels that still survive after Phase 43 by switching from heuristic hiding to an explicit symbol-layer allowlist.
+
+The target behavior is:
+- app-owned POI labels/icons/dots remain visible;
+- only essential map-context symbol layers remain visible:
+  - roads / transportation names,
+  - place / settlement / admin labels,
+  - housenumbers / address-like labels;
+- every other non-app symbol layer is hidden, even if it does not expose a normal `text-field`, uses a strange source, or is produced by theme/style-specific compilation.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: for non-app `symbol` layers, visibility should be `none` unless the layer matches the explicit context allowlist.
+
+### Proposed Changes
+1. Convert base symbol suppression to a strict allowlist-only rule.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+   - Remove the remaining heuristic fallback that still lets some non-app symbol layers survive.
+   - For any non-app `symbol` layer:
+     - keep it only if it clearly matches the context allowlist,
+     - otherwise hide it.
+
+2. Preserve only context labels we explicitly want.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+   - Continue allowing:
+     - roads / transportation names,
+     - places / settlements / admin hierarchy,
+     - addresses / housenumbers.
+   - Hide everything else in non-app symbol layers, including theme-colored business labels that visually mimic app POIs.
+
+3. Add regressions for duplicate label leakage.
+   - Files:
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Cover layers that:
+     - are symbol layers,
+     - are not app-owned,
+     - do not match the explicit context allowlist,
+     - and must always be hidden even if they do not look like classic `poi_label` layers.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 43 Plan: Remove the Remaining Non-App Symbol Layer Escape Hatch (2026-03-21)
+
+### Goal
+Eliminate the last visible label-only POIs that still survive after Phase 42 by closing the current escape hatch for non-app symbol layers that:
+- are not owned by the app,
+- do not have a `source-layer`,
+- and do not use one of the currently recognized basemap source names.
+
+The target behavior is:
+- every app-owned visible POI label still has either a custom icon or a fallback dot;
+- non-app business/venue labels like the ones in the screenshots (`Rickshaw Stop`, `Nakama Sushi`, `Zuni Cafe`) are suppressed even if they come from style-specific or unfamiliar symbol layers.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: stop using `known base source` as a prerequisite for hiding non-app POI-like symbol layers.
+- Keep an explicit allowlist only for context labels we want to preserve:
+  - roads / transportation names
+  - place / settlement / admin labels
+  - housenumbers / address-like labels
+
+### Proposed Changes
+1. Remove the current non-app symbol-layer escape hatch.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+   - Update `shouldHideBaseSymbolLayer(...)` so that non-app symbol layers are evaluated by:
+     - app-layer ownership,
+     - explicit context allowlist,
+     - POI/business/venue heuristics,
+     - but not exempted just because they lack `source-layer` or use an unfamiliar `source`.
+
+2. Preserve only explicit context labels.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+   - Keep roads, places, admin hierarchy, and addresses visible.
+   - Hide remaining non-app business/venue symbol labels, even if they are theme-compiled or style-specific.
+
+3. Add regressions for unfamiliar non-app symbol layers.
+   - Files:
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Cover symbol layers that:
+     - are not app POI layers,
+     - do not use `places`,
+     - may omit `source-layer`,
+     - still must be hidden unless they clearly match the context allowlist.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 42 Plan: Suppress All Non-App Symbol Labels Except Explicit Context Allowlist (2026-03-21)
+
+### Goal
+Eliminate the remaining stray labels that still survive after Phase 40 by moving from a partial base-label denylist to a strict non-app symbol allowlist.
+
+The target behavior is:
+- app-owned POI labels/icons/dots remain visible;
+- map context labels like roads, places, admin names, and housenumbers remain visible;
+- every other non-app symbol label is hidden, regardless of the source name or style-specific layer naming.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: for any symbol layer not owned by the app and not matching the explicit context allowlist, set visibility to `none`.
+
+### Proposed Changes
+1. Make base-label suppression source-agnostic and allowlist-first.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+   - Stop relying on known base source names as the main gate.
+   - Preserve only explicit context labels:
+     - `place`
+     - road/transportation name labels
+     - housenumbers / address-like labels
+     - admin/place hierarchy labels
+   - Hide every other non-app symbol layer.
+
+2. Keep the suppression re-applied across style churn.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Continue re-running the hide pass on `styledata`, but now with the stricter source-agnostic rule.
+
+3. Add regression coverage for unknown-source stray symbol labels.
+   - Files:
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Cover symbol layers that:
+     - do not use our `places` source,
+     - do not match the context allowlist,
+     - still must be hidden even if their `source` name is unfamiliar.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 41 Plan: Keep Custom POI Labels and Icons in the Same Placement Contract (2026-03-21)
+
+### Goal
+Remove the remaining cases where an app-controlled custom POI label is visible but its custom icon is missing.
+
+The target behavior is:
+- if a POI is rendered through the custom-icon symbol layer and its name is visible, the custom icon is visible too;
+- no app-controlled custom label should survive as text-only because of symbol-collision rules.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: make custom-icon POI layers use the same placement contract as fallback-dot POI layers, so label and icon are placed together instead of allowing text to outlive the icon.
+
+### Proposed Changes
+1. Tighten custom-icon symbol layer layout so text cannot render without the icon.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Update the custom POI symbol layer to keep icon/text placement coupled.
+   - Preserve current collision behavior as much as possible, but prevent text-only survivors.
+
+2. Add regressions for custom-icon parity.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Cover that:
+     - custom-icon POI layers do not allow visible text without visible icon;
+     - fallback-dot layers still keep their existing parity behavior.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 40 Plan: Hide Base POI/Business Labels via Safe Allowlist (2026-03-21)
+
+### Goal
+Eliminate the remaining stray labels that still appear without an app-controlled icon or fallback dot at closer zoom levels by tightening what base-map symbol labels are allowed to stay visible.
+
+The target behavior is:
+- app-controlled POIs keep the existing rule: visible name implies custom icon or fallback dot;
+- base-map road/place/admin labels remain visible;
+- base-map business/venue/POI labels are suppressed so they cannot visually mix with the app POI system.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: switch from the current broad "hide POI-like layers" heuristic to a stricter allowlist for base symbol labels:
+  - keep road, place, admin, address-style labels;
+  - hide other base symbol layers that behave like business/venue/POI labels.
+
+### Proposed Changes
+1. Tighten base symbol-layer suppression with an allowlist-first rule.
+   - Files:
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Replace the current heuristic-only filtering with a safer allowlist approach for symbol layers.
+   - Explicitly preserve map context labels such as roads, places, admin/place names, and addresses.
+   - Hide remaining base symbol layers that act like POI/business/venue labels.
+
+2. Reapply suppression after late style updates without changing map view.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Keep the existing `styledata` re-hide path, but make it work with the stricter allowlist.
+   - Ensure this does not trigger POI refresh or camera reset.
+
+3. Add regressions for leaked base labels.
+   - Files:
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Cover:
+     - road/place/admin labels are preserved;
+     - generic business/venue symbol labels are hidden;
+     - visible app POI labels still open popups and keep icon-or-dot parity.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 39 Plan: Remove Label-Only POI Strays and Guarantee Icon-or-Dot Parity (2026-03-21)
+
+### Goal
+Fix the remaining cases where a POI name is visible on the map without either:
+- its custom icon image, or
+- the fallback colored dot.
+
+This includes distinguishing between:
+- genuine app-rendered POI labels missing their visual marker, and
+- base-style POI labels that were not fully suppressed.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: any POI label owned by the app must render with either a custom icon or a same-color fallback dot, and any leftover base-style POI labels should be removed so they do not visually mix with the app POI system.
+
+### Proposed Changes
+1. Audit whether the stray names come from the app POI layers or from base-map POI layers.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/services/PaletteService.ts`
+   - Verify which rendered layers are producing the labels seen in the screenshot.
+   - If any base-style POI symbol/text layers are still visible, extend the hiding logic so only the app-controlled POI presentation remains.
+
+2. Guarantee icon-or-dot parity for every app-rendered visible POI label.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+   - Ensure that if a POI title is rendered from the app’s visual layers:
+     - either a custom icon is present,
+     - or the fallback dot is rendered alongside it.
+   - Remove any branch-specific mismatch where label placement can occur without its corresponding icon/dot representation.
+
+3. Add regressions for “visible name implies icon or dot”.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add coverage that visible custom POI labels do not appear marker-less.
+   - Add coverage that base-map POI labels are not leaking through if the app is expected to fully own POI rendering.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 38 Plan: Popup Header Taxonomy Hierarchy and Duplicate Summary Cleanup (2026-03-21)
+
+### Goal
+Refine popup header taxonomy presentation so it reads more naturally and avoids duplicate content:
+- show the POI title first,
+- show the subcategory as the primary taxonomy text under the title,
+- move the broader category into a chip/tag below the subcategory,
+- suppress the redundant first summary/body line when it only repeats the same subcategory text already shown in the header.
+
+### User Review Required
+Yes, for the visual hierarchy.
+- Recommended default: `Title` -> `Subcategory text` -> `Category chip`.
+- Example:
+  - `Starbucks`
+  - `Cafe`
+  - `[Food & Drink]`
+
+### Proposed Changes
+1. Rework popup header taxonomy row.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - Replace the current inline `category chip + subcategory` row with:
+     - subcategory as plain secondary text immediately below the title,
+     - category chip beneath it.
+   - Keep canonical category color on the chip.
+
+2. Remove obvious duplicate summary/body content.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - If the first descriptive line would only restate the same subcategory/category already shown in the header, omit it.
+   - Preserve real summaries, addresses, and enriched descriptions.
+
+3. Keep layout compact and theme-safe.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+   - Ensure the new hierarchy still looks good for bright, warm, and muted popup themes.
+   - Avoid increasing header height more than necessary.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts`
+2. Manual spot check on a few popup cases:
+   - business POI (`Cafe`, `Bar`, `Fast Food`)
+   - civic/public POI (`Bus Stop`, `Post Office`)
+   - attractions/nature POI (`Monument`, `Park`)
+
+## Phase 37 Plan: Popup Category Tag Styling with Theme-Safe Contrast (2026-03-21)
+
+### Goal
+Refine popup category presentation so it looks good across all active map themes and category colors:
+- keep category signaling visually consistent with `Places`,
+- avoid hard-to-read raw text colors on bright or muted popup backgrounds,
+- evaluate a tag/chip treatment for the popup category label instead of plain colored text.
+
+### User Review Required
+Yes, one small UX choice:
+- Recommended default: render the popup category as a compact category tag/chip, not plain text.
+- Reason: a tag is more robust across bright yellows, beige themes, muted themes, and highly saturated category colors than bare uppercase text.
+
+### Proposed Changes
+1. Convert popup category accent from plain text to a tag/chip treatment.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - Keep the popup frame/background unchanged.
+   - Replace the current raw colored category label with a compact chip using:
+     - category-colored border,
+     - soft tinted fill,
+     - contrast-safe text.
+
+2. Normalize category color usage across light and warm popup themes.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/shared/taxonomy/poiTaxonomy.ts`
+   - Reuse canonical category colors, but clamp presentation so highly bright colors remain readable.
+   - Ensure icon-frame accent and category chip belong to the same category color family.
+
+3. Add regression coverage for multiple theme/background combinations.
+   - Files:
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/PoiService.test.ts`
+   - Cover at least:
+     - bright yellow popup background,
+     - warm beige popup background,
+     - dark-ish text theme,
+     - saturated category colors like blue, purple, green, orange.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/map/services/PoiService.test.ts`
+2. Manual spot check on at least 3 visually distinct saved themes.
+
+## Phase 36 Plan: Canonical Category Color in POI Popup (2026-03-21)
+
+### Goal
+Make the POI popup reflect the same canonical category color system already used in `Places` result cards and taxonomy chips, so the popup visually matches the POI's category grouping instead of using only the generic popup accent.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: keep the overall popup frame/background theme unchanged, but apply the canonical category color to category-specific UI accents inside the popup.
+
+### Proposed Changes
+1. Identify the popup elements that should use category color instead of neutral popup styling.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/shared/taxonomy/poiTaxonomy.ts`
+   - Reuse the same canonical group/category color source that powers `Places` chips and map label coloring.
+   - Keep popup readability and contrast intact.
+
+2. Thread canonical category color into popup rendering.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/types.ts`
+   - Ensure popup category label/accent uses the effective canonical category color already attached to the POI (`textColor` or the same resolved category token).
+   - Avoid introducing a separate popup-only color mapping that could drift from `Places`.
+
+3. Add regressions for popup/category color consistency.
+   - Files:
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Verify a POI card and its popup use the same category color family.
+   - Verify fallback/no-custom-icon POIs still keep the correct popup category color.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PopupGenerator.test.ts test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|POI popup uses canonical category color"`
+
+## Phase 35 Plan: Label-Coupled Fallback Dots with Correct Per-Category Color Matching (2026-03-21)
+
+### Goal
+Fix the remaining fallback-dot rendering inconsistencies so that:
+- a fallback dot appears only when a POI name is actually visible on the map,
+- every fallback dot uses the same effective color as that POI's rendered name/category styling,
+- the behavior works consistently across all POI category branches, not only a subset.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: keep fallback dots only for POIs without a usable custom icon image, but make them fully label-coupled and color-derived from the actual rendered text style rather than a branch-level default.
+
+### Proposed Changes
+1. Audit the fallback symbol-layer construction per category branch.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Verify every canonical POI category branch gets both:
+     - a visible label path,
+     - a fallback-dot path when `hasCustomIconImage !== true`.
+   - Remove any branch-specific mismatch where the name can render but the dot layer/filter/image does not.
+
+2. Make fallback dots derive color from the same effective text color as the rendered POI label.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `test/features/map/services/PoiService.test.ts`
+   - Ensure fallback-dot imagery or per-feature styling uses the same color source as the POI label (`textColor`), not a stale or category-default color that can drift.
+   - Keep halo/border treatment unchanged unless needed for contrast.
+
+3. Tighten the "dot only when label is visible" behavior.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Make sure the fallback dot lives in the same symbol-placement flow as the name so it does not appear independently.
+   - Add regression coverage that a no-icon POI with a visible name gets a matching dot, while a non-visible label does not produce a stray fallback point.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|POI fallback dot opens popup"`
+
+## Phase 34 Plan: Pan/Zoom Performance Stabilization for POI Rendering and Sidebar Sync (2026-03-21)
+
+### Goal
+Remove the remaining performance degradation during map zooming and panning by making viewport movement cheaper on both the map and UI sides:
+- avoid expensive POI recollection when the viewport change does not actually require new POI data,
+- avoid full loaded-results/sidebar recomputation during every movement cycle,
+- keep icon/label rendering responsive while the camera changes.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: keep current behavior and feature set, but make pan/zoom updates incremental, movement-aware, and less eager.
+
+### Proposed Changes
+1. Add viewport-delta guards before POI recollection.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Track the last collected viewport signature (zoom bucket + bounds snapshot).
+   - Skip `refreshPoisFromViewport(...)` when a move/zoom does not materially change the POI collection window.
+   - Keep initial load and meaningful zoom transitions intact.
+
+2. Reduce same-frame work during camera movement.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Make sidebar/result snapshot publishing lazier after movement settles.
+   - Avoid any non-essential loaded-POI result recomputation while the map is still repositioning.
+   - Preserve visible correctness after movement finishes.
+
+3. Prevent repeated expensive map-side symbol work where possible.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Audit remaining zoom/move listeners that may trigger duplicate refreshes or style application.
+   - Ensure pan/zoom does not cause unnecessary POI source writes or layer reconfiguration when nothing structural changed.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|POIs should appear without zooming after load"`
+
+## Phase 33 Plan: Layer-Specific POI Hover/Click and Zoom-Time Interaction Performance (2026-03-21)
+
+### Goal
+Fix the remaining visible-POI interaction regressions introduced by fallback label/dot rendering:
+- hovering a visible POI name should reliably show a pointer,
+- clicking a visible POI name or fallback dot should always open that exact visible POI, not a hidden/overlapping one,
+- zooming should no longer incur extra interaction jank from global per-mousemove POI hit-testing.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: stop doing global `queryRenderedFeatures(...)` hit-tests on every mousemove/click for visible POI labels and fallback dots, and instead bind interaction handlers directly to the concrete rendered POI visual layers.
+
+### Proposed Changes
+1. Replace generic visual POI hit-testing with layer-specific handlers.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Remove the generic `queryVisiblePoiHitsAtPoint(...)` + `onVisualPoiClick(...)` + `updatePoiCursor(...)` path for visible label/dot interactions.
+   - Register `click`, `mouseenter`, and `mouseleave` handlers directly on the rendered custom-icon layers and fallback-dot layers for each POI category branch.
+   - Use the `event.features` payload from the actual rendered layer click so the popup always opens the precise visible POI the user clicked.
+
+2. Remove redundant legacy hover listeners that can fight the new pointer logic.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+   - Delete the old raw `mouseenter` / `mouseleave` listeners on `unclustered-point` that still mutate the canvas cursor separately.
+   - Keep listener registration/cleanup fully symmetric through the controller abstraction to avoid stale handlers across rerenders.
+
+3. Add regressions for visible-label interactions and cheaper hover behavior.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Verify visible-label/fallback-layer clicks do not fall back to another hidden POI.
+   - Verify pointer affordance is applied on visible POI labels/dots.
+   - Verify interaction changes do not trigger a new POI data refresh during zoom/hover-only flows.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+
+## Phase 45 Plan: Exact Base-Label Allowlist for Context Layers Only (2026-03-21)
+
+### Goal
+Eliminate the remaining orange name-only labels that still leak through from non-app symbol layers by replacing the current broad regex allowlist with an exact allowlist for true context labels only.
+
+### User Review Required
+Yes.
+- This intentionally tightens which base-map labels survive.
+- We want to keep only context labels such as roads, admin/place hierarchy, and addresses.
+- Business/venue-like labels should disappear entirely unless they are rendered by the app-owned POI system.
+
+### Proposed Changes
+1. Replace the broad context-label regex with an exact allowlist.
+   - File: `src/features/map/services/PoiService.ts`
+   - Narrow `isAllowedBaseContextLabelLayer(...)` so it only preserves explicit context label sources/patterns instead of any layer whose blob happens to match broad street/place words.
+   - Keep app-owned POI layers untouched.
+
+2. Add deny-by-default protection for unknown non-app symbol labels.
+   - File: `src/features/map/services/PoiService.ts`
+   - Treat non-app symbol layers as hidden unless they match the exact context allowlist.
+   - This should stop theme-colored business labels like restaurant names from surviving without icon/dot pairing.
+
+3. Add regressions for the currently leaking cases.
+   - File: `test/features/map/services/PoiService.test.ts`
+   - Cover business-like symbol layers whose ids/text look like venue labels but previously slipped through the broad regex path.
+   - Preserve expected visibility for roads, addresses, and place/admin labels.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 46 Plan: Replace Transparent Missing POI Icons with Visible Dot Fallback (2026-03-21)
+
+### Goal
+Fix the remaining "label without icon or dot" cases by removing the transparent `styleimagemissing` loophole for POI icon ids. If a POI icon image is missing at render time, the map should show a visible fallback dot instead of silently rendering an invisible icon.
+
+### User Review Required
+Yes.
+- This changes the missing-image behavior for POI icon ids only.
+- Non-POI map assets should keep their existing behavior unless explicitly app-owned.
+
+### Proposed Changes
+1. Make `styleimagemissing` POI-aware.
+   - File: `src/features/map/services/MapLibreAdapter.ts`
+   - Stop registering a transparent 1x1 placeholder for app POI icon ids.
+   - For missing POI icon ids, register a visible SDF fallback dot instead, so text never renders without a visible marker.
+
+2. Keep the icon loading upgrade path intact.
+   - Files:
+     - `src/features/map/services/MapLibreAdapter.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Ensure the real icon still replaces the fallback dot once the image finishes loading.
+
+3. Add regressions for the missing-icon path.
+   - File: `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Verify POI icon ids never settle into a transparent placeholder path.
+   - Verify the fallback dot image is used when a POI icon is missing.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 47 Plan: Keep Fallback Dot When a Generated POI Icon Asset Is Blank or Fully Transparent (2026-03-21)
+
+### Goal
+Fix the remaining cases where app-owned POI labels are visible but their custom icon is visually missing because the generated icon image exists as a URL yet resolves to a blank/fully transparent bitmap.
+
+### User Review Required
+Yes.
+- This changes how generated/custom icon assets are accepted into the runtime sprite.
+- Invalid or blank icon images should no longer replace the visible fallback dot.
+
+### Proposed Changes
+1. Validate loaded icon pixels before replacing the fallback dot.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - After resizing the loaded icon into `ImageData`, inspect alpha coverage.
+   - If the icon is fully transparent or below a minimal visible-alpha threshold, treat it as invalid and keep the placeholder dot for that icon key.
+
+2. Track validated icon availability separately from raw imageUrl presence.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+   - Avoid using a blank generated icon in popup header or map symbol rendering once it fails the validation gate.
+   - Continue using the real icon normally when the bitmap is valid.
+
+3. Add regressions for transparent icon assets.
+   - File: `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Cover:
+     - blank icon image keeps fallback dot,
+     - valid icon replaces fallback dot,
+     - labels do not render with an invisible custom icon.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PopupGenerator.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|Visible POI labels always show an icon or fallback dot"`
+
+## Phase 48 Plan: Color-Tinted SDF Fallback for Blank Custom POI Icons (2026-03-22)
+
+### Goal
+Make blank or missing generated POI icons fall back to a visible marker that uses the same effective color as the rendered POI label, instead of a hard-coded white dot that can disappear against light backgrounds.
+
+### Proposed Changes
+1. Re-register invalid custom POI icon placeholders as SDF markers.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - When a generated icon asset is blank/transparent or fails to load, replace its `iconKey` image with a monochrome SDF dot so the existing `icon-color` expression can tint it from `textColor`.
+
+2. Keep popup fallback behavior unchanged.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Popup should still fall back to the default pin for invalid POI icon keys instead of using the blank asset.
+
+3. Refresh targeted regressions.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - Verify invalid custom icon paths still preserve visible marker fallback behavior and popup icon fallback behavior.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PopupGenerator.test.ts`
+
+## Phase 31 Plan: Show-on-Map Without Symbol Re-Placement Jank (2026-03-20)
+
+### Goal
+Remove the remaining "everything redraws" feeling when toggling `Show on map`, which likely now comes from MapLibre re-running symbol placement for the full POI layer even though React-side churn has already been reduced.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: keep the current sidebar behavior, but change the map-side visibility path so toggles stop feeling like a full repaint.
+
+### Proposed Changes
+1. Move `Show on map` away from the heavy symbol-filter path.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Investigate and replace the current full-layer `setFilter(...)` visibility toggle with a lighter map-side mechanism.
+   - Preferred path: drive visibility through paint/layout state that avoids rebuilding symbol placement for the whole POI set.
+   - Fallback path: split POIs into smaller visibility buckets so category/subcategory toggles touch only the affected branch instead of the entire `unclustered-point` layer.
+
+2. Keep sidebar updates visually stable while the map visibility settles.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Preserve immediate checkbox/eye feedback, but avoid any extra loaded-results churn tied to the same toggle.
+   - Ensure `Show on map` counts and states remain stable if the map-side visibility path becomes asynchronous or staged.
+
+3. Add a regression specifically for "visibility toggle without heavy redraw side effects".
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Verify visibility toggles no longer rebuild the `places` source or reinitialize the map.
+   - Add a focused BDD path that rapidly toggles category visibility and checks that the map remains responsive and synchronized with `Places`/`Icons`.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Hiding and showing POI categories on the map|Syncing map visibility controls between Icons and Places"`
+
+## Phase 30 Plan: Show-on-Map Visibility Without Heavy Repaint (2026-03-20)
+
+### Goal
+Make `Show on map` feel like a lightweight visibility toggle instead of a full redraw by:
+- keeping the map on the cheap `layer filter` path instead of rebuilding POI source data,
+- deferring expensive sidebar recomputation (`loaded POIs`, taxonomy counts, results badges) so it does not compete with the same interaction frame.
+
+### User Review Required
+No product decision is needed.
+- Recommended default: apply map visibility immediately, then let counts/results settle a fraction later if needed.
+
+### Proposed Changes
+1. Decouple map visibility updates from heavy sidebar publishing.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+   - Keep `setFilter(...)` immediate for the map layer.
+   - Replace same-tick POI snapshot publishing with a short scheduled publish so the UI does not recalculate thousands of POIs during the same click frame.
+   - Add a regression test that visibility changes do not rebuild the `places` source.
+
+2. Defer `Places` panel derivations during map visibility changes.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Use deferred visibility filters for counts, loaded-only taxonomy options, and result badges, while keeping the actual checkbox/eye states immediate.
+   - Preserve the already-approved behavior where category/subcategory menus only show options that are currently available on the map.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Hiding and showing POI categories on the map|Syncing map visibility controls between Icons and Places"`
+
+## Phase 29 Plan: Popup Close Unclipping and One-Shot Remix Focus (2026-03-16)
+
+### Goal
+Resolve the two remaining interaction regressions:
+- keep the external popup close button fully visible instead of clipping at the top-right edge,
+- make popup-driven `Remix Icon` act as a one-shot deep-link into the icon editor without repeatedly snapping the list back to the originally selected icon while the user browses.
+
+### User Review Required
+No additional product decision is needed.
+- Recommended default: keep the close button outside the popup vertically, but stop pushing it outside horizontally.
+- Recommended default: remix focus should auto-scroll exactly once when opened from popup, then fully yield control to manual user scrolling.
+
+### Proposed Changes
+1. Refine popup close positioning.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+   - Move the close button so it remains outside the popup frame on the top edge while staying horizontally within the popup width.
+
+2. Make remix focus strictly one-shot.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `test/shared/components/sidebar/RightSidebar.test.tsx`
+     - `test/e2e/features/RemixSidebar.feature`
+     - `test/e2e/steps/RemixSidebar.steps.ts`
+   - Stop scheduling non-remix auto-scrolls for any merely selected icon.
+   - Preserve the initial popup remix jump, but once applied, leave list scrolling entirely under user control unless a new remix request arrives.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/RightSidebar.test.tsx test/features/map/services/PopupGenerator.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Desktop remix focus aligns the selected icon to the top and allows scrolling|Selecting another icon after remix focus should replace the selected editor|Keeping popup close accessible on mobile"`
+
+## Phase 28 Plan: Sidebar Highlight Normalization, Loaded-Only Places Taxonomy, and Safe Popup Close Placement (2026-03-16)
+
+### Goal
+Resolve the last visible mismatches between `Places`, `Icons`, and the rest of the app by:
+- making selected/highlighted states in `Places` and `Icons` match the app’s existing panel-card language instead of using a visually different accent treatment,
+- limiting `Places` category/subcategory dropdowns to taxonomy options that are currently present in loaded POIs on the map,
+- fixing popup close placement so the external close button is never clipped by the viewport edge.
+
+### User Review Required
+1. Highlight style normalization:
+   - Recommended default: selected tabs, selected result cards, active filter pills, and visible-state emphasis in `Places` should reuse the same subdued panel highlight language already used by the established left-sidebar cards, not a brighter custom accent shell.
+   - Recommendation: keep color as a secondary accent, but let the base border/background treatment follow the existing sidebar design system.
+2. Loaded-only taxonomy in `Places`:
+   - Recommended default: `Places` category and subcategory filters should list only options that exist in the currently loaded POI set.
+   - Recommendation: the full taxonomy universe stays in `Icons`, where it belongs for icon browsing and remix/editing.
+3. Popup close placement:
+   - Recommended default: keep the popup close control outside the popup frame, but clamp/re-anchor it so it always remains fully visible inside the map viewport and never gets cut off by the top/right edge.
+
+### Proposed Changes
+1. Normalize selection/highlight styling in `Places` and `Icons`.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/shared/components/sidebar/RightSidebar.test.tsx`
+   - Audit current selected tab, selected result card, active metadata filter, and `Show on map` emphasis styles.
+   - Replace the brighter custom highlight treatment with the same border/background/spacing language already used by existing sidebar cards and tabs.
+   - Keep taxonomy colors as labels/chips where useful, but avoid making the whole control feel like a different component family.
+
+2. Restrict `Places` taxonomy dropdowns to currently loaded options only.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Build category options strictly from the currently loaded POI summary.
+   - Build subcategory options strictly from the currently loaded POIs within the selected category scope.
+   - Ensure stale selections are cleared if the currently selected taxonomy value no longer exists in the loaded set.
+
+3. Keep the popup close button fully visible.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Adjust popup close anchor offsets and viewport-fit math so the external close button remains fully visible.
+   - Verify it still stays reachable on mobile and desktop without clipping when popup opens near edges.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/shared/components/sidebar/RightSidebar.test.tsx test/features/map/services/PopupGenerator.test.ts test/features/map/services/PoiSearchService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs by name and category|Filtering loaded POIs by metadata|Verifying Remix functionality|Keeping popup close accessible on mobile|Switching styles and interacting with map features"`
+3. Manual sanity check:
+   - verify selected `Places` tab, selected result card, and active metadata filters feel visually aligned with the rest of the sidebar cards,
+   - verify `Places` category/subcategory dropdowns contain only currently loaded map options,
+   - open a popup near the top-right edge and confirm the outside close button is fully visible and clickable.
+
+## Phase 27 Plan: Dropdown Lifecycle Cleanup, Remix Focus Release, and Places Section Consistency (2026-03-16)
+
+### Goal
+Resolve the remaining interaction bugs and visual inconsistencies in `Places` and popup-driven `Remix` flow by:
+- making taxonomy dropdowns close predictably when the user performs other actions,
+- making `Show on map` visually match the same section-card language as the rest of the sidebar,
+- releasing popup-driven remix focus as soon as the user intentionally selects a different icon,
+- tightening the `Has photo / Has website / Open now` control styling so they read like the same UI family as the rest of the app,
+- restricting `Places` category/subcategory filters to options that are currently available in the loaded map POI set, while leaving the full taxonomy catalog to the `Icons` panel.
+
+### User Review Required
+1. Dropdown close behavior:
+   - Recommended default: category/subcategory dropdowns should close not only on outside click, but also when the user clicks another control inside `Places` such as metadata filters, `Show on map` toggle, result cards, or another dropdown trigger.
+   - Result: the panel behaves like a single coherent form, not a sticky overlay.
+2. `Show on map` visual language:
+   - Recommended default: `Show on map` should use the same section rhythm as the other panels, with cleaner header spacing, matching chevron affordance, and the same subdued copy treatment as established sections.
+   - Result: it reads as part of the same app, not a different mini-widget.
+3. Remix focus release:
+   - Recommended default: clicking `Remix Icon` from popup should only seed the first selected icon; once the user clicks another icon item manually, remix focus should be cleared immediately and all auto-scroll/auto-realign behavior must stop.
+   - Result: popup remix acts as a deep-link, not a lock that keeps snapping back to the old icon.
+4. Metadata filter controls:
+   - Recommended default: `Has photo`, `Has website`, and `Open now` should use the same field/control visual family as the rest of the sidebar, instead of feeling like a separate button system.
+   - Result: filters read as sibling controls to dropdowns and other sidebar inputs.
+5. Loaded-only taxonomy options in `Places`:
+   - Recommended default: the `Places` category and subcategory dropdowns should expose only the taxonomy options that currently exist in the loaded POI set for the current map/session.
+   - Recommendation: the full “all possible categories/subcategories” universe should remain an `Icons` concern, not a `Places` filter concern.
+   - Result: the `Places` filters stay relevant to what the user can actually search right now.
+
+### Proposed Changes
+1. Fix dropdown lifecycle so menus close on other `Places` interactions.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Centralize a small `closeOpenMenus()` helper in `Places`.
+   - Call it when clicking metadata filters, resetting filters, toggling `Show on map`, selecting results, or opening the other taxonomy dropdown.
+   - Keep explicit selection behavior intact while preventing menus from lingering over unrelated actions.
+
+2. Make `Show on map` visually match the rest of the sidebar sections.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Align header spacing, panel padding, chevron placement, muted helper copy, and action row spacing with the same section treatment already used in other panels.
+   - Keep collapsed-by-default behavior, but make the expanded section feel like the same design system rather than a custom block.
+
+3. Release remix focus as soon as the user manually changes icon selection.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+     - `test/e2e/features/RemixSidebar.feature`
+     - `test/e2e/steps/RemixSidebar.steps.ts`
+   - Distinguish programmatic selection from manual icon selection.
+   - On any deliberate icon click, clear `remixFocusCategory` immediately before applying the new selection.
+   - Prevent the current selected remix item from reasserting itself via auto-scroll or group-collapse logic after the user has chosen another icon.
+
+4. Bring metadata filter controls into the same control family.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Restyle `Has photo`, `Has website`, and `Open now` so their sizing, typography, padding, and active state feel like sibling sidebar controls rather than oversized custom buttons.
+   - Preserve their current semantics and test IDs.
+
+5. Limit `Places` taxonomy dropdowns to currently available loaded options.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Build category options only from currently loaded POIs that survive the relevant parent scope.
+   - Build subcategory options only from the currently loaded POIs within the selected category scope.
+   - Keep `All categories` / `All subcategories`, but do not leak the full icon taxonomy catalog into the `Places` dropdowns.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/shared/components/sidebar/RightSidebar.test.tsx test/features/map/services/PoiSearchService.test.ts test/features/map/services/poiIconResolver.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs by name and category|Filtering loaded POIs by metadata|Verifying Remix functionality|Desktop remix focus aligns the selected icon to the top and allows scrolling|Selecting another icon after remix focus should replace the selected editor"`
+3. Manual sanity check:
+   - open category dropdown, then click `Has photo` or `Show on map` and confirm the dropdown closes,
+   - open subcategory dropdown, then click a result card and confirm the dropdown closes,
+   - open popup, click `Remix Icon`, then click another icon item and confirm it becomes the active editor without snapping back or scrolling back,
+   - verify `Show on map` header/copy/actions visually match the sidebar’s existing section rhythm,
+   - verify `Has photo / Has website / Open now`, `Show on map` checkboxes, and selected result card all feel visually consistent with the same sidebar control family,
+   - verify `Places` category/subcategory dropdowns list only options that are currently available in the loaded POI set.
+
+## Phase 26 Plan: Taxonomy Readability and Places/Icon Panel Visual Simplification (2026-03-16)
+
+### Goal
+Resolve the remaining readability and design-system mismatches in `Places` and `Icons` by:
+- making category and subcategory names fully readable in dropdowns and visibility rows instead of wrapping into awkward split words,
+- reorganizing result-card taxonomy so the colored category label sits below the title and reads more clearly,
+- simplifying the `Icons` panel by removing POI count noise that does not help icon browsing,
+- aligning `Places` controls and result cards with the same design tokens, spacing, radii, colors, and dropdown field language already used across the existing sidebar panels.
+
+### User Review Required
+1. Dropdown readability:
+   - Recommended default: category and subcategory option labels should use the full available row width and never break a single label into stacked word fragments like `Shoppi / ng`.
+   - Recommendation: if space is still tight, preserve the whole label on one line with gentle truncation at the tail rather than breaking the word itself.
+2. Result card taxonomy placement:
+   - Recommended default: move the colored category chip below the POI title, with the subcategory label beside or beneath it.
+   - Result: the title remains the main focal point, and taxonomy becomes a secondary line that is easier to scan consistently.
+3. `Icons` panel counts:
+   - Recommended default: remove POI counts from the `Icons` panel entirely.
+   - Recommendation: keep the focus there on icon browsing/editing only, while count semantics remain a `Places` concern.
+4. Design-system parity:
+   - Recommended default: reuse the same visual language as the existing sidebar panels and form controls instead of introducing a near-match variant.
+   - Recommendation: dropdowns, field shells, section spacing, labels, muted copy, borders, and chips should all derive from the same tokens/patterns already used in panels like `AI Provider`, `Text Model`, and other established sidebar sections.
+
+### Proposed Changes
+1. Fix taxonomy control readability in `Places`.
+   - Files:
+     - `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Make dropdown rows use the full width for labels and count columns without forced word splitting.
+   - Prevent category/subcategory labels from wrapping mid-word in both select menus and `Show on map` rows.
+   - Keep count/value columns visually aligned without squeezing the label into unreadable fragments.
+   - Reuse the same field shell, option-row spacing, muted text treatment, and selected-state styling already used by the established sidebar dropdowns.
+
+2. Re-layout taxonomy presentation in `Places` result cards.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/constants.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Move the category chip below the result title.
+   - Keep the subcategory label as secondary metadata near that chip instead of crowding the title row.
+   - Preserve the shown/hidden badge, but keep title + taxonomy visually cleaner.
+   - Match the spacing rhythm, type scale, and chip sizing used elsewhere in the sidebar cards.
+
+3. Remove POI count display from the `Icons` panel.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+     - `test/e2e/features/RemixSidebar.feature`
+     - `test/e2e/steps/RemixSidebar.steps.ts`
+   - Remove leaf POI count strings from icon items and group rows in the `Icons` panel.
+   - Keep icon browsing focused on icon name, preview, selection state, visibility controls, and remix actions.
+   - Leave count semantics only in `Places`, where they help filtering and visibility understanding.
+   - Preserve the existing `Icons` panel’s spacing, colors, and control alignment so this stays a cleanup, not a redesign.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/features/map/services/PoiSearchService.test.ts test/features/map/services/poiIconResolver.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs by name and category|Interacting with Right Sidebar Categories|Verifying Remix functionality"`
+3. Manual sanity check:
+   - open category and subcategory dropdowns and verify long labels remain readable without broken word wrapping,
+   - expand `Show on map` and confirm category names also stay readable there,
+   - verify a result card shows its colored category chip below the title,
+   - verify the `Icons` panel no longer displays POI count strings next to icon items.
+
+## Phase 25 Plan: Remix Focus Correctness, Taxonomy Count Clarity, Desktop Filter Reliability, and Popup Chrome Polish (2026-03-15)
+
+### Goal
+Stabilize the latest `Places / Icons / Popup` workflow by fixing the remaining mismatches that make it feel unreliable:
+- ensure popup `Remix Icon` focuses the correct icon target and that switching selection in the `Icons` panel actually changes the selected editor item,
+- fix `category / subcategory` dropdown filters on desktop so they reliably change the result set,
+- clarify and correct count semantics so category rows and subcategory rows display the right numbers,
+- move `Show on map` to the top of the `Places` panel and place search/filters lower directly above results,
+- align the collapsed `Show on map` control with the same expand/collapse affordance style used in the `Icons` panel,
+- move popup close affordance fully inside the popup frame and reduce layout jank while popup details are loading,
+- make `Places` result cards show an explicit colored category label so taxonomy is easier to scan.
+
+### User Review Required
+1. Remix focus and selection behavior:
+   - Recommended default: when popup `Remix Icon` opens the `Icons` panel, the resolved target icon leaf should become the single selected editor item.
+   - Recommendation: if the user then clicks a different icon row, selection should immediately move to that row and the previous remix focus should be cleared.
+   - Result: remix acts as an initial deep-link only, not a sticky lock on the old category.
+2. Count semantics:
+   - Recommended default: category rows continue to show `shown / loaded` POIs for the whole category branch.
+   - Recommendation: subcategory rows also show `shown / loaded` for that exact leaf only, never inherited category totals.
+   - Recommendation: `69 / 69` should therefore mean “69 loaded POIs exist in this exact subcategory and all 69 are currently shown on the map”.
+3. `Show on map` collapsed affordance:
+   - Recommended default: replace the text-only `Expand` button in `Places` with the same chevron-led affordance style already used in `Icons` section headers.
+   - Result: the interaction language stays consistent across both sidebars.
+4. `Places` panel layout:
+   - Recommended default: make `Show on map` the first major section, then search/category/subcategory/metadata filters, then the result list.
+   - Recommendation: separate these blocks visually with the same section-card rhythm used by the other sidebar panels, so the panel reads clearly at a glance.
+5. Popup chrome and loading:
+   - Recommended default: keep the close button outside the popup frame, but positioned consistently so it stays reachable and does not overlap controls awkwardly.
+   - Recommendation: loading state should not cause the popup shell to jump, overflow, or visually detach its action buttons while details are being fetched.
+6. Result list taxonomy badge:
+   - Recommended default: each `Places` result card should show a small colored taxonomy chip using the canonical category color and category label.
+   - Recommendation: keep the existing category + subcategory text line too, but add the chip so scanning is faster.
+
+### Proposed Changes
+1. Fix popup remix deep-link state so icon selection is not sticky to the previous POI.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+     - `src/features/map/services/poiIconResolver.ts`
+     - `test/e2e/features/RemixSidebar.feature`
+     - `test/e2e/steps/RemixSidebar.steps.ts`
+   - Audit the current `remixFocusCategory`, `selectedCategory`, and programmatic scroll path.
+   - Ensure popup remix sets the correct resolved canonical icon leaf as the initial selected item.
+   - Ensure manually selecting another icon row clears the remix lock and updates the editor card immediately.
+   - Add regression coverage for “remix opens correct icon” and “manual re-selection replaces previous remix target”.
+
+2. Correct count semantics for category and subcategory rows.
+   - Files:
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/shared/taxonomy/poiTaxonomy.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `test/features/map/services/PoiSearchService.test.ts`
+     - `test/shared/taxonomy/poiTaxonomy.test.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Change category rows to show the number of discovered subcategories in that group, not the number of loaded POIs in the whole branch.
+   - Keep subcategory rows showing leaf-level `shown / loaded` POI counts for that exact subtype.
+   - Remove any accidental reuse of category aggregate counts when rendering icon subcategory rows.
+   - Clarify the legend copy so it distinguishes category-group counts from leaf POI counts.
+
+3. Repair desktop category/subcategory dropdown filters.
+   - Files:
+     - `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Re-check trigger/menu open-close logic for desktop specifically.
+   - Ensure menu clicks consistently select the option instead of being swallowed by outside-click handling or overlay stacking.
+   - Confirm category and subcategory filters update results and counts immediately on desktop.
+
+4. Replace the collapsed `Show on map` button with the same expand/collapse visual language used in `Icons`.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/common/SidebarVisibilityActions.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Replace the standalone `Expand` button with a header row using chevron + title, matching the existing `Icons` expand/collapse rhythm.
+   - Preserve collapsed-by-default behavior.
+
+5. Reorder and separate `Places` panel sections more clearly.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Move `Show on map` above the search and metadata filters.
+   - Move search/category/subcategory/metadata filters directly above the results list.
+   - Make the section separation more explicit, matching the way other panels break content into distinct cards/blocks.
+
+6. Polish popup close placement and reduce loading jank.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Keep the popup close control outside the popup chrome on desktop and mobile, but anchor it more reliably so it stays accessible and visually attached.
+   - Keep loading, body content, and action rows inside the frame while async details resolve.
+   - Reduce resize/reflow lag introduced by loading transitions.
+
+7. Add a colored category chip to `Places` result cards.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/constants.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+   - Render a compact category chip using the canonical category color and label.
+   - Keep the existing `category · subcategory` secondary line for full context.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiSearchService.test.ts test/shared/taxonomy/poiTaxonomy.test.ts test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/features/map/services/PopupGenerator.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs by name and category|Filtering loaded POIs by metadata|Verifying Remix functionality|Desktop remix focus aligns the selected icon to the top and allows scrolling|Interacting with Right Sidebar Categories|Keeping popup close accessible on mobile"`
+3. Manual sanity check:
+   - open a popup, click `Remix Icon`, then click a different icon row and confirm the editor switches to the newly clicked icon,
+   - verify a category row shows the number of subcategories in that group,
+   - verify a subcategory row such as `Supermarket` shows leaf counts, not the full category total,
+   - confirm `Show on map` is the first section in `Places` and that search/filters sit directly above results,
+   - use category and subcategory dropdowns on desktop and confirm the result list changes,
+   - confirm `Show on map` starts collapsed and uses the same chevron-style affordance as `Icons`,
+   - open a popup during loading and confirm the outside close button stays reachable while the loading block and action buttons stay inside the popup shell,
+   - confirm result cards show a colored category badge plus the existing taxonomy text.
+
+## Phase 24 Plan: Stable Visibility Semantics, Collapsed Map Filters, Popup Loading Fixes, and Full POI Taxonomy Sync (2026-03-15)
+
+### Goal
+Stabilize the new `Places/Icons/Popup` workflow so it stops feeling jittery or inconsistent by:
+- making `Show on map` counts stable instead of flashing between `0 / N` and non-zero values,
+- ensuring search result visibility badges agree with the shared category/subcategory visibility state,
+- collapsing `Show on map` by default so the panel is less overwhelming on load,
+- fixing remaining popup loading/layout issues on desktop and mobile,
+- making `Remix Icon` work for the full POI taxonomy instead of only the smaller legacy icon list,
+- aligning `Places`, `Icons`, icon generation, and popup remix around the same canonical POI category/subcategory universe.
+
+### User Review Required
+1. Visibility semantics:
+   - Recommended default: stop deriving `visible` counts and badges from transient rendered/queryable map state, because that is what causes the `0 / N` flicker and stale “Visible” labels.
+   - Recommendation: compute a stable shared visibility status from cached loaded POIs + current category/subcategory visibility filters + current zoom eligibility.
+   - Result: if a branch is hidden, counts and result badges should update immediately and consistently without waiting for the map to redraw.
+2. `Show on map` panel behavior:
+   - Recommended default: keep the entire `Show on map` section collapsed by default in `Places`.
+   - Recommendation: preserve the user’s expand/collapse choice per session after first interaction.
+3. Taxonomy expansion for remix/icon generation:
+   - Recommended default: treat the loaded POI taxonomy as the source of truth and extend icon/remix support to all discovered POI category/subcategory keys.
+   - Recommendation: keep existing grouped UI buckets, but allow every leaf POI subcategory to map to a concrete icon/remix target, with fallback grouping only for display.
+   - Tradeoff: the icon domain gets much larger, so icon generation should stay lazy/on-demand rather than eagerly creating assets for every possible type.
+4. Popup loading behavior:
+   - Recommended default: keep loading UI compact and inside the popup frame at all times, even while details are still resolving or while viewport fitting is happening.
+   - Recommendation: never let loading/action rows visually detach from the popup shell.
+
+### Proposed Changes
+1. Make map visibility counts and badges stable.
+   - Files:
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+   - Replace the current flickery `visible` derivation that depends on momentary rendered/queryable map state.
+   - Introduce a stable branch/result visibility model derived from:
+     - loaded POI cache,
+     - active shared category/subcategory visibility filters,
+     - current zoom thresholds or any other deterministic map eligibility rule already used by the symbol layer.
+   - Ensure counts do not bounce through `0 / N` just because the source/layer is refreshing.
+   - Ensure result cards in `Places` never say `Visible` when their category/subcategory is currently hidden.
+
+2. Collapse `Show on map` by default and reduce panel noise.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/common/SidebarVisibilityActions.tsx`
+   - Make the `Show on map` section collapsed on initial open.
+   - Preserve expand/collapse state after the user interacts.
+   - Keep reset/show-only actions accessible, but avoid front-loading the entire visibility tree on every tab open.
+   - This should also help perceived performance when switching to `Places`.
+
+3. Fix remaining popup loading/layout issues.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+   - Audit the popup loading state so the loading card and action rows always remain inside the popup container.
+   - Prevent popup content from visually “spilling” outside the frame while details are still loading.
+   - Re-check mobile positioning with the top toolbar and zoom controls together.
+   - Keep the popup loading state compact so it does not stretch the popup before real content arrives.
+
+4. Unify icon/remix taxonomy with the full POI taxonomy.
+   - Files:
+     - `src/shared/taxonomy/poiTaxonomy.ts`
+     - `src/features/map/services/poiIconResolver.ts`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+   - Expand the taxonomy layer so all POI categories/subcategories discovered from OSM/loaded POIs have canonical keys that can participate in:
+     - `Places`,
+     - `Icons`,
+     - popup `Remix Icon`,
+     - icon generation/regeneration prompts.
+   - Stop depending on the smaller hardcoded icon-category list as the upper bound for remix eligibility.
+   - Keep grouped sidebar presentation, but route every actual POI subtype to a specific canonical leaf key.
+
+5. Repair `Remix Icon` enablement and generation targets.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/features/map/services/poiIconResolver.ts`
+   - Enable popup remix whenever the clicked POI resolves to a valid canonical icon target, even if that target comes from the expanded taxonomy instead of the old list.
+   - Ensure clicking remix opens the right sidebar focused on the matching canonical category/subcategory target.
+   - Add a clear fallback for POIs that still cannot resolve to a remixable icon leaf.
+
+6. Improve `Places` tab performance under large caches.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+   - Avoid eagerly computing deep visibility trees while `Show on map` is collapsed.
+   - Memoize stable branch counts/indexes by cache version instead of recomputing the whole tree for every render.
+   - Keep search results responsive even when loaded POI cache grows large.
+
+7. Expand regression coverage for stable counts, collapsed visibility UI, popup loading, and remix taxonomy.
+   - Files:
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/features/map/services/PoiRegistryService.test.ts`
+     - `test/features/map/services/PoiSearchService.test.ts`
+     - `test/features/map/services/PopupGenerator.test.ts`
+     - `test/features/map/services/poiIconResolver.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add or update coverage for:
+     - stable counts that do not jitter through `0 / N`,
+     - result badges switching from `Visible` to `Loaded` when categories are hidden,
+     - `Show on map` collapsed by default,
+     - popup loading staying inside the popup frame on desktop/mobile,
+     - remix working for POIs whose subtype exists in the expanded taxonomy but not in the old icon list.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/features/map/services/PoiRegistryService.test.ts test/features/map/services/PoiSearchService.test.ts test/features/map/services/PopupGenerator.test.ts test/features/map/services/poiIconResolver.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Filtering loaded POIs|Hiding and showing POI categories|Syncing map visibility controls|Keeping popup close accessible on mobile|Verifying Remix functionality"`
+3. Manual sanity check:
+   - open `Places` and confirm `Show on map` starts collapsed,
+   - hide a category and confirm result cards for that branch switch away from `Visible`,
+   - keep the panel open for several seconds and confirm counts do not oscillate,
+   - open a popup while details load and confirm the loading state stays inside the popup shell,
+   - test `Remix Icon` on a POI subtype that previously existed in `Places` but not in the limited icon list.
+
+## Phase 23 Plan: Places Performance Recovery, Reversible Show-Only State, and Visibility Clarity (2026-03-15)
+
+### Goal
+Stabilize the new `Places/Icons` visibility workflow so it feels fast and understandable by:
+- removing the major slowdown when opening or interacting with `Places`,
+- fixing category/subcategory filter dropdown selection so they actually affect the result set,
+- adding a dedicated visibility reset action inside `Icons`,
+- making `show only this` reversible back to the previously selected visibility state,
+- clarifying what the `Show on map` numbers mean,
+- preserving mobile popup usability while the sidebar/visibility changes continue to evolve.
+
+### User Review Required
+1. Reversible `show only this` behavior:
+   - Recommended default: treat `show only this` as a temporary isolation mode backed by a saved visibility snapshot.
+   - When the same control is toggled off, restore the exact category/subcategory visibility state that existed before isolation.
+   - Recommendation: keep only one active isolation snapshot at a time; starting a new isolation replaces the previous snapshot.
+2. Icons reset behavior:
+   - Recommended default: add a `Reset visibility` action inside the `Icons` panel that resets the shared map visibility state, not icon generation data.
+   - Recommendation: keep it visually near the new eye/show-only controls so the recovery path is obvious.
+3. `Show on map` counts meaning:
+   - Recommended default: define counts as `visible / loaded`.
+   - Example: `85 / 327` means 85 POIs in that branch are currently visible on the map, out of 327 loaded in cache.
+   - Recommendation: surface a tiny inline legend or tooltip so users do not have to guess.
+4. Performance scope:
+   - Recommended default: prioritize removing synchronous whole-tree recomputation on `Places` tab open and on every visibility toggle.
+   - Recommendation: memoize taxonomy indexes, virtualize only the rows that are actually visible, and avoid recalculating filtered result cards until the user interacts with search/filters.
+
+### Proposed Changes
+1. Recover `Places` panel performance.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Profile and remove the hottest synchronous work on `Places` tab activation.
+   - Stop deriving the full taxonomy tree, counts, filtered results, and visible-state badges multiple times during the same render turn.
+   - Memoize expensive indexes by registry version and active filter state instead of raw POI array identity.
+   - Keep large lists windowed and avoid mounting deep subcategory branches until expanded.
+
+2. Fix category/subcategory dropdown filters so they apply correctly.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/shared/taxonomy/poiTaxonomy.ts`
+   - Audit the taxonomy values passed into the dropdowns versus the values used in search filtering.
+   - Ensure category and subcategory selections use the same normalized identifiers as the search/index layer.
+   - Verify that selecting or clearing each dropdown immediately updates the loaded-results list and counts.
+
+3. Add shared visibility reset inside the `Icons` panel.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconList.tsx`
+     - `src/shared/components/sidebar/right/IconCategoryList.tsx`
+     - `src/features/map/services/PoiRegistryService.ts`
+   - Add a dedicated reset action in the `Icons` panel that restores all categories/subcategories to visible.
+   - Keep this action wired to the exact same shared visibility state as `Places > Show on map`.
+
+4. Make `show only this` reversible.
+   - Files:
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+     - `src/shared/components/sidebar/common/SidebarVisibilityActions.tsx`
+   - Store the pre-isolation visibility snapshot before applying `show only this`.
+   - If the user toggles off the same isolated branch, restore that snapshot instead of falling back to “everything visible”.
+   - Make the UI state explicit so users can tell when they are in isolation mode.
+
+5. Clarify `Show on map` counts.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+   - Label counts as `visible / loaded`.
+   - Add supporting microcopy near the section title or count rows so the meaning is clear.
+   - Keep the same count semantics in both `Places` and `Icons` so the panels do not drift.
+
+6. Re-check mobile popup layout while visibility/UI work lands.
+   - Files:
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/MapLibreAdapter.ts`
+   - Ensure the popup action button grid still fits on narrow screens after the latest UI changes.
+   - Prevent action rows from visually spilling or overlapping when the popup opens under the mobile toolbar.
+
+7. Expand regression coverage for performance-sensitive flows and reversible isolation.
+   - Files:
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/features/map/services/PoiRegistryService.test.ts`
+     - `test/features/map/services/PoiSearchService.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add or update coverage for:
+     - category/subcategory dropdown filters actually changing results,
+     - `show only this` followed by toggle-off restoring the previous visibility snapshot,
+     - `Icons` reset restoring shared visibility state,
+     - consistent `visible / loaded` count rendering,
+     - mobile popup action buttons remaining usable.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/features/map/services/PoiRegistryService.test.ts test/features/map/services/PoiSearchService.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs|Filtering loaded POIs|Hiding and showing POI categories|Syncing map visibility controls|mobile"`
+3. Manual sanity check:
+   - open `Places` with a large POI set and confirm tab switch no longer stalls badly,
+   - select a category and subcategory filter and confirm the result set changes correctly,
+   - use `show only this`, then toggle it off and confirm the previous visibility selection returns,
+   - use the new `Icons` reset control and confirm it resets the same shared map visibility state,
+   - confirm the `Show on map` counts are understandable without guessing,
+   - confirm popup action buttons remain usable on a phone-sized viewport.
+
+## Phase 22 Plan: Places Visibility UX Polish, Mobile Popup Access, and Cross-Panel Visibility Sync (2026-03-15)
+
+### Goal
+Tighten the new Places workflow so it feels native to the rest of the app by:
+- making Places dropdowns, filter buttons, typography, and checkboxes fully match the shared sidebar control system,
+- removing the distracting “everything disappears, then comes back” feeling when map visibility checkboxes change,
+- improving mobile popup accessibility so the close button is never blocked by the zoom controls,
+- syncing category/subcategory visibility controls between the `Places` panel and the `Icons` panel,
+- adding fast visibility shortcuts such as “show only this category/subcategory”.
+
+### User Review Required
+1. Visibility toggle behavior:
+   - Recommended default: do not hard-refresh all rendered POIs when one category checkbox changes.
+   - Instead, update the map source/layer filter atomically so only affected categories fade or swap visibility in place.
+   - Recommendation: preserve already-rendered features and avoid any intermediate empty-map frame.
+2. Cross-panel visibility controls:
+   - Recommended default: add eye controls directly inside the `Icons` panel next to category and subcategory rows.
+   - These controls should be backed by the same shared visibility state used by `Places > Show on map`.
+   - Recommendation: keep one source of truth for visibility and reflect it in both panels immediately.
+3. “Show only this” shortcut behavior:
+   - Recommended default: add a secondary action on category/subcategory rows that hides all siblings and leaves only the chosen branch visible.
+   - Recommendation: implement this as a reversible map-visibility shortcut, not a destructive taxonomy reset.
+4. Mobile popup strategy:
+   - Recommended default: when a popup opens on narrow screens, offset/pad the viewport and reposition map controls so the popup close affordance remains tappable.
+   - Recommendation: treat the popup close button as a protected interaction zone and avoid overlapping it with map zoom controls.
+5. Dropdown menu clipping:
+   - Recommended default: render Places dropdown menus in the same overlay/popper style as the provider/model menus so options are fully visible and not clipped by nearby content.
+   - Recommendation: prioritize reliable option visibility over preserving the current inline menu positioning.
+
+### Proposed Changes
+1. Bring Places filters fully into design-system parity.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+   - Make the category/subcategory dropdown menus render like the provider/model controls, including menu placement, option spacing, truncation treatment, typography, and hover/selected states.
+   - Align filter button typography and line-height with the rest of the sidebar so labels such as `Has photo`, `Has website`, and `Open now` no longer look like a different font system.
+   - Normalize checkbox appearance so the checked state is less visually harsh and matches the rest of the app.
+   - Fix dropdown option visibility so labels/counts are readable and not visually clipped in narrow sidebar layouts.
+
+2. Smooth map visibility toggles so POIs do not appear to fully disappear and reload.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/services/PoiSearchService.ts`
+   - Audit the current map-visibility update path and remove any full-source replacement or transient empty state when category/subcategory visibility changes.
+   - Prefer updating the rendered feature set or map filters incrementally from cached POI registry data.
+   - Keep visible POIs stable while applying visibility changes so the map feels filtered, not reloaded.
+
+3. Improve mobile popup accessibility and control collision handling.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PopupGenerator.ts`
+     - `src/features/map/components/MapView.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+   - Detect narrow/mobile viewport popup opens and reposition or pad the camera so the popup frame stays fully operable.
+   - Revisit map control placement or dynamic control padding on mobile so the `+/-` zoom stack does not cover the popup close button.
+   - Ensure popup action buttons and frame width remain usable on phone screens.
+
+4. Add shared visibility controls to the Icons panel and sync them with Places.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/IconList.tsx`
+     - `src/shared/components/sidebar/right/IconCategoryList.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+     - `src/types.ts`
+   - Add an eye toggle for category and subcategory rows in the icon-generation panel.
+   - Wire these controls to the same underlying map visibility state used by the Places panel.
+   - Reflect hidden/visible status consistently in both panels, without diverging counts or stale state.
+
+5. Add “show only this” shortcuts for category and subcategory branches.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/right/IconList.tsx`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+   - Add a dedicated affordance on category and subcategory rows for isolating one branch.
+   - Apply the shortcut by updating shared visibility filters so all sibling branches are hidden and only the selected branch stays visible.
+   - Ensure the action is reversible via `Reset map` / explicit re-enable flows.
+
+6. Keep performance stable while adding the new visibility UI.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/right/IconList.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+   - Reuse memoized taxonomy/visibility indexes so the new eye toggles do not make Places or Icons feel slower.
+   - Avoid recomputing the full taxonomy tree on every checkbox/eye toggle.
+   - Keep deferred rendering/windowing intact for large POI sets.
+
+7. Expand regression coverage for mobile popup access, menu visibility, and shared visibility sync.
+   - Files:
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/features/map/services/PoiRegistryService.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/features/RemixSidebar.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - `test/e2e/steps/RemixSidebar.steps.ts`
+   - Add or update coverage for:
+     - fully visible Places dropdown menus on narrow widths,
+     - consistent filter button typography/sizing,
+     - smoother category/subcategory visibility toggles without transient empty-map behavior,
+     - mobile popup close affordance remaining accessible,
+     - shared eye visibility toggles between Places and Icons,
+     - “show only this category/subcategory” behavior.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/right/PoiSearchPanel.test.tsx test/features/map/services/PoiRegistryService.test.ts test/features/map/hooks/useMapLogic.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm test -- --run test/features/map/services/PoiSearchService.test.ts test/features/map/services/poiIconResolver.test.ts`
+3. `npm run test:e2e:bdd -- --grep "Searching loaded POIs|Filtering loaded POIs|Hiding and showing POI categories|Keeping popup visible|popup|Remix"`
+4. Manual sanity check:
+   - open Places on desktop and confirm dropdown menus are fully readable and match provider/model controls,
+   - toggle map visibility checkboxes and confirm the map filters smoothly without a full disappear/reappear cycle,
+   - open the app on a phone-sized viewport and confirm popup close remains tappable even near the zoom controls,
+   - toggle visibility from both `Places` and `Icons` and confirm the two panels stay in sync,
+   - use the new “show only this” shortcut and confirm it isolates one branch without losing cached POIs.
+
+## Phase 21 Plan: Places Panel Design-System Sync, Taxonomy Unification, and Large-List Performance (2026-03-15)
+
+### Goal
+Bring the Places workflow back into alignment with the rest of the app by:
+- making Places dropdowns visually and behaviorally match the existing provider/model dropdown controls,
+- normalizing button sizes, checkbox visuals, spacing, and control density to the app's shared sidebar language,
+- syncing POI category/subcategory taxonomy with the icon grouping model so Places and Icons speak the same structure,
+- making the Places tab feel fast even with very large loaded POI sets.
+
+### User Review Required
+1. Shared taxonomy source of truth:
+   - Recommended default: introduce one canonical taxonomy adapter that both the Icons panel and Places panel consume.
+   - Icon groups should stay the primary curated structure, and POIs should be projected into that same grouped hierarchy.
+   - POI categories/subcategories that do not map cleanly should go into explicit fallback groups such as `Other` / `Unmapped` instead of creating raw one-off buckets.
+   - Recommendation: keep fallback groups visible so no POI disappears from the taxonomy, but visually separate them from curated icon groups.
+2. Dropdown styling direction:
+   - Recommended default: reuse the same menu pattern and sizing language already used by the AI provider/model dropdowns instead of maintaining a Places-only custom control style.
+   - This means the Places dropdown trigger, menu surface, option spacing, hover states, and selection treatment should mirror the provider controls unless there is a compelling feature-specific reason not to.
+3. Performance strategy:
+   - Recommended default: do not compute the entire Places taxonomy/results tree eagerly on every sidebar render.
+   - Instead:
+     - defer heavy derivations until the `Places` tab is active,
+     - memoize precomputed indexes from the POI registry,
+     - virtualize or window long category/result lists,
+     - avoid rendering all nested category rows up front.
+   - Recommendation: optimize for smooth tab switching first, then for fast filter interaction.
+4. Category synchronization behavior:
+   - Recommended default: if Icons currently expose fewer curated groups than raw POI taxonomy does, keep the curated group structure and surface any unmatched POI types inside clearly labeled fallback subgroups.
+   - Recommendation: do not explode the icon taxonomy to mirror every raw OSM subtype; instead normalize POIs toward the curated structure.
+
+### Proposed Changes
+1. Replace Places dropdown visuals with the app's existing dropdown language.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/left/AiSettingsPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - possibly new shared sidebar menu primitive(s) under `src/shared/components/sidebar/common/`
+   - Extract or reuse a single sidebar dropdown/menu presentation model based on the provider options UI.
+   - Make the Places category and subcategory triggers, menu surface, selection row, spacing, and hover/selected states match that style.
+   - Remove Places-specific visual deviations that currently make it look like a separate design system.
+
+2. Normalize control sizing and checkbox styling across Places and the rest of the app.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - possibly shared checkbox/toggle helpers under `src/shared/components/`
+   - Align button heights, padding, typography, border radii, and icon sizes with existing sidebar controls.
+   - Make Places checkboxes match the checkbox treatment used elsewhere in the app rather than using a one-off variant.
+   - Tighten the metadata filter row so `Has photo`, `Has website`, and `Open now` look and feel like first-class app controls instead of oversized custom chips.
+
+3. Create a shared taxonomy adapter so Places and Icons stay in sync.
+   - Files:
+     - `src/constants.ts`
+     - new taxonomy helper/service under `src/shared/` or `src/features/map/services/`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+   - Introduce one canonical grouping layer that:
+     - maps raw POI category/subcategory data to the same curated groups used by icon browsing,
+     - exposes category + subcategory labels for Places filters,
+     - preserves unmatched POI types in explicit fallback buckets.
+   - Use that adapter in both the Icons panel and the Places panel so counts, labels, and grouping logic do not drift.
+
+4. Reduce tab-switch cost for large loaded POI sets.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiRegistryService.ts`
+     - `src/shared/layouts/MainLayout.tsx`
+   - Defer heavy Places computations until the Places tab is actually active.
+   - Build memoized indexes from the session POI registry so repeated filtering does not recompute full taxonomy summaries from scratch.
+   - Only derive visible UI slices needed for the current interaction path:
+     - collapsed groups first,
+     - expanded subgroup lists on demand,
+     - filtered result list only when search/filter state changes.
+
+5. Add list virtualization or equivalent windowing for the biggest Places UI sections.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - possibly new helper under `src/shared/hooks/`
+   - Apply virtualization/windowing to:
+     - the long category/subcategory visibility tree,
+     - the result list if it grows large.
+   - Avoid mounting hundreds or thousands of rows at once when switching tabs.
+   - Keep expansion behavior and checkbox state stable while rows mount/unmount.
+
+6. Harden search/filter interaction performance and consistency.
+   - Files:
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/features/map/hooks/useMapLogic.ts`
+   - Continue using deferred search input, but make category/subcategory changes cheaper by querying memoized indexes instead of raw arrays wherever possible.
+   - Prevent unnecessary re-renders when toggling Places/Icons tabs or changing one filter.
+   - Ensure the Places panel shows counts and results from the synced taxonomy model rather than raw unsorted category data.
+
+7. Expand regression coverage for styling parity, taxonomy sync, and large-list responsiveness.
+   - Files:
+     - `test/features/map/services/PoiSearchService.test.ts`
+     - `test/features/map/services/PoiRegistryService.test.ts`
+     - `test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add/adjust coverage for:
+     - Places dropdown rendering and selection behavior matching the shared sidebar dropdown pattern,
+     - consistent control sizing/checkbox behavior,
+     - POI taxonomy mapping into curated icon groups plus fallback buckets,
+     - stable counts between Places and Icons taxonomy views,
+     - fast-enough Places tab activation without rendering the full large tree eagerly,
+     - filtering/searching still working correctly after the performance optimizations.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiSearchService.test.ts test/features/map/services/PoiRegistryService.test.ts test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+2. `npm test -- --run test/features/map/hooks/useMapLogic.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+3. `npm run test:e2e:bdd -- --grep "Searching loaded POIs|Filtering loaded POIs|Hiding and showing POI categories|Places|Icons"`
+4. Manual sanity check:
+   - open the Places tab with a large loaded POI set and confirm it appears without a noticeable freeze,
+   - verify the category/subcategory dropdowns visually match the provider/model dropdown family,
+   - verify buttons and checkboxes feel consistent with the rest of the app,
+   - compare Places grouping against the Icons panel and confirm categories are aligned or clearly placed in fallback groups,
+   - expand several map-visibility groups and confirm scrolling and toggling remain smooth.
+
+## Phase 20 Plan: Places Panel Maturity, Persistent POI Cache, and Map Visibility Filters (2026-03-15)
+
+### Goal
+Upgrade the new Places workflow so it feels production-ready:
+- fix POIs whose popup `Remix Icon` action does not open a usable icon editor target,
+- make Places panel controls visually consistent with the rest of the app,
+- replace the single flat category filter with category + subcategory browsing,
+- keep already-loaded POIs cached across map movement instead of dropping and reloading them every time the viewport changes,
+- add a separate map-display filter for category/subcategory visibility via checkboxes,
+- improve panel responsiveness and interaction performance,
+- make `Has photo` work from POI metadata/background enrichment instead of only after a popup has already been opened.
+
+### User Review Required
+1. POI cache scope:
+   - Recommended default: keep a persistent in-memory POI registry for the current session, keyed by normalized POI identity.
+   - POIs should remain in the loaded index when the user pans away, and only be marked `visible` / `not visible` depending on the current viewport.
+   - New source refreshes should merge into that registry instead of replacing it.
+   - Recommendation: do not persist this registry to IndexedDB yet; keep this phase focused on fast runtime UX.
+2. Map-display filtering behavior:
+   - Recommended default: add a separate “Show on map” taxonomy filter inside Places mode, using checkbox groups by category and subcategory.
+   - This filter should affect map rendering and loaded results visibility, but should not delete cached POIs from memory.
+   - Recommendation: default to “all visible”; hiding a category only changes rendered/output POIs until toggled back on.
+3. Category/subcategory UX:
+   - Recommended default: use a grouped custom dropdown/panel, visually aligned with the theme selector, rather than the browser-native `<select>`.
+   - This avoids platform-default styling and lets us support category + subcategory drill-down in one control family.
+4. `Has photo` semantics:
+   - Recommended default: treat `has photo` as “known photo candidate exists from source tags or background-enriched metadata”.
+   - It should not require opening the popup first.
+   - Recommendation: background-enrich lightweight photo facets for loaded POIs with bounded concurrency rather than fetching full popup details for everything.
+5. Remix fallback:
+   - Recommended default: if a POI cannot map cleanly to an editable icon category, do not silently fail.
+   - Either map it to the closest valid icon category/group, or keep the button disabled with a clear reason.
+
+### Proposed Changes
+1. Fix POI-to-icon remix targeting and panel opening reliability.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/layouts/MainLayout.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - possibly `src/features/map/services/PopupGenerator.ts`
+     - related tests under `test/features/map/hooks/` and `test/e2e/steps/`
+   - Audit the current POI → edit category resolution path used by popup `Remix Icon`.
+   - Add a stronger fallback chain:
+     - iconKey,
+     - POI subcategory,
+     - POI category,
+     - nearest icon group/category alias.
+   - Ensure the right sidebar always opens in `icons` mode for valid remix targets.
+   - For unsupported POIs, surface an explicit disabled reason instead of a dead control.
+
+2. Redesign Places filter controls to match app styling.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/styles/uiTokens.ts`
+     - possibly new small reusable control components under `src/shared/components/`
+   - Replace the native `<select>` with a custom menu/popover pattern matching [TopToolbar.tsx](/Users/suna_no_oshiro/Documents/fun-gpt/map-alchemist/src/shared/components/TopToolbar.tsx).
+   - Remove the duplicate clear affordance in the search field and keep a single consistent clear action.
+   - Tighten button sizing/spacing to match the rest of the sidebar controls.
+
+3. Replace the flat category filter with category + subcategory browsing.
+   - Files:
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/types.ts`
+   - Extend the search/filter model so it understands:
+     - selected categories,
+     - selected subcategories,
+     - grouped taxonomy summaries.
+   - Show taxonomy in a grouped structure similar to icon groupings rather than one long flat list.
+   - Keep search text matching over both category and subcategory.
+
+4. Introduce a persistent loaded-POI registry and separate visibility state.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/services/PoiService.ts`
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/types.ts`
+   - Replace the current “replace loaded POIs with current source snapshot” behavior with:
+     - a merged registry of all seen POIs for the session,
+     - `visible` derived from current viewport/rendered features,
+     - `lastSeenAt` or similar bookkeeping for dedupe/debugging.
+   - Avoid re-adding or re-processing POIs already known to the registry.
+   - Keep source refreshes for new viewport content, but do not discard prior loaded POIs on pan.
+   - Recommendation: only force aggressive refresh/reset on major zoom-band changes or style changes.
+
+5. Add map-level category/subcategory visibility filters with checkboxes.
+   - Files:
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - possibly `src/features/map/services/PoiService.ts`
+   - Add a separate section such as `Show on map` using grouped checkboxes.
+   - Apply this filter to map-rendered POIs without deleting them from the loaded registry.
+   - Ensure Places results reflect the same visibility state clearly.
+
+6. Make `Has photo` available before popup-open and improve Places panel responsiveness.
+   - Files:
+     - `src/features/map/services/PoiSearchService.ts`
+     - `src/features/map/services/PoiDetailsService.ts`
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+   - Add lightweight background enrichment for photo/website/opening-hours facets on loaded POIs with bounded concurrency and caching.
+   - Use those cached facets to populate `hasPhoto` / `hasWebsite` / `openNow` in the Places panel even before popup open.
+   - Add memoized indexes and/or pre-grouped results so switching to Places mode and toggling filters stays responsive for large loaded POI sets.
+
+7. Expand regression coverage for remix, taxonomy filters, cache persistence, and empty states.
+   - Files:
+     - `test/features/map/services/PoiSearchService.test.ts`
+     - `test/features/map/hooks/useMapLogic.test.ts`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Add coverage for:
+     - popup remix opening the icons panel for supported POIs,
+     - unsupported remix targets showing a clear disabled state,
+     - category + subcategory filtering,
+     - persistent loaded POIs surviving pan-away / pan-back,
+     - map checkbox visibility filters,
+     - `Has photo` working without first opening a popup,
+     - valid empty-state behavior when no POIs match filters.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiSearchService.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Searching loaded POIs|Filtering loaded POIs|Remix|popup|map features"`
+3. Manual sanity check:
+   - open a POI with a previously non-working `Remix Icon` button and confirm the icons panel opens to a valid editable target or shows a clear disabled reason,
+   - use Places mode and verify search field, dropdown/menu, and buttons visually match the rest of the app,
+   - filter by category + subcategory,
+   - pan away and back and confirm previously seen POIs remain in the loaded registry and simply flip visible/invisible,
+   - toggle map visibility checkboxes and confirm POIs hide/show without being forgotten,
+   - verify `Has photo` works for enriched POIs even before manually opening their popup.
+
+## Phase 19 Plan: POI Search + Filter Panel for Loaded Places (2026-03-15)
+
+### Goal
+Add a practical POI finder that lets the user search through already loaded POIs by name/category and filter them by:
+- `category`
+- `has photo`
+- `has website`
+- `open now`
+
+### User Review Required
+1. Search scope:
+   - Recommended default: search across currently loaded POIs in the app's `places` source, not the whole world.
+   - This keeps the feature fast, free, and aligned with what the map already knows.
+   - If the user pans/zooms and the `places` source changes, the result list should update automatically.
+2. Panel placement:
+   - Recommended default: reuse the existing right sidebar instead of adding a new floating search window.
+   - This avoids overcrowding the map and fits the current layout better.
+3. `open now` semantics:
+   - Recommended default: best-effort evaluation based on `opening_hours` when it is available.
+   - If a POI has no `opening_hours`, it should not match `open now`.
+   - This should be clearly treated as “known open now from available data”, not a guaranteed live business status.
+4. Selection behavior:
+   - Recommended default: clicking a result should center/fly to the POI and open the same popup/details flow that map clicks already use.
+   - This preserves one details experience instead of inventing a second one.
+
+### Proposed Changes
+1. Create a typed POI discovery/query model for loaded map features.
+   - Files:
+     - `src/types.ts`
+     - new `src/features/map/services/PoiSearchService.ts`
+     - possibly `src/features/map/services/PoiDetailsService.ts`
+   - Add a normalized client-side POI search item shape derived from the `places` source.
+   - Include fields needed for search/filtering:
+     - `id`
+     - `title`
+     - `category`
+     - `subcategory`
+     - `coordinates`
+     - `address`
+     - `website`
+     - `opening_hours`
+     - `hasPhoto`
+     - `hasWebsite`
+     - `isOpenNow` (best-effort)
+   - Implement a small search/filter service that:
+     - tokenizes title/category text,
+     - applies category matching,
+     - applies boolean filters,
+     - sorts useful matches first.
+
+2. Expose loaded POIs from the map layer to React state.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/features/map/components/MapView.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+   - Surface the current loaded/searchable POI collection from `useMapLogic`.
+   - Keep it synchronized with the `places` source refresh lifecycle.
+   - Avoid triggering extra network requests just to build the search list.
+
+3. Add search/filter UI to the right sidebar.
+   - Files:
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - possibly new small sibling components under `src/shared/components/sidebar/right/`
+   - Add:
+     - search input for name/category text,
+     - category dropdown or grouped selector,
+     - toggles/checks for `has photo`, `has website`, `open now`,
+     - results list using loaded POIs.
+   - Keep existing icon asset browsing accessible; recommended default:
+     - add a compact “mode” or section split inside the right sidebar,
+     - do not remove the current icon workflow.
+
+4. Connect search results back to map interaction.
+   - Files:
+     - `src/features/map/hooks/useMapLogic.ts`
+     - `src/shared/layouts/MainLayout.tsx`
+   - Clicking a result should:
+     - move the map to the POI,
+     - open the existing popup/details flow,
+     - keep popup viewport fitting behavior intact.
+   - Reuse existing popup generation instead of duplicating details UI.
+
+5. Add robust coverage for loaded-POI search/filter combinations.
+   - Files:
+     - new `test/features/map/services/PoiSearchService.test.ts`
+     - update `test/features/map/hooks/useMapLogic.test.ts`
+     - update `test/e2e/features/MapStyles.feature` or add a dedicated POI search feature
+     - update/add step definitions in `test/e2e/steps/`
+   - Unit coverage should include:
+     - name search,
+     - category filter,
+     - `has photo`,
+     - `has website`,
+     - `open now`,
+     - mixed filter combinations,
+     - absent-field combinations.
+   - BDD should cover:
+     - typing a query,
+     - filtering down results,
+     - selecting a result and opening the correct POI popup.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiSearchService.test.ts test/features/map/hooks/useMapLogic.test.ts`
+2. `npm run test:e2e:bdd -- --grep "POI search|Switching styles and interacting with map features"`
+3. Manual sanity check:
+   - load the map and wait for POIs,
+   - search by name,
+   - filter by category,
+   - toggle `has photo`, `has website`, `open now`,
+   - click a result and confirm the map navigates to that POI and opens the popup.
+
 ## Phase 18 Plan: First-Load POI Visibility Without Zoom (2026-03-15)
 
 ### Goal
@@ -443,6 +2312,53 @@ Reduce two remaining UX gaps in POI popups:
 1. `npm test -- --run test/features/map/services/PoiDetailsService.test.ts test/features/map/services/PopupGenerator.test.ts`
 2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
 3. `npm run build`
+
+## Phase 32 Plan: POI Dot Fallback for Missing Custom Icons + Clickable Label/Dot (2026-03-21)
+
+### Goal
+When a POI has a visible label but no usable custom icon image, show a simple themed dot in the same category/text color, and make both the dot area and the visible label reliably open the popup.
+
+### User Review Required
+1. Dot fallback visual:
+   - Default assumption: filled circular dot using the POI/category text color, with the existing label halo color kept for consistency against the map.
+2. Popup trigger scope:
+   - Default assumption: click support should work on the fallback dot and on the visible POI label, not only on the hidden interaction circle.
+
+### Proposed Changes
+1. Mark POIs that have a usable custom icon image vs label-only fallback.
+   - File: `src/features/map/services/PoiService.ts`
+   - Extend collected POI feature properties with an explicit flag such as `hasCustomIconImage`.
+   - Base this on the currently active icon catalog so the map can tell whether to render the symbol icon or fallback dot.
+
+2. Add a visual fallback layer for POIs without custom icons.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Keep the existing category-specific symbol layers for POIs with custom icon images.
+   - Add category-specific circle fallback layers filtered to POIs without a custom icon image.
+   - Color the fallback dot from the same `textColor` already used for labels.
+   - Preserve existing visibility filtering so hidden categories/subcategories still stay hidden without reloading data.
+
+3. Make label/dot clicks open the popup reliably.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Expand popup click handling so it works not only from the invisible interaction circle, but also from the visible symbol/circle fallback layers where needed.
+   - Keep popup behavior identical to current POI popup flow.
+
+4. Add regression tests.
+   - Files:
+     - `test/features/map/services/PoiService.test.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Cover:
+     - POI with custom icon keeps icon behavior,
+     - POI without custom icon gets fallback dot,
+     - clicking fallback dot opens popup,
+     - clicking visible label opens popup.
+
+### Verification Plan
+1. Targeted unit tests:
+   - `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. Targeted BDD:
+   - `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features|POI fallback dot opens popup"`
 
 ## Phase 12 Plan: Honest Google UX + Zero-Key Nearby Wiki Photo Discovery (2026-03-14)
 
@@ -1672,3 +3588,65 @@ Make label border/halo rendering visually unified for a selected theme by derivi
 1. `npm test -- --run test/features/map/services/styleCompiler.test.ts test/features/map/services/PoiService.test.ts`
 2. `npm test -- --run`
 3. `npm run build`
+
+## Phase 32 Follow-Up: Label-Coupled Dot Fallback + Pointer Hover (2026-03-21)
+
+### Goal
+Refine the missing-icon POI fallback so the colored dot appears only when the POI label is actually rendered, and make hovering the visible POI name behave like a clickable target.
+
+### Proposed Changes
+1. Replace the standalone fallback circle with a fallback symbol layer.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Render a simple colored dot as the symbol icon for POIs without a custom icon image.
+   - Keep the dot and text in the same symbol placement flow so the dot only appears when the label appears.
+
+2. Extend pointer/click handling to visible POI labels.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Query visual POI layers on hover/click so the cursor becomes a pointer over the visible label and popup opening works from the visible dot/label target.
+
+3. Refresh targeted regressions.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/features/map/services/PoiService.test.ts`
+   - Verify the fallback symbol path still relies on `hasCustomIconImage` and that the missing-icon fallback remains enabled only for those POIs.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/services/PoiService.test.ts test/features/map/hooks/useMapLogic.initialization.test.tsx`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
+
+## Phase 33 Plan: Layer-Specific POI Hover/Click Reliability + Zoom Performance (2026-03-21)
+
+### Goal
+Fix three regressions introduced by the visual POI fallback path:
+- hovering visible POI labels should reliably show a pointer,
+- clicking a visible label/dot should open the correct visible POI,
+- zooming should not feel janky from global POI hit-testing work.
+
+### Proposed Changes
+1. Replace global visual hit-testing with layer-specific listeners.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Remove the current global `mousemove` + `queryRenderedFeatures(...)` pointer logic.
+   - Bind `click`, `mouseenter`, and `mouseleave` directly to each visible POI symbol/fallback layer.
+   - Reuse one shared handler but register it per visual layer so MapLibre gives the actual hit feature from the clicked label/dot.
+
+2. Remove conflicting legacy cursor listeners.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - Delete the older raw `unclustered-point` hover listeners that currently fight with the new label-hover behavior.
+
+3. Improve clicked-feature selection safety.
+   - File: `src/features/map/hooks/useMapLogic.ts`
+   - When multiple features are returned for a clicked visual label, choose the best match deterministically from that click event instead of a broad global rendered query path.
+
+4. Add regressions.
+   - Files:
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/e2e/features/MapStyles.feature`
+     - `test/e2e/steps/MapStyles.steps.ts`
+   - Cover:
+     - pointer/click behavior on visible POI label fallback path,
+     - no global hover-query path,
+     - existing popup interaction remains intact.
+
+### Verification Plan
+1. `npm test -- --run test/features/map/hooks/useMapLogic.initialization.test.tsx test/features/map/services/PoiService.test.ts`
+2. `npm run test:e2e:bdd -- --grep "Switching styles and interacting with map features"`
