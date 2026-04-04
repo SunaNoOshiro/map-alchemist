@@ -638,11 +638,13 @@ export class PopupGenerator {
                         font-size: 10px !important;
                     }
                     #popup-close-btn {
-                        top: 0 !important;
+                        pointer-events: auto !important;
+                        touch-action: manipulation !important;
+                        top: 8px !important;
                         right: 8px !important;
-                        transform: translateY(-28%) !important;
-                        width: 30px !important;
-                        height: 30px !important;
+                        transform: none !important;
+                        width: 32px !important;
+                        height: 32px !important;
                         box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22) !important;
                     }
                 }
@@ -651,7 +653,7 @@ export class PopupGenerator {
                 <path data-mapalchemist-popup-frame-fill="true" d="${initialFramePath}" fill="${bg}"></path>
                 <path data-mapalchemist-popup-frame-stroke="true" d="${initialFramePath}" fill="none" stroke="${border}" stroke-width="${PopupGenerator.FRAME_STROKE_WIDTH}" stroke-linejoin="round"></path>
             </svg>
-            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:0; right:8px; transform:translateY(-32%); background:${bg}; border:2px solid ${border}; color:${text}; width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; line-height:1; box-shadow:0 4px 10px rgba(0,0,0,0.18); z-index:2;">
+            <button id="popup-close-btn" aria-label="Close" style="position:absolute; top:0; right:8px; transform:translateY(-32%); background:${bg}; border:2px solid ${border}; color:${text}; width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; line-height:1; box-shadow:0 4px 10px rgba(0,0,0,0.18); z-index:2; pointer-events:auto; touch-action:manipulation;">
                 ×
             </button>
             <div data-mapalchemist-popup-content="true" style="position:relative; z-index:1; color:${text}; padding:12px 12px 10px; width:100%; box-sizing:border-box; max-height:min(56vh, 388px); overflow-y:auto; overflow-x:hidden;">

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapStylePreset, LogEntry, AppStatus, AiConfig } from '@/types';
 import SidebarContainer from './SidebarContainer';
 import PromptPanel from './left/PromptPanel';
@@ -32,7 +32,7 @@ interface LeftSidebarProps {
   onClear: () => void;
   logs: LogEntry[];
   hasApiKey: boolean;
-  onConnectApi: () => void;
+  onConnectApi: (apiKeyOverride?: string) => void;
   aiConfig: AiConfig;
   availableTextModels: Record<string, string>;
   availableImageModels: Record<string, string>;
@@ -66,16 +66,35 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
   availableImageModels,
   onUpdateAiConfig
 }) => {
+  const aiConfigSectionRef = useRef<HTMLDivElement>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     'ai-config': false,  // Collapsed by default as requested
     'theme-generator': true,
     'theme-library': true,
     'logs': true,
   });
+  const [apiKeyEditorRequest, setApiKeyEditorRequest] = useState(0);
 
   const toggleSection = (sectionId: string) => {
     setExpandedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
   };
+
+  const handleRevealApiKeySetup = () => {
+    setExpandedSections((prev) => ({ ...prev, 'ai-config': true }));
+    setApiKeyEditorRequest((prev) => prev + 1);
+  };
+
+  useEffect(() => {
+    if (apiKeyEditorRequest === 0 || !expandedSections['ai-config']) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      aiConfigSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [apiKeyEditorRequest, expandedSections]);
 
   return (
     <SidebarContainer isOpen={isOpen} width="w-full sm:w-80" side="left" onClose={onClose}>
@@ -110,7 +129,11 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                        section.icon === 'FileText' ? FileText : BrainCircuit;
 
           return (
-            <div key={section.id} className="space-y-1">
+            <div
+              key={section.id}
+              className="space-y-1"
+              ref={section.id === 'ai-config' ? aiConfigSectionRef : null}
+            >
               {/* Section Header */}
               <div
                 onClick={() => toggleSection(section.id)}
@@ -135,7 +158,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                         onUpdateAiConfig={onUpdateAiConfig}
                         onConnectApi={onConnectApi}
                         hasApiKey={hasApiKey}
-                        isCollapsed={false}  // Managed by parent section state
+                        apiKeyEditorRequest={apiKeyEditorRequest}
                       />
                     </div>
                   )}
@@ -149,7 +172,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({
                         status={status}
                         loadingMessage={loadingMessage}
                         hasApiKey={hasApiKey}
-                        onConnectApi={onConnectApi}
+                        onRevealApiKeySetup={handleRevealApiKeySetup}
                       />
                     </div>
                   )}

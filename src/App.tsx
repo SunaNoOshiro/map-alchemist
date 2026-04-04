@@ -35,7 +35,7 @@ function App() {
   // State & Logic Hooks
   const {
     isAuthReady, hasApiKey, isGuestMode, setIsGuestMode, handleSelectKey,
-    aiConfig, availableTextModels, availableImageModels, updateAiConfig, validateApiKey
+    aiConfig, availableTextModels, availableImageModels, updateAiConfig
   } = useAppAuth(addLog);
 
   const {
@@ -62,13 +62,15 @@ function App() {
 
   // Local UI State
   const [prompt, setPrompt] = useState('');
+  const hasConfiguredApiKey = Boolean(aiConfig.apiKey.trim());
+  const canUseAi = hasApiKey || hasConfiguredApiKey;
 
   if (!isAuthReady) {
     return <AppBootstrapShell />;
   }
 
   // 1. Auth Guard
-  if (!hasApiKey && !isGuestMode && !aiConfig.apiKey) {
+  if (!canUseAi && !isGuestMode) {
     return (
       <AuthScreen
         onConnect={handleSelectKey}
@@ -95,7 +97,7 @@ function App() {
       logs={logs}
       loadingMessage={loadingMessage}
       prompt={prompt}
-      hasApiKey={hasApiKey || !!aiConfig.apiKey}
+      hasApiKey={canUseAi}
       aiConfig={aiConfig}
       availableTextModels={availableTextModels}
       availableImageModels={availableImageModels}
@@ -108,7 +110,7 @@ function App() {
       onToggleMaputnikDemoPois={setMaputnikDemoPoisEnabled}
       // Handlers
       setPrompt={setPrompt}
-      onGenerate={() => handleGenerateStyle(prompt, hasApiKey || !!aiConfig.apiKey, handleSelectKey)}
+      onGenerate={() => handleGenerateStyle(prompt, canUseAi, handleSelectKey)}
       onApplyStyle={setActiveStyleId}
       onDeleteStyle={handleDeleteStyle}
       onExport={handleExport}
@@ -120,7 +122,7 @@ function App() {
       onClear={handleClear}
       onConnectApi={handleSelectKey}
       onUpdateAiConfig={updateAiConfig}
-      onRegenerateIcon={(cat, p) => handleRegenerateIcon(cat, p, hasApiKey || !!aiConfig.apiKey)}
+      onRegenerateIcon={(cat, p) => handleRegenerateIcon(cat, p, canUseAi)}
       onSelectStyle={setActiveStyleId}
     />
   );

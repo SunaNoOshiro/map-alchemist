@@ -197,6 +197,24 @@ describe('PoiSearchPanel', () => {
         );
     });
 
+    it('tints loaded-place map visibility actions with the category accent color', () => {
+        render(
+            <PoiSearchPanel
+                pois={[buildPoi({})]}
+                selectedPoiId={null}
+                onSelectPoi={() => undefined}
+                mapVisibilityFilters={{ hiddenCategories: [], hiddenSubcategories: [], isolation: null }}
+                onMapVisibilityFiltersChange={() => undefined}
+            />
+        );
+
+        fireEvent.click(screen.getByTestId('poi-map-visibility-toggle'));
+        expect(screen.getByTestId('poi-map-category-eye-food-drink').style.getPropertyValue('--sidebar-action-accent')).toBe('#f97316');
+
+        fireEvent.click(screen.getByTestId('poi-map-category-toggle-food-drink'));
+        expect(screen.getByTestId('poi-map-subcategory-eye-food-drink-cafe').style.getPropertyValue('--sidebar-action-accent')).toBe('#f97316');
+    });
+
     it('windows large result lists until the user explicitly loads more', () => {
         const pois = Array.from({ length: 95 }, (_, index) => buildPoi({
             id: `poi-${index + 1}`,

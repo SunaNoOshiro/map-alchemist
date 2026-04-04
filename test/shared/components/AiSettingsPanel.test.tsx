@@ -1,8 +1,10 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { vi } from 'vitest';
 import AiSettingsPanel from '@/shared/components/sidebar/left/AiSettingsPanel';
 import { AiConfig } from '@/types';
 import { getIconGenerationModeDescription } from '@/constants/aiConstants';
+import { getSectionColor } from '@/constants';
 
 const baseConfig: AiConfig = {
   provider: 'google-gemini',
@@ -71,5 +73,67 @@ describe('AiSettingsPanel', () => {
     const atlasOption = screen.getByTestId('icon-generation-mode-option-atlas');
     fireEvent.mouseEnter(atlasOption);
     expect(description).toHaveTextContent(getIconGenerationModeDescription('google-gemini', 'atlas'));
+  });
+
+  it('shows inline API key entry when no key is available', () => {
+    render(<AiSettingsPanel {...defaultProps} />);
+
+    expect(screen.getByPlaceholderText(/enter your api key/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^connect api key$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /enter manually/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('active-ai-summary')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save key/i })).toHaveStyle({
+      color: getSectionColor('ai-config')
+    });
+  });
+
+  it('saves a trimmed API key and notifies auth when the inline form is submitted', () => {
+    const onConnectApi = vi.fn();
+    const onUpdateAiConfig = vi.fn();
+    render(
+      <AiSettingsPanel
+        {...defaultProps}
+        onConnectApi={onConnectApi}
+        onUpdateAiConfig={onUpdateAiConfig}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText(/enter your api key/i), {
+      target: { value: '  test-api-key  ' },
+    });
+    const saveButton = screen.getByRole('button', { name: /save key/i });
+    expect(saveButton).toHaveStyle({
+      backgroundColor: getSectionColor('ai-config'),
+      color: '#ffffff'
+    });
+
+    fireEvent.click(saveButton);
+
+    expect(onUpdateAiConfig).toHaveBeenCalledWith({ apiKey: 'test-api-key', isCustomKey: true });
+    expect(onConnectApi).toHaveBeenCalledWith('test-api-key');
+  });
+
+  it('uses the AI section accent for save and cancel actions', () => {
+    render(
+      <AiSettingsPanel
+        {...defaultProps}
+        aiConfig={{
+          ...baseConfig,
+          apiKey: 'stored-api-key',
+          isCustomKey: true,
+        }}
+        hasApiKey
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /^edit$/i }));
+
+    expect(screen.getByRole('button', { name: /save key/i })).toHaveStyle({
+      backgroundColor: getSectionColor('ai-config'),
+      color: '#ffffff'
+    });
+    expect(screen.getByRole('button', { name: /^cancel$/i })).toHaveStyle({
+      color: getSectionColor('ai-config')
+    });
   });
 });

@@ -56,7 +56,7 @@ const SidebarSelectMenu: React.FC<SidebarSelectMenuProps> = ({
       {isOpen && (
         <div
           className={uiClass(
-            'absolute left-0 z-30 mt-1 min-w-full max-w-[min(30rem,calc(100vw-40px))] overflow-y-auto rounded-md border border-gray-700 bg-gray-700 shadow-2xl',
+            'absolute left-0 z-30 mt-1 min-w-full max-w-[min(30rem,calc(100vw-40px))] overflow-y-auto rounded-md border border-gray-700 bg-gray-700 shadow-2xl divide-y divide-gray-600/60',
             menuClassName
           )}
           style={{ width: 'max-content', maxHeight: '14rem' }}

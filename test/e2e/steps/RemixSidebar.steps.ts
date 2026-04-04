@@ -389,11 +389,59 @@ When('I click the icon item {string}', async ({ page }, category) => {
   await item.click();
 });
 
+When('I click a different icon item in the selected group', async ({ page }) => {
+  const nextItemTestId = await page.evaluate(() => {
+    const selectedItem = Array.from(document.querySelectorAll('[data-testid^="icon-item-"]')).find((node) =>
+      node.querySelector('button[title="Close"]')
+    ) as HTMLElement | undefined;
+    const expandedGroup = selectedItem?.closest('[data-testid="icon-group"][data-expanded="true"]')
+      || document.querySelector('[data-testid="icon-group"][data-expanded="true"]');
+    if (!expandedGroup) return '';
+
+    const currentTestId = selectedItem?.dataset.testid || '';
+    const replacement = Array.from(
+      expandedGroup.querySelectorAll('[data-testid^="icon-item-"]')
+    ).find((node) => (node as HTMLElement).dataset.testid !== currentTestId) as HTMLElement | undefined;
+
+    return replacement?.dataset.testid || '';
+  });
+
+  if (!nextItemTestId) {
+    throw new Error('Could not find a replacement icon item inside the expanded group.');
+  }
+
+  (page as any).__lastReplacementIconTestId = nextItemTestId;
+  const item = page.getByTestId(nextItemTestId);
+  await item.scrollIntoViewIfNeeded();
+  await expect(item).toBeVisible();
+  await item.click();
+});
+
 Then('the icon item {string} should be selected for editing', async ({ page }, category) => {
   const item = page.getByTestId(getIconTestId(category));
   await expect(item).toBeVisible();
   await expect(item.getByRole('button', { name: /close/i })).toBeVisible();
   await expect(item).toContainText('Art Direction Prompt');
+});
+
+Then('the replacement icon item should be selected for editing', async ({ page }) => {
+  const replacementTestId = ((page as any).__lastReplacementIconTestId as string) || '';
+  if (!replacementTestId) {
+    throw new Error('No replacement icon item was recorded.');
+  }
+
+  const item = page.getByTestId(replacementTestId);
+  await expect(item).toBeVisible();
+  await expect(item.getByRole('button', { name: /close/i })).toBeVisible();
+  await expect(item).toContainText('Art Direction Prompt');
+
+  const originalPopupItemTestId = ((page as any).__lastSelectedIconTestId as string) || '';
+  if (!originalPopupItemTestId || originalPopupItemTestId === replacementTestId) {
+    return;
+  }
+
+  const originalItem = page.getByTestId(originalPopupItemTestId);
+  await expect(originalItem.getByRole('button', { name: /close/i })).toHaveCount(0);
 });
 
 Then('the icon item {string} should no longer be selected for editing', async ({ page }, category) => {

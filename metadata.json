@@ -1,5 +1,5 @@
 {
   "name": "MapAlchemist",
-  "description": "AI-powered map style and icon generator. Customize your map aesthetics and generate unique POI icons on the fly.",
+  "description": "Standalone AI-powered map style and icon generator with Gemini and OpenAI support, MapLibre rendering, local persistence, and export tooling.",
   "requestFramePermissions": []
 }

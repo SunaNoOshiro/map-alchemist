@@ -47,5 +47,5 @@ Feature: Remix Sidebar Focus
     When I click remix in the POI popup
     And I scroll the icon list by 300
     Then the icon list scroll position should be greater than 0
-    When I click the icon item "Bakery"
-    Then the icon item "Bakery" should be selected for editing
+    When I click a different icon item in the selected group
+    Then the replacement icon item should be selected for editing

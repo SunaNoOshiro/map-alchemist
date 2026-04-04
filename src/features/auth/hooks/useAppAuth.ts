@@ -11,6 +11,7 @@ import { createLogger } from '@core/logger';
 const logger = createLogger('AuthHook');
 const AI_CONFIG_STORAGE_KEY = 'mapAlchemistAiConfig';
 const GUEST_MODE_STORAGE_KEY = 'mapAlchemistGuestMode';
+const hasUsableApiKey = (value: string | undefined | null): boolean => Boolean(value?.trim());
 
 export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => void) => {
     const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -30,7 +31,9 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
                 if (savedConfig) {
                     const parsed = JSON.parse(savedConfig);
                     if (!cancelled) {
-                        setAiConfig(sanitizeAiConfig(parsed));
+                        const sanitizedConfig = sanitizeAiConfig(parsed);
+                        setAiConfig(sanitizedConfig);
+                        setHasApiKey(hasUsableApiKey(sanitizedConfig.apiKey));
                     }
                 }
             } catch (e) {
@@ -46,30 +49,10 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
             }
         };
 
-        const checkApiKey = async () => {
-            try {
-                if ((window as any).aistudio) {
-                    const has = await (window as any).aistudio.hasSelectedApiKey();
-                    if (!cancelled) {
-                        setHasApiKey(has);
-                    }
-                } else if (!cancelled) {
-                    setHasApiKey(false);
-                }
-            } catch (e) {
-                logger.error("Failed to check API key", e);
-                if (!cancelled) {
-                    setHasApiKey(false);
-                }
-            } finally {
-                if (!cancelled) {
-                    setIsAuthReady(true);
-                }
-            }
-        };
-
         loadConfig();
-        checkApiKey();
+        if (!cancelled) {
+            setIsAuthReady(true);
+        }
 
         return () => {
             cancelled = true;
@@ -97,24 +80,17 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
         }
     };
 
-    const handleSelectKey = async () => {
-        if ((window as any).aistudio) {
-            try {
-                await (window as any).aistudio.openSelectKey();
-                const has = await (window as any).aistudio.hasSelectedApiKey();
-                if (has) {
-                    setHasApiKey(true);
-                    persistGuestMode(false);
-                    addLog("API Key connected successfully.", "success");
-                }
-            } catch (e) {
-                logger.error("Key selection failed", e);
-                addLog("Failed to connect API Key.", "error");
-            }
-        } else {
+    const handleSelectKey = (apiKeyOverride?: string) => {
+        const nextApiKey = typeof apiKeyOverride === 'string' ? apiKeyOverride.trim() : aiConfig.apiKey.trim();
+        if (hasUsableApiKey(nextApiKey)) {
             setHasApiKey(true);
             persistGuestMode(false);
+            addLog("API key connected successfully.", "success");
+            return;
         }
+
+        setHasApiKey(false);
+        addLog("Enter an API key in AI Configuration before continuing.", "warning");
     };
 
     const updateAiConfig = (newConfig: Partial<AiConfig>) => {
@@ -130,6 +106,7 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
 
         const updatedConfig = sanitizeAiConfig(mergedConfig);
         setAiConfig(updatedConfig);
+        setHasApiKey(hasUsableApiKey(updatedConfig.apiKey));
 
         // Save to localStorage
         try {
@@ -137,13 +114,6 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
         } catch (e) {
             logger.error("Failed to save AI config", e);
         }
-    };
-
-    const validateApiKey = (): boolean => {
-        if (!aiConfig.apiKey && !hasApiKey) {
-            return false;
-        }
-        return true;
     };
 
     return {
@@ -155,7 +125,6 @@ export const useAppAuth = (addLog: (msg: string, type?: LogEntry['type']) => voi
         aiConfig,
         availableTextModels,
         availableImageModels,
-        updateAiConfig,
-        validateApiKey
+        updateAiConfig
     };
 };

@@ -131,7 +131,7 @@ const TopToolbar: React.FC<TopToolbarProps> = ({
           </button>
 
           {isStyleMenuOpen && (
-            <div className="absolute z-30 mt-1 w-full bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden max-h-52 overflow-y-auto">
+            <div className="absolute z-30 mt-1 w-full bg-gray-800 border border-gray-700 rounded shadow-lg overflow-hidden max-h-52 overflow-y-auto divide-y divide-gray-700/80">
               {styles.map((style) => {
                 const isActive = style.id === activeStyleId;
                 return (

@@ -49,6 +49,9 @@ jobs:
       - name: Prepare default themes
         run: npm run prepare-default-themes
 
+      - name: Run typecheck
+        run: npm run typecheck
+
       - name: Run unit tests (Vitest)
         if: false
         run: npm test -- --run
@@ -73,7 +76,7 @@ jobs:
 
       - name: Run E2E BDD tests
         if: false
-        run: npm run test:e2e:bdd
+        run: npm run bddgen && playwright test
 
       - name: Upload build artifact
         if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'

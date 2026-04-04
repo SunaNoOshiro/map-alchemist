@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrainCircuit, ChevronDown, Key, Settings, Save } from 'lucide-react';
+import { BrainCircuit, ChevronDown, Key, Save } from 'lucide-react';
 import { AiConfig } from '@/types';
 import { getSectionColor } from '@/constants';
-import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, brightenHex, uiClass } from '@shared/styles/uiTokens';
 import {
   AI_PROVIDERS,
   getAvailableImageModels,
@@ -19,8 +19,9 @@ interface AiSettingsPanelProps {
   availableTextModels: Record<string, string>;
   availableImageModels: Record<string, string>;
   onUpdateAiConfig: (config: Partial<AiConfig>) => void;
-  onConnectApi: () => void;
+  onConnectApi: (apiKeyOverride?: string) => void;
   hasApiKey: boolean;
+  apiKeyEditorRequest?: number;
 }
 
 const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
@@ -29,7 +30,8 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   availableImageModels,
   onUpdateAiConfig,
   onConnectApi,
-  hasApiKey
+  hasApiKey,
+  apiKeyEditorRequest = 0
 }) => {
   const [isProviderDropdownOpen, setIsProviderDropdownOpen] = useState(false);
   const [isTextModelDropdownOpen, setIsTextModelDropdownOpen] = useState(false);
@@ -39,17 +41,41 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   const [apiKeyInput, setApiKeyInput] = useState(aiConfig.apiKey || '');
   const [showApiKey, setShowApiKey] = useState(false);
   const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
   const sectionColor = getSectionColor('ai-config'); // Blue for AI Configuration section
+  const hoverSectionColor = brightenHex(sectionColor, 0.18);
   const providerDropdownRef = useRef<HTMLDivElement>(null);
   const textModelDropdownRef = useRef<HTMLDivElement>(null);
   const imageModelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
   const currentTextModel = aiConfig.textModel || Object.keys(availableTextModels)[0] || '';
   const currentImageModel = aiConfig.imageModel || Object.keys(availableImageModels)[0] || '';
   const supportedIconModes = getSupportedIconGenerationModes(aiConfig.provider);
   const currentIconMode = supportedIconModes.includes(aiConfig.iconGenerationMode)
     ? aiConfig.iconGenerationMode
     : getDefaultIconGenerationMode(aiConfig.provider);
+  const providerDisplayName = getProviderDisplayName(aiConfig.provider);
+  const isUsingStudioKey = hasApiKey && !aiConfig.isCustomKey;
+  const showCancelButton = isEditingApiKey && (aiConfig.isCustomKey || isUsingStudioKey);
+  const trimmedApiKeyInput = apiKeyInput.trim();
+  const isSaveEnabled = Boolean(trimmedApiKeyInput);
+  const apiKeyInputClassName = uiClass(UI_CONTROLS.input, 'h-10 px-3 pr-20');
+  const apiKeyFormStackClassName = 'space-y-4';
+  const getSectionButtonStyle = (variant: 'primary' | 'secondary', isHovered: boolean, isEnabled = true) => {
+    const accent = isHovered && isEnabled ? hoverSectionColor : sectionColor;
+    return {
+      backgroundColor: variant === 'primary'
+        ? (isEnabled ? accent : `${sectionColor}10`)
+        : `${accent}10`,
+      borderColor: variant === 'primary'
+        ? (isEnabled ? `${accent}55` : `${sectionColor}45`)
+        : `${accent}40`,
+      color: variant === 'primary'
+        ? (isEnabled ? '#ffffff' : sectionColor)
+        : accent
+    } as const;
+  };
 
   useEffect(() => {
     if (!isProviderDropdownOpen && !isTextModelDropdownOpen && !isImageModelDropdownOpen && !isModeDropdownOpen) {
@@ -108,6 +134,31 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isModeDropdownOpen, isTextModelDropdownOpen, isImageModelDropdownOpen, isProviderDropdownOpen]);
+
+  useEffect(() => {
+    if (!isEditingApiKey) {
+      setApiKeyInput(aiConfig.apiKey || '');
+    }
+  }, [aiConfig.apiKey, isEditingApiKey]);
+
+  useEffect(() => {
+    if (apiKeyEditorRequest === 0) return;
+    setIsEditingApiKey(true);
+    setShowApiKey(false);
+  }, [apiKeyEditorRequest]);
+
+  useEffect(() => {
+    if (!isEditingApiKey) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      apiKeyInputRef.current?.focus();
+      apiKeyInputRef.current?.select();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isEditingApiKey, apiKeyEditorRequest]);
 
   const handleProviderSelect = (provider: AiConfig['provider']) => {
     const nextTextModels = getAvailableTextModels(provider);
@@ -200,16 +251,17 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
   };
 
   const handleApiKeySubmit = () => {
-    onUpdateAiConfig({ apiKey: apiKeyInput, isCustomKey: true });
+    if (!trimmedApiKeyInput) return;
+    onUpdateAiConfig({ apiKey: trimmedApiKeyInput, isCustomKey: true });
+    onConnectApi(trimmedApiKeyInput);
+    setShowApiKey(false);
     setIsEditingApiKey(false);
   };
 
-  const handleConnectWithConfig = () => {
-    if (apiKeyInput.trim()) {
-      handleApiKeySubmit();
-    } else {
-      onConnectApi();
-    }
+  const handleCancelApiKeyEdit = () => {
+    setApiKeyInput(aiConfig.apiKey || '');
+    setShowApiKey(false);
+    setIsEditingApiKey(false);
   };
 
   const activeModeForDescription = (isModeDropdownOpen && hoveredMode)
@@ -239,12 +291,12 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
             className={UI_CONTROLS.dropdownTrigger}
             style={{ borderColor: `${sectionColor}50`, color: '#d1d5db' }}
           >
-            <span className="truncate">{getProviderDisplayName(aiConfig.provider)}</span>
+            <span className="truncate">{providerDisplayName}</span>
             <ChevronDown className="w-3 h-3 text-gray-400" />
           </button>
 
           {isProviderDropdownOpen && (
-            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden" style={{ borderColor: `${sectionColor}50` }}>
+            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden divide-y divide-gray-600/60" style={{ borderColor: `${sectionColor}50` }}>
               {(Object.keys(AI_PROVIDERS) as AiConfig['provider'][]).map((provider) => (
                 <div
                   key={provider}
@@ -276,7 +328,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
           </button>
 
           {isTextModelDropdownOpen && (
-            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden max-h-32 overflow-y-auto" style={{ borderColor: `${sectionColor}50` }}>
+            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden max-h-32 overflow-y-auto divide-y divide-gray-600/60" style={{ borderColor: `${sectionColor}50` }}>
               {Object.entries(availableTextModels).map(([modelId, modelName]) => (
                 <div
                   key={modelId}
@@ -308,7 +360,7 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
           </button>
 
           {isImageModelDropdownOpen && (
-            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden max-h-32 overflow-y-auto" style={{ borderColor: `${sectionColor}50` }}>
+            <div className="absolute z-20 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden max-h-32 overflow-y-auto divide-y divide-gray-600/60" style={{ borderColor: `${sectionColor}50` }}>
               {Object.entries(availableImageModels).map(([modelId, modelName]) => (
                 <div
                   key={modelId}
@@ -343,11 +395,11 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
 
           {isModeDropdownOpen && (
             <div
-              className="absolute z-30 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden"
+              className="absolute z-30 mt-1 w-full bg-gray-700 border rounded shadow-lg overflow-hidden divide-y divide-gray-600/60"
               style={{ borderColor: `${sectionColor}50` }}
               onMouseLeave={() => setHoveredMode(currentIconMode)}
             >
-              <div className="px-3 py-2 border-b border-gray-600/60 bg-gray-800/70">
+              <div className="px-3 py-2 bg-gray-800/70">
                 <p
                   className={uiClass(UI_TYPOGRAPHY.tiny, modeDescriptionTone[activeModeForDescription])}
                   data-testid="icon-generation-mode-description"
@@ -397,45 +449,66 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
         </div>
 
         {isEditingApiKey ? (
-          <div className={UI_SPACING.sectionGap}>
+          <div className={apiKeyFormStackClassName}>
             <div className="relative">
               <input
+                ref={apiKeyInputRef}
                 type={showApiKey ? "text" : "password"}
                 value={apiKeyInput}
                 onChange={handleApiKeyChange}
                 placeholder="Enter your API key"
-                className={uiClass(UI_CONTROLS.input, 'pr-10')}
+                className={apiKeyInputClassName}
                 style={{
                   borderColor: `${sectionColor}50`,
                   outlineColor: sectionColor
                 }}
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
               />
               <button
                 onClick={() => setShowApiKey(!showApiKey)}
-                className={uiClass(UI_TYPOGRAPHY.tiny, 'absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-300')}
+                className={uiClass(UI_TYPOGRAPHY.compact, 'absolute right-5 top-1/2 -translate-y-1/2 transition-colors hover:text-white')}
+                style={{
+                  color: hoveredAction === 'show-edit' ? hoverSectionColor : sectionColor
+                }}
+                type="button"
+                onMouseEnter={() => setHoveredAction('show-edit')}
+                onMouseLeave={() => setHoveredAction(null)}
               >
                 {showApiKey ? 'Hide' : 'Show'}
               </button>
             </div>
-            <div className="flex gap-1">
-              <button
-                onClick={handleApiKeySubmit}
-                className={uiClass(UI_CONTROLS.button, 'flex-1 text-white')}
-                style={{
-                  backgroundColor: sectionColor,
-                  borderColor: `${sectionColor}50`
-                }}
-              >
+            <div className="flex gap-2">
+                <button
+                  onClick={handleApiKeySubmit}
+                  className={uiClass(UI_CONTROLS.button, 'flex-1')}
+                  style={getSectionButtonStyle('primary', hoveredAction === 'save-edit', isSaveEnabled)}
+                  disabled={!isSaveEnabled}
+                  onMouseEnter={() => setHoveredAction('save-edit')}
+                  onMouseLeave={() => setHoveredAction(null)}
+                >
                 <Save className="w-2.5 h-2.5" />
-                Save
+                Save Key
               </button>
-              <button
-                onClick={() => setIsEditingApiKey(false)}
-                className={uiClass(UI_CONTROLS.button, 'flex-1 bg-gray-600 hover:bg-gray-500 text-white')}
-              >
-                Cancel
-              </button>
+              {showCancelButton && (
+                <button
+                  onClick={handleCancelApiKeyEdit}
+                  className={uiClass(UI_CONTROLS.subtleButton, 'flex-1')}
+                  style={getSectionButtonStyle('secondary', hoveredAction === 'cancel-edit')}
+                  type="button"
+                  onMouseEnter={() => setHoveredAction('cancel-edit')}
+                  onMouseLeave={() => setHoveredAction(null)}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
+            {!aiConfig.isCustomKey && !hasApiKey && (
+              <p className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-400')}>
+                Add a Gemini or OpenAI key to generate styles and icons from this device.
+              </p>
+            )}
           </div>
         ) : (
           <div className={UI_SPACING.sectionGap}>
@@ -449,11 +522,10 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
                       UI_TYPOGRAPHY.tiny,
                       'inline-flex h-6 items-center rounded border px-2 normal-case tracking-normal text-gray-300 transition-colors hover:text-white',
                     )}
-                    style={{
-                      borderColor: `${sectionColor}50`,
-                      backgroundColor: `${sectionColor}16`,
-                    }}
+                    style={getSectionButtonStyle('secondary', hoveredAction === 'edit-saved')}
                     type="button"
+                    onMouseEnter={() => setHoveredAction('edit-saved')}
+                    onMouseLeave={() => setHoveredAction(null)}
                   >
                     Edit
                   </button>
@@ -470,51 +542,70 @@ const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({
                   </button>
                 </div>
               </div>
-            ) : (
-              <div className={UI_SPACING.sectionGap}>
-                <button
-                  onClick={handleConnectWithConfig}
-                  className={uiClass(UI_CONTROLS.button, 'w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white border-transparent')}
-                >
-                  <Settings className="w-3 h-3" />
-                  Connect API Key
-                </button>
+            ) : isUsingStudioKey ? (
+              <div className={uiClass(UI_CONTROLS.panelInset, UI_SPACING.sectionGap, 'px-3 py-3')} style={{ borderColor: `${sectionColor}50` }}>
+                <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-300')}>
+                  Using the connected Studio key for this device.
+                </p>
                 <button
                   onClick={() => setIsEditingApiKey(true)}
-                  className={uiClass(UI_TYPOGRAPHY.tiny, 'w-full text-gray-400 hover:text-gray-300')}
+                  className={uiClass(UI_CONTROLS.subtleButton, 'w-full justify-center')}
+                  style={getSectionButtonStyle('secondary', hoveredAction === 'use-custom')}
+                  type="button"
+                  onMouseEnter={() => setHoveredAction('use-custom')}
+                  onMouseLeave={() => setHoveredAction(null)}
                 >
-                  Or enter manually...
+                  Use Custom Key Instead
                 </button>
+              </div>
+            ) : (
+              <div className={apiKeyFormStackClassName}>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKeyInput}
+                    onChange={handleApiKeyChange}
+                    placeholder="Enter your API key"
+                    className={apiKeyInputClassName}
+                    style={{
+                      borderColor: `${sectionColor}50`,
+                      outlineColor: sectionColor
+                    }}
+                    autoComplete="off"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                  />
+                  <button
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className={uiClass(UI_TYPOGRAPHY.compact, 'absolute right-5 top-1/2 -translate-y-1/2 transition-colors hover:text-white')}
+                    style={{
+                      color: hoveredAction === 'show-inline' ? hoverSectionColor : sectionColor
+                    }}
+                    type="button"
+                    onMouseEnter={() => setHoveredAction('show-inline')}
+                    onMouseLeave={() => setHoveredAction(null)}
+                  >
+                    {showApiKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+                <button
+                  onClick={handleApiKeySubmit}
+                  className={uiClass(UI_CONTROLS.button, 'w-full')}
+                  style={getSectionButtonStyle('primary', hoveredAction === 'save-inline', isSaveEnabled)}
+                  disabled={!isSaveEnabled}
+                  onMouseEnter={() => setHoveredAction('save-inline')}
+                  onMouseLeave={() => setHoveredAction(null)}
+                >
+                  <Save className="w-3 h-3" />
+                  Save Key
+                </button>
+                <p className={uiClass(UI_TYPOGRAPHY.tiny, 'text-gray-400')}>
+                  Add a Gemini or OpenAI key to generate styles and icons from this device.
+                </p>
               </div>
             )}
           </div>
         )}
-      </div>
-
-      {/* Current Configuration */}
-      <div className={uiClass('bg-gray-700/50 border rounded p-2', UI_TYPOGRAPHY.tiny)} style={{ borderColor: `${sectionColor}50` }}>
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-gray-400">Current:</span>
-          <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
-            Text: {availableTextModels[currentTextModel] || currentTextModel}
-          </span>
-          <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
-            Image: {availableImageModels[currentImageModel] || currentImageModel}
-          </span>
-          <span className={uiClass('bg-gray-600 px-1.5 py-0.5 rounded text-gray-200', UI_TYPOGRAPHY.tiny)}>
-            {ICON_GENERATION_MODE_LABELS[currentIconMode]}
-          </span>
-          {aiConfig.isCustomKey && (
-            <span className={uiClass('bg-green-600 px-1.5 py-0.5 rounded text-green-100', UI_TYPOGRAPHY.tiny)}>
-              Custom Key
-            </span>
-          )}
-          {hasApiKey && !aiConfig.isCustomKey && (
-            <span className={uiClass('bg-blue-600 px-1.5 py-0.5 rounded text-blue-100', UI_TYPOGRAPHY.tiny)}>
-              Studio Connected
-            </span>
-          )}
-        </div>
       </div>
     </div>
   );

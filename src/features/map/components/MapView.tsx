@@ -3,7 +3,6 @@ import { IconDefinition, LoadedPoiSearchItem, PoiMapVisibilityFilters, PopupStyl
 import { useMapLogic } from '../hooks/useMapLogic';
 
 interface MapViewProps {
-    apiKey: string;
     mapStyleJson: any;
     styleId?: string | null;
     palette?: Record<string, string>;

@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { PoiRegistryService } from '@/features/map/services/PoiRegistryService';
 
-const createFeature = (id: string, overrides: Record<string, unknown> = {}) => ({
+type TestPoiFeature = {
+    type: 'Feature';
+    geometry: {
+        type: 'Point';
+        coordinates: [number, number];
+    };
+    properties: {
+        id: string;
+        title: string;
+        category: string;
+        subcategory: string;
+        __lastSeenAt?: number;
+        [key: string]: unknown;
+    };
+};
+
+const createFeature = (id: string, overrides: Record<string, unknown> = {}): TestPoiFeature => ({
     type: 'Feature',
     geometry: {
         type: 'Point',

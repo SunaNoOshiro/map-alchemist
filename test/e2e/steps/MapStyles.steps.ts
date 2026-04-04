@@ -91,7 +91,14 @@ async function clickVisiblePOI(page: Page, preference: 'default' | 'top-edge' = 
         timeout: 30000
     }).toBeTruthy();
 
-    let points: Array<{ x: number; y: number; title: string }> | null = null;
+    let points: Array<{
+        x: number;
+        y: number;
+        title: string;
+        id: string;
+        category: string;
+        subcategory: string;
+    }> | null = null;
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         points = await page.evaluate(({ validIconKeys, pointPreference }) => {

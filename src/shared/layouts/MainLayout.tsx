@@ -8,6 +8,7 @@ import {
     MapStylePreset,
     LogEntry,
     AppStatus,
+    AiConfig,
     IconDefinition,
     LoadedPoiSearchItem,
     PoiMapVisibilityFilters,
@@ -32,7 +33,7 @@ interface MainLayoutProps {
     loadingMessage: string;
     prompt: string;
     hasApiKey: boolean;
-    aiConfig: any;
+    aiConfig: AiConfig;
     availableTextModels: Record<string, string>;
     availableImageModels: Record<string, string>;
     maputnikPublishStage: 'idle' | 'pre' | 'publishing' | 'done' | 'error';
@@ -56,8 +57,8 @@ interface MainLayoutProps {
     onClearGitHubToken: () => void;
     onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onClear: () => void;
-    onConnectApi: () => void;
-    onUpdateAiConfig: (config: Partial<any>) => void;
+    onConnectApi: (apiKeyOverride?: string) => void;
+    onUpdateAiConfig: (config: Partial<AiConfig>) => void;
     onRegenerateIcon: (category: string, prompt: string) => void;
     onSelectStyle: (id: string) => void;
     onConfirmMaputnikPublish: () => void;
@@ -147,7 +148,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         () => activeStyle?.iconsByCategory || EMPTY_ICONS,
         [activeStyle]
     );
-    const legacyPopupStyle = (activeStyle as any)?.mapStyleJson?.popupStyle;
+    const legacyPopupStyle = (
+        activeStyle?.mapStyleJson
+        && typeof activeStyle.mapStyleJson === 'object'
+        && !Array.isArray(activeStyle.mapStyleJson)
+    )
+        ? (activeStyle.mapStyleJson as { popupStyle?: typeof activeStyle.popupStyle }).popupStyle
+        : undefined;
     const normalizedPopupStyle = useMemo(
         () => normalizePopupStyle(activeStyle?.popupStyle || legacyPopupStyle),
         [activeStyle?.popupStyle, legacyPopupStyle]
@@ -247,7 +254,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
                 <main className="flex-1 relative bg-gray-200 group overflow-hidden">
                     <MapView
-                        apiKey={""}
                         mapStyleJson={activeStyle ? activeStyle.mapStyleJson : DEFAULT_STYLE_PRESET.mapStyleJson}
                         styleId={activeStyleId}
                         palette={activeStyle?.palette}

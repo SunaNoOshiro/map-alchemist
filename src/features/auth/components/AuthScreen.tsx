@@ -14,7 +14,7 @@ import {
 } from '@/constants/aiConstants';
 
 interface AuthScreenProps {
-  onConnect: () => void;
+  onConnect: (apiKeyOverride?: string) => void;
   onGuestAccess: () => void;
   aiConfig: AiConfig;
   availableTextModels: Record<string, string>;
@@ -194,6 +194,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleConnectWithConfig = () => {
     if (apiKeyInput.trim()) {
       handleApiKeySubmit();
+      onConnect(apiKeyInput);
+      return;
     }
     onConnect();
   };
@@ -244,7 +246,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
               </button>
 
               {isProviderDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden">
+                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden divide-y divide-gray-600/60">
                   {(Object.keys(AI_PROVIDERS) as AiConfig['provider'][]).map((provider) => (
                     <div
                       key={provider}
@@ -275,7 +277,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
               </button>
 
               {isTextModelDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto divide-y divide-gray-600/60">
                   {Object.entries(availableTextModels).map(([modelId, modelName]) => (
                     <div
                       key={modelId}
@@ -306,7 +308,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
               </button>
 
               {isImageModelDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto divide-y divide-gray-600/60">
                   {Object.entries(availableImageModels).map(([modelId, modelName]) => (
                     <div
                       key={modelId}
@@ -339,7 +341,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
               </button>
 
               {isModeDropdownOpen && (
-                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden">
+                <div className="absolute z-20 mt-1 w-full bg-gray-700 border border-gray-600 rounded-lg shadow-lg overflow-hidden divide-y divide-gray-600/60">
                   {supportedIconModes.map((mode) => (
                     <div
                       key={mode}
@@ -370,7 +372,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
                 type={showApiKey ? "text" : "password"}
                 value={apiKeyInput}
                 onChange={handleApiKeyChange}
-                placeholder="Enter your API key or use Studio connection"
+                placeholder="Enter your provider API key"
                 className={uiClass(UI_CONTROLS.input, 'pr-14 border-gray-600')}
               />
               <button
@@ -395,7 +397,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
            <div className="flex items-start gap-3">
              <ShieldCheck className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
              <p className={uiClass(UI_TYPOGRAPHY.body, 'text-blue-200')}>
-               Connect your Google Cloud Project to generate custom maps and assets with Gemini Pro.
+               Add a Gemini or OpenAI API key to generate custom styles and icons directly from this standalone client.
              </p>
            </div>
         </div>
@@ -418,9 +420,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({
           </button>
 
           <p className={uiClass(UI_TYPOGRAPHY.compact, 'text-gray-500')}>
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className={uiClass(UI_TYPOGRAPHY.compact, 'text-blue-400 hover:text-blue-300 hover:underline transition-colors mt-1 inline-block')}>
-              Billing Documentation
-            </a>
+            Save a provider key locally on this device, or continue in guest mode for read-only exploration.
           </p>
         </div>
       </div>
