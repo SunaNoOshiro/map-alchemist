@@ -83,6 +83,7 @@ const IconItem: React.FC<IconItemProps> = ({
                             onToggle={mapVisibilityState.onToggle}
                             onShowOnly={mapVisibilityState.onShowOnly}
                             entityLabel={category}
+                            accentColor={sectionColor}
                             toggleTestId={`icon-map-subcategory-eye-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                             isolateTestId={`icon-map-subcategory-only-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                         />
@@ -92,7 +93,12 @@ const IconItem: React.FC<IconItemProps> = ({
                 {/* Close Button */}
                 <button
                     onClick={(e) => { e.stopPropagation(); onSelect(null); }}
-                    className="absolute top-2 right-2 p-1 text-gray-500 hover:text-white bg-gray-900/50 hover:bg-gray-700 rounded-full transition-colors"
+                    className="absolute top-2 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border transition-all hover:brightness-110"
+                    style={{
+                        borderColor: `${sectionColor}40`,
+                        backgroundColor: `${sectionColor}12`,
+                        color: sectionColor
+                    }}
                     title="Close"
                 >
                     <X size={14} />
@@ -109,8 +115,8 @@ const IconItem: React.FC<IconItemProps> = ({
                 >
                     {isLoading ? (
                         <div className="flex flex-col items-center gap-2 bg-gray-900/80 p-4 rounded-lg">
-                            <Wand2 size={24} className="animate-spin text-blue-400" />
-                            <span className="text-xs text-blue-400 animate-pulse">Designing...</span>
+                            <Wand2 size={24} className="animate-spin" style={{ color: sectionColor }} />
+                            <span className="text-xs animate-pulse" style={{ color: sectionColor }}>Designing...</span>
                         </div>
                     ) : iconDef?.imageUrl ? (
                         <img
@@ -184,7 +190,7 @@ const IconItem: React.FC<IconItemProps> = ({
                 }}
             >
                 {isLoading ? (
-                    <Wand2 size={12} className="animate-spin text-blue-400" />
+                    <Wand2 size={12} className="animate-spin" style={{ color: sectionColor }} />
                 ) : iconDef?.imageUrl ? (
                     <img src={iconDef.imageUrl} alt={category} className="w-full h-full object-contain p-1" />
                 ) : (
@@ -207,6 +213,7 @@ const IconItem: React.FC<IconItemProps> = ({
                         onToggle={mapVisibilityState.onToggle}
                         onShowOnly={mapVisibilityState.onShowOnly}
                         entityLabel={category}
+                        accentColor={sectionColor}
                         toggleTestId={`icon-map-subcategory-eye-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                         isolateTestId={`icon-map-subcategory-only-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                     />
@@ -216,7 +223,12 @@ const IconItem: React.FC<IconItemProps> = ({
                     <button
                         onClick={handleRegenerate}
                         disabled={isLoading}
-                        className="p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700 rounded-full transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border transition-all disabled:opacity-30 hover:brightness-110"
+                        style={{
+                            borderColor: `${sectionColor}40`,
+                            backgroundColor: `${sectionColor}12`,
+                            color: sectionColor
+                        }}
                         title="Quick Magic Regenerate"
                     >
                         <Wand2 size={14} className={isLoading ? 'animate-spin' : ''} />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import RightSidebar from '@/shared/components/sidebar/RightSidebar';
 import { AppStatus, IconDefinition, LoadedPoiSearchItem, PoiMapVisibilityFilters } from '@/types';
@@ -103,5 +103,52 @@ describe('RightSidebar', () => {
 
     expect(onClearRemixFocus).toHaveBeenCalledTimes(1);
     expect(onSelectCategory).toHaveBeenCalledWith('Bar');
+  });
+
+  it('passes category accent colors into icon visibility actions', () => {
+    render(
+      <RightSidebar
+        isOpen
+        activeIcons={activeIcons}
+        selectedCategory={null}
+        onSelectCategory={vi.fn()}
+        onRegenerateIcon={vi.fn()}
+        status={AppStatus.IDLE}
+        hasApiKey
+        mode="icons"
+        onModeChange={vi.fn()}
+        loadedPois={loadedPois}
+        selectedPoiId={null}
+        onSelectPoi={vi.fn()}
+        poiMapVisibilityFilters={defaultVisibility}
+        onPoiMapVisibilityFiltersChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('icon-map-category-eye-shopping').style.getPropertyValue('--sidebar-action-accent')).toBe('#6366f1');
+  });
+
+  it('shows the quick regenerate action on unselected icon rows without hover', () => {
+    render(
+      <RightSidebar
+        isOpen
+        activeIcons={activeIcons}
+        selectedCategory={null}
+        onSelectCategory={vi.fn()}
+        onRegenerateIcon={vi.fn()}
+        status={AppStatus.IDLE}
+        hasApiKey
+        mode="icons"
+        onModeChange={vi.fn()}
+        loadedPois={loadedPois}
+        selectedPoiId={null}
+        onSelectPoi={vi.fn()}
+        poiMapVisibilityFilters={defaultVisibility}
+        onPoiMapVisibilityFiltersChange={vi.fn()}
+      />
+    );
+
+    const cafeItem = screen.getByTestId('icon-item-cafe');
+    expect(within(cafeItem).getByTitle('Quick Magic Regenerate')).toBeVisible();
   });
 });

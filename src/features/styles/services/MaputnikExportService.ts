@@ -1,4 +1,4 @@
-import { MapStylePreset } from '@/types';
+import { MapStylePreset, PopupStyle } from '@/types';
 import { MapStyleExportService } from './MapStyleExportService';
 import { SpriteLayout, SpriteLayoutEntry, buildSpriteLayout } from './spriteUtils';
 import { createLogger } from '@core/logger';
@@ -19,6 +19,15 @@ const PLACES_SOURCE_ID = 'places';
 const MIN_SYMBOL_SPACING = 1;
 const UNKNOWN_CATEGORY_COLOR = '#6b7280';
 
+type MaputnikStyleJson = Record<string, unknown> & {
+  sources?: Record<string, unknown>;
+  layers?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+  sprite?: string;
+  center?: [number, number];
+  zoom?: number;
+};
+
 const getRecommendedZoom = (span: number) => {
   if (span <= 0.01) return 15;
   if (span <= 0.03) return 14;
@@ -27,7 +36,7 @@ const getRecommendedZoom = (span: number) => {
   return 11;
 };
 
-const relaxPoiLayer = (styleJson: Record<string, unknown>) => {
+const relaxPoiLayer = (styleJson: MaputnikStyleJson): MaputnikStyleJson => {
   const layers = Array.isArray((styleJson as any).layers) ? (styleJson as any).layers : [];
   if (layers.length === 0) return styleJson;
 
@@ -139,7 +148,7 @@ const resolveDemoTextColor = (iconKey: string, fallbackColor: string): string =>
   return groupColor || fallbackColor;
 };
 
-export const sanitizeSymbolSpacing = (styleJson: Record<string, unknown>) => {
+export const sanitizeSymbolSpacing = (styleJson: MaputnikStyleJson): MaputnikStyleJson => {
   const layers = Array.isArray((styleJson as any).layers) ? (styleJson as any).layers : [];
   if (layers.length === 0) return styleJson;
 
@@ -183,7 +192,7 @@ export const sanitizeSymbolSpacing = (styleJson: Record<string, unknown>) => {
   };
 };
 
-export const applySpriteUrl = (styleJson: Record<string, unknown>, spriteBaseUrl: string) => {
+export const applySpriteUrl = (styleJson: MaputnikStyleJson, spriteBaseUrl: string): MaputnikStyleJson => {
   return {
     ...styleJson,
     sprite: spriteBaseUrl
@@ -191,14 +200,14 @@ export const applySpriteUrl = (styleJson: Record<string, unknown>, spriteBaseUrl
 };
 
 export const applyMapAlchemistMetadata = (
-  styleJson: Record<string, unknown>,
+  styleJson: MaputnikStyleJson,
   payload: {
     palette?: Record<string, string>;
-    popupStyle?: Record<string, string>;
+    popupStyle?: Partial<PopupStyle>;
     placesSourceId?: string;
     poiLayerId?: string;
   }
-) => {
+) : MaputnikStyleJson => {
   const existingMetadata = ((styleJson as any).metadata as Record<string, unknown> | undefined) ?? {};
   const existingMapAlchemist = (existingMetadata.mapAlchemist as Record<string, unknown> | undefined) ?? {};
 
@@ -220,10 +229,10 @@ export const applyMapAlchemistMetadata = (
 };
 
 export const injectDemoPois = (
-  styleJson: Record<string, unknown>,
+  styleJson: MaputnikStyleJson,
   iconKeys: string[],
   palette?: Record<string, string>
-) => {
+): MaputnikStyleJson => {
   if (iconKeys.length === 0) return styleJson;
 
   const sources = (styleJson.sources as Record<string, any> | undefined) ?? {};
@@ -304,11 +313,11 @@ export const injectDemoPois = (
 };
 
 export const applyDemoPois = (
-  styleJson: Record<string, unknown>,
+  styleJson: MaputnikStyleJson,
   iconKeys: string[],
   palette: Record<string, string> | undefined,
   includeDemoPois: boolean
-) => {
+): MaputnikStyleJson => {
   if (!includeDemoPois) return styleJson;
   return injectDemoPois(styleJson, iconKeys, palette);
 };
@@ -347,7 +356,7 @@ export const MaputnikExportService = {
       drawSpriteSheet(layout2x, iconsByCategory)
     ]);
 
-    const styleWithSprite = applySpriteUrl(exportPackage.styleJson as Record<string, unknown>, options.spriteBaseUrl);
+    const styleWithSprite = applySpriteUrl(exportPackage.styleJson as MaputnikStyleJson, options.spriteBaseUrl);
     const styleWithDemoPois = applyDemoPois(
       styleWithSprite,
       iconIds,
@@ -357,7 +366,7 @@ export const MaputnikExportService = {
     const styleWithValidSpacing = sanitizeSymbolSpacing(styleWithDemoPois);
     const styleJson = applyMapAlchemistMetadata(styleWithValidSpacing, {
       palette: exportPackage.palette,
-      popupStyle: exportPackage.popupStyle as Record<string, string>,
+      popupStyle: exportPackage.popupStyle,
       placesSourceId: exportPackage.placesSourceId,
       poiLayerId: exportPackage.poiLayerId
     });

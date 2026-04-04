@@ -70,6 +70,7 @@ const ensureAppPopupStyles = () => {
         `.${APP_POPUP_CLASS}.maplibregl-popup {`,
         '  max-width: none !important;',
         '  overflow: visible !important;',
+        '  z-index: 4 !important;',
         '}',
         `.${APP_POPUP_CLASS}.maplibregl-popup .maplibregl-popup-content {`,
         '  background: transparent !important;',

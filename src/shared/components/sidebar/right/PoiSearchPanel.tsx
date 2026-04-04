@@ -395,6 +395,7 @@ const PoiSearchPanel: React.FC<PoiSearchPanelProps> = ({
                                                 isVisible={categoryVisible}
                                                 isIsolated={PoiRegistryService.isCategoryIsolated(mapVisibilityFilters, bucket.category)}
                                                 entityLabel={bucket.category}
+                                                accentColor={categoryColor}
                                                 toggleTestId={`poi-map-category-eye-${toTestToken(bucket.category)}`}
                                                 isolateTestId={`poi-map-category-only-${toTestToken(bucket.category)}`}
                                                 onToggle={() => toggleCategoryVisibility(bucket.category, !categoryVisible)}
@@ -442,6 +443,7 @@ const PoiSearchPanel: React.FC<PoiSearchPanelProps> = ({
                                                                 isVisible={subcategoryVisible}
                                                                 isIsolated={PoiRegistryService.isSubcategoryIsolated(mapVisibilityFilters, entry.taxonomyKey)}
                                                                 entityLabel={entry.subcategory}
+                                                                accentColor={categoryColor}
                                                                 toggleTestId={`poi-map-subcategory-eye-${toTestToken(entry.taxonomyKey)}`}
                                                                 isolateTestId={`poi-map-subcategory-only-${toTestToken(entry.taxonomyKey)}`}
                                                                 onToggle={() => toggleSubcategoryVisibility(entry.taxonomyKey, !subcategoryVisible)}

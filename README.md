@@ -1,48 +1,50 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Map Alchemist
 
-# Run and deploy your AI Studio app
+Map Alchemist is a standalone React + Vite web app for generating themed MapLibre maps and AI-rendered POI icons. It supports Gemini and OpenAI providers, stores styles locally in IndexedDB, and can export or publish finished styles for MapLibre, Maputnik, and GitHub Pages embeds.
 
-This contains everything you need to run your app locally.
+## Run locally
 
-View your app in AI Studio: https://ai.studio/apps/drive/1vLhztt7l7Qs_Qu10L2KmPFEluqPaeS3u
-
-## Run Locally
-
-**Prerequisites:**  Node.js
-
+Prerequisites: Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Start the app:
    `npm run dev`
+3. Open the local app and add a provider API key in **AI Configuration**, or continue in guest mode for read-only exploration.
 
-## Theme Generation Architecture
+API keys are used directly from the browser and stored locally on the current device when you save them in AI Configuration.
 
-Generated themes now follow a deterministic pipeline:
+## Architecture at a glance
 
-1. Gemini returns a strict `ThemeSpec` (design tokens + optional layer overrides + popup style + icon art direction).
+- `src/core`: logger, default-theme loading, storage, low-level interfaces.
+- `src/features/auth`: local AI configuration, guest-mode state, auth gating.
+- `src/features/ai`: provider-neutral `IAiService`, `AiFactory`, shared `AbstractAiService`, Gemini and OpenAI implementations.
+- `src/features/map`: `MapView`, `useMapLogic`, MapLibre adapter, POI rendering and popup services.
+- `src/features/styles`: import/export, Maputnik packaging, GitHub Pages publishing, embed snippet generation.
+- `src/shared`: reusable layouts, sidebar panels, and UI primitives.
+
+## Theme generation pipeline
+
+Generated themes follow a deterministic pipeline:
+
+1. The selected provider returns a structured `ThemeSpec` plus popup and icon art-direction data.
 2. Map Alchemist builds a style catalog from the current OpenFreeMap Liberty template:
-   - all color-capable layer properties,
+   - color-capable layer properties,
    - semantic layer roles,
    - literal `icon-image` keys and POI source-layer references.
 3. The compiler applies `ThemeSpec` tokens across all catalog targets to produce a full MapLibre style JSON.
 4. POI icon generation uses the canonical app POI taxonomy with deterministic fallback icon resolution.
-5. Cost guardrails are enforced during icon generation:
-   - auto mode per-icon fallback is capped,
-   - per-icon mode is hard-capped per run to avoid runaway API spend.
+5. Cost guardrails cap per-run image generation so full-style generation and targeted icon repair stay predictable.
 
-This keeps style output stable and makes full-style export/import behavior consistent across in-app usage, package export, and published runtime embeds.
+This keeps style output stable across in-app rendering, MapLibre package export, Maputnik export, and published runtime embeds.
 
 ## Export MapLibre packages
 
-You can export a generated style (colors + AI icons) as a reusable MapLibre package for use in other sites/projects.
+You can export a generated style as a reusable MapLibre package:
 
 1. Select a style in the app.
-2. In **Theme Library**, click **Package** (Export MapLibre Package).
-3. Use the downloaded JSON in your project (it saves as `map-alchemist-<style>.json`, rename if you want a shorter name).
+2. In **Theme Library**, click **Package**.
+3. Use the downloaded JSON in your project.
 
 Example usage:
 
@@ -56,7 +58,6 @@ const map = new maplibregl.Map({
 });
 
 map.on('load', () => {
-  // Register icons (data URIs) so iconKey works in the POI layer.
   Object.values(stylePackage.iconsByCategory).forEach((icon) => {
     if (!icon.imageUrl) return;
     const img = new Image();
@@ -68,7 +69,6 @@ map.on('load', () => {
     };
   });
 
-  // Optional: provide POI data to the built-in \"places\" source.
   const places: GeoJSON.FeatureCollection<GeoJSON.Geometry> = {
     type: 'FeatureCollection',
     features: [
@@ -90,40 +90,36 @@ map.on('load', () => {
 });
 ```
 
-## Export for Maputnik (style + sprites)
+## Export for Maputnik
 
-Maputnik expects a plain MapLibre style JSON plus sprite assets. MapAlchemist can export both.
+Maputnik expects a plain MapLibre style JSON plus sprite assets. Map Alchemist can export both.
 
 1. Select a style in the app.
 2. In **Theme Library**, click **Maputnik**.
-3. Enter a sprite base URL (no extension), for example `https://cdn.example.com/sprites/my-style`.
+3. Enter a sprite base URL without an extension, for example `https://cdn.example.com/sprites/my-style`.
 4. Upload the downloaded sprite files to your CDN:
    - `my-style.json`
    - `my-style.png`
    - `my-style@2x.json`
    - `my-style@2x.png`
-5. Load the downloaded `maputnik-<style>-style.json` in Maputnik. The style already points to your sprite base URL.
+5. Load the downloaded `maputnik-<style>-style.json` in Maputnik.
 
-## Publish to GitHub Pages (one-click)
+## Publish to GitHub Pages
 
 You can publish Maputnik assets directly to GitHub Pages with a per-user PAT.
 
-1. Create a GitHub token with **contents: write** access.
-2. In **Theme Library**, click **Publish** (Maputnik → GitHub Pages).
-3. The first time, enter your PAT (it is stored in `localStorage` for one-click reuse).
-4. The style JSON and sprite files are uploaded under `public/` on the deploy branch (so they get copied into the Pages build), and the app logs the final `style.json` URL.
+1. Create a GitHub token with `contents: write`.
+2. In **Theme Library**, click **Publish**.
+3. Enter the target repo, branch, and PAT when prompted.
+4. The style JSON and sprite assets are written under `public/` on the selected branch, and the app logs the final `style.json` URL.
 
-Note: Publishing writes commits to the configured deploy branch.
+## Customer embed runtime
 
-## Customer Embed Runtime (drop-in)
-
-After a successful **Publish**, the modal now includes:
+After a successful publish, the modal includes:
 
 1. `styleUrl`
 2. `runtime` script URL
 3. A copyable HTML snippet for direct website integration
-
-The runtime handles POI popup behavior that Maputnik itself does not execute.
 
 Minimal integration shape:
 
@@ -143,48 +139,36 @@ Minimal integration shape:
 </script>
 ```
 
-The exported style includes `metadata.mapAlchemist` (popup style, palette, POI layer/source ids) so runtime defaults can be applied automatically.
+The exported style includes `metadata.mapAlchemist` so runtime defaults can be applied without extra wiring.
 
 ## Preview deployments for pull requests
 
-Pull requests now publish a temporary GitHub Pages preview so you can manually
-verify theme or map changes before merging. Previews run for PRs targeting any
-branch, not just `main`:
+Pull requests publish a temporary GitHub Pages preview:
 
-- Open the pull request checks and expand the **deploy-preview** job to find the
-  **page_url** it produces (published to the `github-pages-preview`
-  environment so protected `github-pages` rules do not block PRs).
-- The preview uses the same `npm run build` output as production, but is scoped
-  to the PR so it will not affect the main deployment.
-- For security reasons, previews are only generated when the branch lives in
-  this repository (forked PRs keep the build artifacts but skip publishing).
+- Open the PR checks and expand the `deploy-preview` job to find the `page_url`.
+- Previews use the same build output as production.
+- Forked PRs keep build artifacts but skip publishing for security.
 
 ## Debug logging
 
-The app now uses a namespaced logger so you can tune verbosity without
-changing code. Set log levels in the browser console via `localStorage`:
+The app uses a namespaced logger. Set log levels in the browser console via `localStorage`:
 
 ```js
-// Log everything from every namespace
 localStorage.setItem('mapAlchemistLogLevel', 'trace');
-
-// Only turn up logs for the map view logic
 localStorage.setItem('mapAlchemistLogLevel:map-view', 'debug');
 
-// Clear overrides
 localStorage.removeItem('mapAlchemistLogLevel');
 localStorage.removeItem('mapAlchemistLogLevel:map-view');
 ```
 
-You can also set `VITE_LOG_LEVEL` (error, warn, info, debug, trace) in your
-environment to control the default level for all namespaces when building.
+You can also set `VITE_LOG_LEVEL` to `error`, `warn`, `info`, `debug`, or `trace` when building.
 
 ## Testing
 
-The project uses a multi-layered testing strategy:
+- Typecheck: `npm run typecheck`
+- Unit and component tests once: `npm test -- --run`
+- Unit tests in watch mode: `npm test`
+- Vitest UI: `npm run test:ui`
+- E2E BDD tests: `npm run test:e2e:bdd`
 
-- **Unit/BDD Tests (Vitest)**: Fast tests for business logic and feature requirements in `test/`.
-  - Run tests: `npm test`
-  - UI Mode: `npm run test:ui`
-- **E2E BDD Tests (Playwright)**: Full-stack browser tests using Gherkin in `test/e2e/`.
-  - Run tests: `npm run test:e2e:bdd`
+CI runs typecheck, unit tests, the production build, and Playwright BDD coverage from `.github/workflows/ci.yml`.

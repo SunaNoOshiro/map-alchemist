@@ -1,7 +1,24 @@
 import { test as bddTest } from 'playwright-bdd';
+import type { PickleStepType, StepMatchArgument } from '@cucumber/messages';
+
+type BddStepData = {
+  pwStepLine: number;
+  gherkinStepLine: number;
+  keywordType: PickleStepType | undefined;
+  textWithKeyword: string;
+  pomFixtureName?: string;
+  stepMatchArguments?: StepMatchArgument[];
+  isBg?: boolean;
+};
 
 type BddDataEntry = {
   pwTestLine: number;
+  pickleLine: number;
+  tags: string[];
+  skipped?: boolean;
+  timeout?: number;
+  slow?: boolean;
+  steps: BddStepData[];
 };
 
 // Workaround for occasional Playwright location mismatch where testInfo.line

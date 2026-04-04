@@ -1,9 +1,9 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Play, ShieldCheck } from 'lucide-react';
 import { AppStatus } from '@/types';
 import { getSectionColor } from '@/constants';
-import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, uiClass } from '@shared/styles/uiTokens';
+import { UI_CONTROLS, UI_SPACING, UI_TYPOGRAPHY, brightenHex, uiClass } from '@shared/styles/uiTokens';
 
 interface PromptPanelProps {
   prompt: string;
@@ -12,7 +12,7 @@ interface PromptPanelProps {
   status: AppStatus;
   loadingMessage?: string;
   hasApiKey: boolean;
-  onConnectApi: () => void;
+  onRevealApiKeySetup: () => void;
 }
 
 const PromptPanel: React.FC<PromptPanelProps> = ({
@@ -22,10 +22,12 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
   status,
   loadingMessage,
   hasApiKey,
-  onConnectApi
+  onRevealApiKeySetup
 }) => {
   const isGenerating = status === AppStatus.GENERATING_STYLE;
   const sectionColor = getSectionColor('theme-generator'); // Purple for Theme Generator section
+  const hoverSectionColor = brightenHex(sectionColor, 0.18);
+  const [isSetupButtonHovered, setIsSetupButtonHovered] = useState(false);
 
   if (!hasApiKey) {
     return (
@@ -35,15 +37,17 @@ const PromptPanel: React.FC<PromptPanelProps> = ({
           Guest Mode (Read Only)
         </div>
         <button
-          onClick={onConnectApi}
+          onClick={onRevealApiKeySetup}
           className={uiClass(UI_CONTROLS.button, 'w-full')}
           style={{
-            backgroundColor: `${sectionColor}20`,
-            borderColor: `${sectionColor}50`,
-            color: `${sectionColor}`
+            backgroundColor: `${(isSetupButtonHovered ? hoverSectionColor : sectionColor)}20`,
+            borderColor: `${(isSetupButtonHovered ? hoverSectionColor : sectionColor)}55`,
+            color: isSetupButtonHovered ? hoverSectionColor : sectionColor
           }}
+          onMouseEnter={() => setIsSetupButtonHovered(true)}
+          onMouseLeave={() => setIsSetupButtonHovered(false)}
         >
-          <ShieldCheck size={16} /> Connect API Key to Generate
+          <ShieldCheck size={16} /> Set Up API Key to Generate
         </button>
       </div>
     );

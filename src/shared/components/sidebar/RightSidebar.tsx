@@ -391,6 +391,7 @@ const RightSidebar: React.FC<RightSidebarProps> = ({
                     isVisible={categoryVisible}
                     isIsolated={PoiRegistryService.isCategoryIsolated(poiMapVisibilityFilters, groupName)}
                     entityLabel={groupName}
+                    accentColor={groupColor}
                     toggleTestId={`icon-map-category-eye-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                     isolateTestId={`icon-map-category-only-${groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                     onToggle={() => handleCategoryVisibilityToggle(groupName, !categoryVisible)}

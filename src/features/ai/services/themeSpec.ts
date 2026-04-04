@@ -86,8 +86,12 @@ const normalizeHexColor = (value: unknown, fallback: string): string => {
 const sanitizeColorMap = (value: unknown): Record<string, string> | undefined => {
   if (!value || typeof value !== 'object') return undefined;
   const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([key, color]) => key.trim().length > 0 && typeof color === 'string' && color.trim().length > 0)
-    .map(([key, color]) => [key, color.trim()] as const);
+    .flatMap(([key, color]) => {
+      if (key.trim().length === 0 || typeof color !== 'string') return [];
+      const trimmedColor = color.trim();
+      if (!trimmedColor) return [];
+      return [[key, trimmedColor] as const];
+    });
   if (entries.length === 0) return undefined;
   return Object.fromEntries(entries);
 };
@@ -197,4 +201,3 @@ export const toLegacyPalette = (tokens: ThemeColorTokens): Record<string, string
   park: tokens.park,
   text: tokens.textPrimary,
 });
-

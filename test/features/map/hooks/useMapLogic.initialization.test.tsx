@@ -49,6 +49,7 @@ const {
     addLayer: vi.fn((layer: any) => {
       if (layer?.id) existingLayerIds.add(String(layer.id));
     }),
+    setFilter: vi.fn(),
     setLayoutProperty: vi.fn(),
     on: vi.fn(),
     off: vi.fn(),
@@ -68,8 +69,8 @@ const {
   }
 }));
 
-rawMapMock.setFilter = setFilterMock;
 rawMapMock.setLayoutProperty = setLayoutPropertyMock;
+rawMapMock.setFilter = setFilterMock;
 
 vi.mock('@/features/map/services/MapLibreAdapter', () => ({
   MapLibreAdapter: class MockMapLibreAdapter {
@@ -141,7 +142,6 @@ const selectedThemeStyleJson = {
 };
 
 const baseProps = {
-  apiKey: '',
   activeIcons: {},
   popupStyle: basePopupStyle,
   isDefaultTheme: false,

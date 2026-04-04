@@ -1,5 +1,398 @@
 # Implementation Plan
 
+## Phase 59 Plan: Keep Compact Icon Regenerate Action Visible (2026-04-04)
+
+### Goal
+Stop hiding the compact icon-row regenerate action behind hover so icon editing affordances stay visible in the icon list.
+
+The target state for this pass is:
+- unselected icon rows show the regenerate action immediately,
+- the button keeps the same accent styling and hover feedback,
+- existing icon selection and regenerate behavior remain unchanged.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly asked to make the regenerate action visible instead of hover-only, so the correct path is a focused visibility adjustment.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/right/IconItem.tsx`.
+   - Remove the hover-only opacity reveal from the compact regenerate action.
+   - Keep the current accent color and hover brightness behavior.
+
+2. Update `test/shared/components/sidebar/RightSidebar.test.tsx`.
+   - Assert the quick regenerate action is rendered for an unselected icon row without requiring hover state.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/sidebar/RightSidebar.test.tsx`
+2. `npm run typecheck`
+
+## Phase 58 Plan: Add Separator Lines To Dropdown Menus (2026-04-04)
+
+### Goal
+Unify dropdown option styling by adding visible separator lines between menu items across the sidebar, AI settings, and top toolbar pickers.
+
+The target state for this pass is:
+- category and subcategory dropdowns in the loaded places panel show clear separators between options,
+- AI configuration dropdowns use the same option-row separation treatment,
+- the top active-theme selector matches that same dropdown styling language,
+- behavior and selections remain unchanged.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly asked for the separator-line treatment based on the current dropdown screenshots, so the correct path is a focused styling pass across the repo’s active dropdown implementations.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/common/SidebarSelectMenu.tsx`.
+   - Add separator lines between shared sidebar dropdown options.
+
+2. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Add the same row separators to provider, text model, image model, and icon generation dropdowns.
+
+3. Update `src/shared/components/TopToolbar.tsx`.
+   - Add matching separators to the active map theme dropdown.
+
+4. Update `src/features/auth/components/AuthScreen.tsx`.
+   - Bring the auth-screen AI configuration dropdowns onto the same separator pattern so the entry flow matches the in-app settings flow.
+
+### Verification Plan
+1. `npm run typecheck`
+
+## Phase 57 Plan: Reduce API Key Input Inset To A Normal Field Padding (2026-04-04)
+
+### Goal
+Bring the API key input back to a more standard text-field inset after the previous padding increase overshot the target.
+
+The target state for this pass is:
+- the API key value sits closer to the left edge like a normal input,
+- the field still keeps enough room for the `Show/Hide` control,
+- no button or flow behavior changes.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly said the input padding is still too large, so the correct path is a focused spacing reduction.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Reduce the API key input’s horizontal inset.
+   - Keep reserved right padding for the inline `Show/Hide` affordance.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx`
+2. `npm run typecheck`
+
+## Phase 56 Plan: Add More Breathing Room To The API Key Field (2026-04-04)
+
+### Goal
+Increase the padding and height of the API key input so the field feels less cramped alongside the `Show/Hide` affordance.
+
+The target state for this pass is:
+- the API key input has moderate internal padding rather than oversized inset,
+- the field is comfortably sized without pushing the value too far inward,
+- the show/hide affordance has comfortable spacing from the typed value,
+- there is clearer vertical spacing between the input and the action button row,
+- the save label is short enough not to wrap awkwardly in the two-button layout,
+- the empty-state save button reads like a setup-state control, while the filled-state save button reads like the primary action.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly asked for more padding on the key field, so the right path is to apply a focused spacing adjustment directly.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Reduce the API key input inset to a more balanced padding.
+   - Keep enough room for the `Show/Hide` control on the right.
+   - Increase the vertical gap between the input and the button row.
+   - Shorten the submit label from `Save API Key` to `Save Key`.
+   - Make the empty save button use the tinted setup-state style until a key is entered.
+
+2. Update `test/shared/components/AiSettingsPanel.test.tsx`.
+   - Assert the empty save button uses the tinted setup-state style.
+   - Assert entering a key promotes the button to the filled primary style.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx`
+2. `npm run typecheck`
+
+## Phase 55 Plan: Make API Key Submit Match Primary Action Styling (2026-04-04)
+
+### Goal
+Align the API key submit button with the app’s existing filled primary-action pattern and remove the remaining icon inconsistency between API key submit states.
+
+The target state for this pass is:
+- the API key submit action uses the same filled section-color treatment as `Generate Theme`,
+- hover moves to a brighter version of the section color,
+- both inline and edit submit buttons use the same icon and label.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly asked to match the “field entered” primary button pattern, so the right path is to align the API key submit button to that existing visual language.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Change primary API key submit buttons to a filled blue style with white text.
+   - Use the same `Save` icon in both inline and edit submit states.
+   - Keep hover on a brighter blue section accent.
+
+2. Update focused tests in `test/shared/components/AiSettingsPanel.test.tsx`.
+   - Assert the primary API button uses the filled section-primary treatment.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx`
+2. `npm run typecheck`
+
+## Phase 54 Plan: Match AI Key Controls To Existing Sidebar CTA Styling (2026-04-04)
+
+### Goal
+Bring the AI key field actions onto the same tinted section-control pattern already used elsewhere in the sidebar.
+
+The target state for this pass is:
+- `Save API Key` no longer reads as an isolated solid-fill blob,
+- AI key action buttons use the same blue-tinted dark-surface treatment as other sidebar controls,
+- the show/hide affordance is lighter and less visually noisy inside the input,
+- password managers are hinted to ignore the API key field when possible,
+- the guest-mode CTA and the in-panel submit label describe one clear setup flow instead of sounding like the button changed meaning after a click.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly said the button style still feels wrong, so the right path is to refine the visual language directly.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Restyle `Save API Key`, `Cancel`, `Use Custom Key Instead`, and related small actions to match the sidebar’s tinted section-button style.
+   - Make the input’s `Show` control lighter and less pill-like.
+   - Add best-effort ignore hints for password managers on the API key field.
+   - Unify submit wording so the in-panel action keeps a consistent API-key label.
+
+2. Update the guest prompt CTA wording in `src/shared/components/sidebar/left/PromptPanel.tsx`.
+   - Make the button clearly describe opening API-key setup for generation.
+   - Apply the same brighter-accent hover treatment there.
+
+3. Update focused tests and guest-mode expectations.
+   - Files:
+     - `test/shared/components/AiSettingsPanel.test.tsx`
+     - `test/shared/components/sidebar/LeftSidebar.test.tsx`
+     - `test/e2e/features/GuestMode.feature`
+     - `test/e2e/steps/General.steps.ts`
+   - Align style assertions with the new tinted blue treatment.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/shared/components/sidebar/LeftSidebar.test.tsx`
+2. `npm run typecheck`
+
+## Phase 53 Plan: Simplify AI Key Entry Into One Clear Settings Flow (2026-04-04)
+
+### Goal
+Remove redundant AI setup status and duplicate key-entry actions so the sidebar reads like one coherent settings form.
+
+The target state for this pass is:
+- the `Active setup` box is removed from the AI settings panel,
+- the no-key state exposes one clear API-key entry path instead of `Connect API Key` plus `Enter manually`,
+- `Save` and `Cancel` use the same blue section language as the rest of `ai-config`.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly called out confusion in the current UI, so the correct path is to simplify the panel directly.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Remove the `Active setup` summary block.
+   - Make the no-key state default into inline key entry rather than two separate CTA buttons.
+   - Keep edit/clear behavior for saved custom keys.
+   - Restyle `Save`, `Cancel`, and the show/hide affordance to match the blue section.
+
+2. Update focused panel tests in `test/shared/components/AiSettingsPanel.test.tsx`.
+   - Remove expectations around the deleted summary block and connect CTA.
+   - Assert the inline input appears for the no-key state.
+   - Assert the primary and secondary actions use the section accent family.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/shared/components/sidebar/LeftSidebar.test.tsx`
+2. `npm run typecheck`
+
+## Phase 52 Plan: Unify Accent Button Styling Across Sidebar Sections (2026-04-04)
+
+### Goal
+Make section and category actions feel like one visual system by aligning AI setup buttons and loaded-places/icon controls to their owning accent colors.
+
+The target state for this pass is:
+- AI setup primary and secondary actions read like native blue `ai-config` controls,
+- category-scoped visibility buttons in the right sidebar inherit the same accent as the card or group they belong to,
+- icon-card utility buttons stop falling back to unrelated neutral gray treatments.
+
+### User Review Required
+No blocking product decision is needed.
+
+The user explicitly asked for section-colored button alignment, so the correct path is to apply the visual consistency update directly.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Make `Connect API Key` a blue section-primary action.
+   - Tint the secondary manual-entry action to the same section family.
+
+2. Update shared visibility action styling.
+   - Files:
+     - `src/shared/components/sidebar/common/SidebarVisibilityActions.tsx`
+     - `src/shared/components/sidebar/RightSidebar.tsx`
+     - `src/shared/components/sidebar/right/PoiSearchPanel.tsx`
+     - `src/shared/components/sidebar/right/IconItem.tsx`
+   - Allow eye/focus buttons to receive an accent color from the surrounding category or group.
+   - Pass category/group colors through existing callers so loaded-place and icon controls match their cards.
+   - Tint icon-card close and quick-regenerate utility buttons to the same accent family.
+
+3. Add focused regression coverage for the new accent-propagation path.
+   - Files:
+     - `test/shared/components/AiSettingsPanel.test.tsx`
+     - `test/shared/components/sidebar/common/SidebarVisibilityActions.test.tsx`
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx test/shared/components/sidebar/common/SidebarVisibilityActions.test.tsx test/shared/components/sidebar/right/PoiSearchPanel.test.tsx`
+2. `npm run typecheck`
+
+## Phase 51 Plan: Align AI Settings Panel With Sidebar Design Language (2026-04-04)
+
+### Goal
+Make the AI settings panel clearer and visually consistent with the rest of the sidebar by removing redundant status chips and restyling the API-key connect action.
+
+The target state for this pass is:
+- the `Connect API Key` action looks like a native sidebar control instead of a one-off gradient CTA,
+- the panel still clearly explains how to add a key,
+- the current configuration summary is present only in a compact, non-redundant form.
+
+### User Review Required
+No blocking decision is needed.
+
+The user explicitly called out the styling mismatch and questioned the value of the `Current` tags, so the right path is to simplify that section directly.
+
+### Proposed Changes
+1. Update `src/shared/components/sidebar/left/AiSettingsPanel.tsx`.
+   - Replace the custom gradient connect button with the standard button token styling tinted to the AI section color.
+   - Keep the manual-entry path, but present it as a subtle secondary action.
+   - Replace the chip-style `Current` block with a quieter summary card that reads as status, not as extra controls.
+
+2. Update focused component coverage in `test/shared/components/AiSettingsPanel.test.tsx`.
+   - Verify the connect action still opens manual entry when no key is present.
+   - Verify the configuration summary remains visible without rendering the old `Current:` tag row.
+
+### Verification Plan
+1. `npm test -- --run test/shared/components/AiSettingsPanel.test.tsx`
+2. `npm run typecheck`
+
+## Phase 50 Plan: Restore Repo-Specific SOLID and Pattern Guidance (2026-04-04)
+
+### Goal
+Restore the architectural guardrails for SOLID principles and approved design patterns in a concise, repo-specific form.
+
+The target state for this pass is:
+- `agents.md` includes explicit design-principle guidance again,
+- `docs/architecture/current_logic.md` mirrors the same architectural intent,
+- the guidance references real module boundaries in this repository instead of generic textbook examples.
+
+### User Review Required
+No product-facing decision is blocked.
+
+The user explicitly requested restoration of this guidance, so the correct path is to update the plan and apply the documentation changes directly.
+
+### Proposed Changes
+1. Restore concise SOLID guidance in `agents.md`.
+   - Explain how SRP, OCP, ISP, and DIP apply to:
+     - `AiFactory` and provider services,
+     - `MapView` vs `useMapLogic`,
+     - export/publish services,
+     - shared vs feature-local utilities.
+
+2. Restore approved pattern guidance in `agents.md`.
+   - Keep the patterns brief and concrete:
+     - Factory for provider/export selection,
+     - Strategy for export/generation modes,
+     - Adapter for MapLibre integration,
+     - Observer/reactive flow for sidebar/map/popup state synchronization.
+
+3. Mirror the same architectural guidance in `docs/architecture/current_logic.md`.
+   - Keep the architecture document as the repo-level source of truth.
+   - Ensure wording stays aligned with the shorter operational rules in `agents.md`.
+
+### Verification Plan
+1. Read both updated documents to confirm the SOLID and pattern guidance is present.
+2. Confirm both files describe the same module seams and responsibilities.
+
+## Phase 49 Plan: Implementation Plan of consistency synchronization
+
+## Goal
+Perform a repository-wide consistency synchronization so the current Map Alchemist architecture is expressed the same way in code, tests, CI, and documentation.
+
+The target state for this pass is:
+- one coherent runtime model for authentication and AI provider selection,
+- one coherent TypeScript contract surface that passes `tsc`,
+- one coherent verification story enforced by CI,
+- one coherent documentation set describing the app as it actually works today.
+
+## User Review Required
+No product-facing design decision is blocked.
+
+This pass is limited to correctness, contract cleanup, CI enforcement, and documentation alignment. The user explicitly requested direct execution, so the recommended path is to apply the synchronization changes in the same turn and verify them with automated checks.
+
+## Proposed Changes
+1. Fix code and type-contract drift.
+   - Files:
+     - `src/features/auth/hooks/useAppAuth.ts`
+     - `src/App.tsx`
+     - `src/shared/layouts/MainLayout.tsx`
+     - `src/features/map/components/MapView.tsx`
+     - `src/features/ai/services/themeSpec.ts`
+     - `src/features/styles/services/MaputnikExportService.ts`
+     - `tsconfig.json`
+   - Remove the broken "connected without a usable API key" path in auth.
+   - Tighten top-level props and exported helpers so source plus tests pass TypeScript cleanly.
+   - Remove stale config assumptions that no longer participate in runtime behavior.
+
+2. Fix test and BDD typing drift.
+   - Files:
+     - `test/e2e/bddTest.ts`
+     - `test/e2e/steps/MapStyles.steps.ts`
+     - `test/features/map/hooks/useMapLogic.initialization.test.tsx`
+     - `test/features/map/services/PoiRegistryService.test.ts`
+     - `test/features/styles/services/MaputnikExportService.test.ts`
+     - `test/App.bootstrap.test.tsx`
+     - `test/features/auth/hooks/useAppAuth.test.tsx`
+   - Align generated BDD fixture types with `playwright-bdd`.
+   - Add focused auth-hook coverage for the corrected API-key contract.
+   - Keep existing unit and E2E expectations aligned with the updated interfaces.
+
+3. Synchronize configs and verification.
+   - Files:
+     - `package.json`
+     - `.github/workflows/ci.yml`
+     - `vite.config.ts`
+   - Add an explicit `typecheck` script.
+   - Make CI run typecheck, unit tests, build, and E2E checks instead of skipping them.
+   - Remove stale config wiring that no longer maps to the runtime architecture.
+
+4. Synchronize the documentation and repository instructions.
+   - Files:
+     - `README.md`
+     - `docs/architecture/current_logic.md`
+     - `agents.md`
+     - `metadata.json`
+   - Rewrite the overview so the app is described as a standalone Map Alchemist SPA with Gemini and OpenAI support.
+   - Update testing, architecture, and operational instructions to match the real file layout and scripts.
+
+## Verification Plan
+1. `npm run typecheck`
+2. `npm test -- --run`
+3. `npm run test:e2e:bdd`
+4. Spot-check the updated docs for:
+   - auth flow wording,
+   - architecture module boundaries,
+   - CI/test commands,
+   - provider/config expectations.
+
 ## Phase 49 Plan: Route Invalid Custom POI Icons Through the Shared Fallback-Dot Layer (2026-03-22)
 
 ### Goal

@@ -60,8 +60,8 @@ Then('the {string} section should show a "Guest Mode" message', async ({ page },
     await expect(page.getByText('Guest Mode (Read Only)')).toBeVisible();
 });
 
-Then('the "Connect API Key" button should be visible in the prompt panel', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /Connect API Key/i })).toBeVisible();
+Then('the "Set Up API Key" button should be visible in the prompt panel', async ({ page }) => {
+    await expect(page.getByText(/Set Up API Key to Generate/i)).toBeVisible();
 });
 
 When('I click the section header {string}', async ({ page }, sectionName) => {

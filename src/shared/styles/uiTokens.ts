@@ -2,6 +2,18 @@ type UiClassValue = string | false | null | undefined;
 
 export const uiClass = (...values: UiClassValue[]): string => values.filter(Boolean).join(' ');
 
+export const brightenHex = (hex: string, amount: number): string => {
+  const normalized = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return hex;
+  }
+
+  const brighten = (value: number) => Math.min(255, Math.round(value + ((255 - value) * amount)));
+  const channels = [0, 2, 4].map((index) => brighten(Number.parseInt(normalized.slice(index, index + 2), 16)));
+
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+};
+
 export const UI_TYPOGRAPHY = {
   appTitle: 'text-3xl leading-tight font-extrabold',
   appSubtitle: 'text-sm leading-5',
